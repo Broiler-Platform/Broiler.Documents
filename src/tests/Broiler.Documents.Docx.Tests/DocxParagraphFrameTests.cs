@@ -20,6 +20,16 @@ public sealed class DocxParagraphFrameTests
 
     private const double MarginLeftPoints = 1417 / 20d;
 
+    [Fact]
+    public void Zero_Sized_Exact_Frame_In_Document_Defaults_Keeps_Paragraphs_In_Flow()
+    {
+        string defaults = DocxTestPackage.DocumentDefaults("", "<w:framePr w:w='0' w:h='0' w:hRule='exact'/>");
+        RichTextDocument document = DocxTestPackage.ReadStyled(DocxTestPackage.Paragraph("Body") + A4Section, defaults).Document;
+
+        Assert.Equal("Body", document.PlainText);
+        Assert.Empty(document.Shapes);
+    }
+
     [Theory]
     [InlineData("", 657.65)]
     [InlineData(" w:y='0'", 70.85)]

@@ -966,7 +966,8 @@ internal static class OdtReader
         RichTextDocument shapeContent = ReadShapeParagraphs(textSource, context, depth,
             Math.Max(1, width - textPadding.Left - textPadding.Right));
         IReadOnlyList<RichTextParagraph> paragraphs = shapeContent.ParagraphCount == 1 &&
-            shapeContent.Paragraphs[0].Length == 0 && shapeContent.Tables.Count == 0 ? [] : shapeContent.Paragraphs;
+            shapeContent.Paragraphs[0].Length == 0 && shapeContent.Paragraphs[0].Style.Border is null &&
+            shapeContent.Tables.Count == 0 ? [] : shapeContent.Paragraphs;
         string? frameName = (string?)drawing.Attribute(OdtNamespaces.Draw + "name");
         string? nextFrameName = (string?)textBox?.Attribute(OdtNamespaces.Draw + "chain-next-name");
         bool linked = !string.IsNullOrEmpty(nextFrameName) || (frameName is not null && context.LinkedFrameTargets.Contains(frameName));
@@ -3304,7 +3305,8 @@ internal static class OdtReader
         if (image is null)
             return;
 
-        context.Builder.AppendLiteral(InlineImage.PlaceholderText, style with { Image = image });
+        XElement? properties = context.Styles.GraphicPropertiesFor((string?)frame.Attribute(OdtNamespaces.Draw + "style-name"));
+        context.Builder.AppendLiteral(InlineImage.PlaceholderText, style with { Image = AdjustImage(image, properties) });
     }
 
     /// <summary>As-char occupies a line character; char floats beside its anchor.
@@ -3347,6 +3349,15 @@ internal static class OdtReader
         (ShapeFill? fill, BColor outline, bool behindText, ShapeWrap wrap, WrapSide wrapSide) =
             ReadShapeStyle(styleName, context.Styles);
         XElement? graphic = context.Styles.GraphicPropertiesFor(styleName);
+        if (context.ActivePage is PageGeometry page)
+        {
+            if ((string?)graphic?.Attribute(OdtNamespaces.LibreOffice + "rel-width-rel") == "page" &&
+                OdtUnits.TryParsePercentage((string?)frame.Attribute(OdtNamespaces.Style + "rel-width"), out double relativeWidth) && relativeWidth > 0)
+                width = Math.Min(OdtUnits.MaxLengthPoints, page.Width * relativeWidth);
+            if ((string?)graphic?.Attribute(OdtNamespaces.LibreOffice + "rel-height-rel") == "page" &&
+                OdtUnits.TryParsePercentage((string?)frame.Attribute(OdtNamespaces.Style + "rel-height"), out double relativeHeight) && relativeHeight > 0)
+                height = Math.Min(OdtUnits.MaxLengthPoints, page.Height * relativeHeight);
+        }
         double outlineWidth = OdtUnits.TryParseLength((string?)graphic?.Attribute(OdtNamespaces.Svg + "stroke-width"), out double lineWidth) ? lineWidth : 0.75;
         if (graphic?.Attribute(OdtNamespaces.Fo + "border") is not null)
         {
@@ -3373,7 +3384,7 @@ internal static class OdtReader
             fill,
             outline,
             paragraphs: null,
-            image: image,
+            image: AdjustImage(image, graphic),
             behindText: behindText,
             wrap: wrap,
             wrapSide: wrapSide,
@@ -3399,6 +3410,21 @@ internal static class OdtReader
             "right" => TextAlignment.Right,
             _ => null,
         };
+
+    private static InlineImage AdjustImage(InlineImage image, XElement? properties)
+    {
+        double Read(string name) =>
+            OdtUnits.TryParsePercentage((string?)properties?.Attribute(OdtNamespaces.Draw + name), out double value) ? value : 0;
+        var presentation = image.Presentation with
+        {
+            Brightness = Read("luminance"),
+            Contrast = Read("contrast"),
+            RedAdjustment = Read("red"),
+            GreenAdjustment = Read("green"),
+            BlueAdjustment = Read("blue"),
+        };
+        return presentation == image.Presentation ? image : image.WithPresentation(presentation);
+    }
 
     /// <summary>
     /// Resolves a <c>text:a</c> into a link style: the anchor's own character
@@ -3437,6 +3463,13 @@ internal static class OdtReader
     {
         if (properties is null)
             return style;
+
+        if (properties.Attributes().Any(attribute => attribute.Name.Namespace == OdtNamespaces.Fo &&
+            attribute.Name.LocalName is "border" or "border-left" or "border-right" or "border-top" or "border-bottom"))
+        {
+            CellBorders edges = OdtTableReader.ReadCellBorders(properties);
+            style = style with { Border = edges == default ? null : new ParagraphBorder(edges, ReadShapePadding(properties)) };
+        }
 
         if (properties.Element(OdtNamespaces.Style + "tab-stops") is XElement tabs)
         {

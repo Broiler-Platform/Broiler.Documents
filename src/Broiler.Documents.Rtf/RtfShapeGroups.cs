@@ -15,7 +15,7 @@ internal static class RtfShapeGroups
         Dictionary<string, long> Properties, Dictionary<string, int> Controls);
     private sealed record Frame(double Left, double Top, double Right, double Bottom,
         double OriginX, double OriginY, double ScaleX, double ScaleY, int Z, int Horizontal, int Vertical,
-        int Behind, int Wrap, int Side);
+        int Behind, int Wrap, int Side, int Rotation);
 
     public static IReadOnlyList<RtfToken> Expand(IReadOnlyList<RtfToken> tokens, int maxDepth, List<DocumentDiagnostic> diagnostics)
     {
@@ -113,7 +113,8 @@ internal static class RtfShapeGroups
         List<RtfToken>? Flatten(Shape group, Frame? parent, int depth)
         {
             var p = group.Properties; var c = group.Controls;
-            if (depth >= Math.Min(maxDepth, 16) || p.GetValueOrDefault("rotation") != 0 ||
+            int rotation = (int)(p.GetValueOrDefault("rotation") % (360 * 65536));
+            if (depth >= Math.Min(maxDepth, 16) || parent is not null && (rotation != 0 || parent.Rotation != 0) ||
                 p.GetValueOrDefault("fFlipH") != 0 || p.GetValueOrDefault("fFlipV") != 0 ||
                 p.GetValueOrDefault("posh") != 0 || p.GetValueOrDefault("posv") != 0)
             { Report("An RTF group used an unsupported transform or exceeded the drawing depth limit; its existing fallback was retained."); return null; }
@@ -132,12 +133,27 @@ internal static class RtfShapeGroups
             double ox = p.GetValueOrDefault("groupLeft"), oy = p.GetValueOrDefault("groupTop");
             if (!p.TryGetValue("groupRight", out long gx) || !p.TryGetValue("groupBottom", out long gy) || gx <= ox || gy <= oy || right <= left || bottom <= top)
             { Report("An RTF group lacked usable frame or coordinate dimensions; its existing fallback was retained."); return null; }
+            if (rotation != 0)
+            {
+                // Between the diagonal angles, Word records the frame extent
+                // with the width and height exchanged around its center.
+                double turn = Math.Abs(rotation / 65536d) % 180;
+                if (turn >= 45 && turn < 135)
+                {
+                    double halfWidth = (right - left) / 2, halfHeight = (bottom - top) / 2;
+                    double centerX = left + halfWidth, centerY = top + halfHeight;
+                    (left, top, right, bottom) = (centerX - halfHeight, centerY - halfWidth, centerX + halfHeight, centerY + halfWidth);
+                }
+                double scaleX = (right - left) / (gx - ox), scaleY = (bottom - top) / (gy - oy);
+                if (Math.Abs(scaleX - scaleY) > Math.Max(scaleX, scaleY) * 0.01)
+                { Report("A rotated RTF group had nonuniform scaling; its existing fallback was retained."); return null; }
+            }
             int z = parent?.Z ?? (c.TryGetValue("shpz", out int order) ? order : (int)Math.Clamp(p.GetValueOrDefault("dhgt"), int.MinValue, int.MaxValue));
             int horizontal = parent?.Horizontal ?? (p.TryGetValue("posrelh", out long h) ? (int)h : c.ContainsKey("shpbxpage") ? 1 : 2);
             int vertical = parent?.Vertical ?? (p.TryGetValue("posrelv", out long v) ? (int)v : c.ContainsKey("shpbypage") ? 1 : c.ContainsKey("shpbymargin") ? 0 : 2);
             var frame = new Frame(left, top, right, bottom, ox, oy, (right - left) / (gx - ox), (bottom - top) / (gy - oy), z, horizontal, vertical,
                 parent?.Behind ?? (p.TryGetValue("fBehindDocument", out long behind) ? (int)behind : c.GetValueOrDefault("shpfblwtxt")),
-                parent?.Wrap ?? c.GetValueOrDefault("shpwr", 3), parent?.Side ?? c.GetValueOrDefault("shpwrk", 3));
+                parent?.Wrap ?? c.GetValueOrDefault("shpwr", 3), parent?.Side ?? c.GetValueOrDefault("shpwrk", 3), rotation);
             var result = new List<RtfToken>();
             var children = Children(group.Instructions, group.InstructionEnd)
                 .Where(i => Head(i, ends[i]) is "shp" or "shpgrp").Select(Read).Where(s => s is not null).Select(s => s!)
@@ -153,6 +169,15 @@ internal static class RtfShapeGroups
                 if (child.Controls.Keys.Any(key => key is "shpleft" or "shptop" or "shpright" or "shpbottom"))
                 { Report("An RTF group child combined absolute and relative bounds; its existing fallback was retained."); return null; }
                 if (!Bounds(child.Properties, frame, out double x1, out double y1, out double x2, out double y2)) return null;
+                if (frame.Rotation != 0)
+                {
+                    double centerX = (frame.Left + frame.Right) / 2, centerY = (frame.Top + frame.Bottom) / 2;
+                    double dx = (x1 + x2) / 2 - centerX, dy = (y1 + y2) / 2 - centerY;
+                    double angle = frame.Rotation / 65536d * Math.PI / 180;
+                    double shiftX = dx * Math.Cos(angle) - dy * Math.Sin(angle) - dx;
+                    double shiftY = dx * Math.Sin(angle) + dy * Math.Cos(angle) - dy;
+                    (x1, y1, x2, y2) = (x1 + shiftX, y1 + shiftY, x2 + shiftX, y2 + shiftY);
+                }
                 double[] values = [x1, y1, x2, y2];
                 if (values.Any(value => !double.IsFinite(value) || value < int.MinValue || value > int.MaxValue))
                 { Report("An RTF group mapped a child outside supported coordinates; its existing fallback was retained."); return null; }
@@ -168,6 +193,8 @@ internal static class RtfShapeGroups
                         result.Add(RtfToken.ControlWord("shpwrk", true, frame.Side));
                         AddProperty(result, "posrelh", frame.Horizontal); AddProperty(result, "posrelv", frame.Vertical);
                         AddProperty(result, "posh", 0); AddProperty(result, "posv", 0);
+                        if (frame.Rotation != 0)
+                            AddProperty(result, "rotation", frame.Rotation + (int)(child.Properties.GetValueOrDefault("rotation") % (360 * 65536)));
                     }
                     result.Add(tokens[i]);
                 }

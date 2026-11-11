@@ -80,9 +80,19 @@ public sealed record ImagePresentation
 
     public ImageMask Mask { get; init; }
 
+    public double Brightness { get; init; }
+    public double Contrast { get; init; }
+    public double RedAdjustment { get; init; }
+    public double GreenAdjustment { get; init; }
+    public double BlueAdjustment { get; init; }
+
     /// <summary>True when this asks for nothing the default does not already do.</summary>
     public bool IsDefault =>
-        Mask == ImageMask.None && !HasCrop;
+        Mask == ImageMask.None && !HasCrop && !HasColorAdjustments;
+
+    /// <summary>True when the presentation changes the source color channels.</summary>
+    public bool HasColorAdjustments =>
+        Brightness != 0 || Contrast != 0 || RedAdjustment != 0 || GreenAdjustment != 0 || BlueAdjustment != 0;
 
     /// <summary>True when any edge gives up part of the source.</summary>
     public bool HasCrop =>
@@ -161,7 +171,29 @@ public sealed record ImagePresentation
         if (Mask == ImageMask.Ellipse)
             MaskToEllipse(rgba, width, height);
 
+        if (HasColorAdjustments)
+            AdjustColors(rgba);
+
         return new BBitmap(width, height, rgba, takeOwnership: true);
+    }
+
+    private void AdjustColors(Span<byte> rgba)
+    {
+        double contrast = Adjustment(Contrast);
+        double slope = contrast < 0 ? 1 + contrast : 1 / Math.Max(0.001, 1 - contrast);
+        double offset = Adjustment(Brightness) * 255 + 127.5 * (1 - slope);
+        double red = offset + Adjustment(RedAdjustment) * 255;
+        double green = offset + Adjustment(GreenAdjustment) * 255;
+        double blue = offset + Adjustment(BlueAdjustment) * 255;
+        for (int i = 0; i < rgba.Length; i += 4)
+        {
+            rgba[i] = Channel(rgba[i] * slope + red);
+            rgba[i + 1] = Channel(rgba[i + 1] * slope + green);
+            rgba[i + 2] = Channel(rgba[i + 2] * slope + blue);
+        }
+
+        static double Adjustment(double value) => double.IsFinite(value) ? Math.Clamp(value, -1, 1) : 0;
+        static byte Channel(double value) => (byte)Math.Clamp(Math.Round(value), 0, 255);
     }
 
     /// <summary>Scales alpha by how much of each pixel the inscribed ellipse covers.</summary>

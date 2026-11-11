@@ -13,6 +13,27 @@ public sealed class ImageAndDiffTests : IDisposable
     public void Dispose() => _cli.Dispose();
 
     [Fact]
+    public void Html_Render_Only_Loads_Sibling_Images_With_Explicit_Opt_In()
+    {
+        string parentImage = WriteCheckerboard("dot.png", 32);
+        Directory.CreateDirectory(_cli.Path("assets"));
+        File.Copy(parentImage, _cli.Path("assets/dot.png"));
+        string html = _cli.Path("assets/linked.html");
+        string output = _cli.Path("linked.png");
+
+        File.WriteAllText(html, "<p><img src='dot.png'></p>");
+        var defaultRun = CliHarness.RunExpecting(ExitCode.Ok, "render", html, "--out", output, "--json").Json();
+        Assert.Contains("html.skip.external", defaultRun["diagnostics"]!.ToJsonString(), StringComparison.Ordinal);
+
+        var optedIn = CliHarness.RunExpecting(ExitCode.Ok, "render", html, "--out", output, "--json", "--allow-local-images").Json();
+        Assert.DoesNotContain("html.skip.external", optedIn["diagnostics"]!.ToJsonString(), StringComparison.Ordinal);
+
+        File.WriteAllText(html, "<p><img src='../dot.png'></p>");
+        var escaped = CliHarness.RunExpecting(ExitCode.Ok, "render", html, "--out", output, "--json", "--allow-local-images").Json();
+        Assert.Contains("html.skip.external", escaped["diagnostics"]!.ToJsonString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void An_Image_Operation_Puts_A_Picture_In_The_Model()
     {
         string image = WriteCheckerboard("dot.png", 48);

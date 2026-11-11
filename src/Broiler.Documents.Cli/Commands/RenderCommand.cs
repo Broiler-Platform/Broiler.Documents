@@ -1,9 +1,14 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 using System.Text;
 using System.Text.Json.Nodes;
 using Broiler.Documents.Cli.Composition;
 using Broiler.Documents.Cli.Documents;
 using Broiler.Documents.Cli.Infrastructure;
 using Broiler.Documents.Cli.Rendering;
+using Broiler.Documents.Html;
 
 namespace Broiler.Documents.Cli.Commands;
 
@@ -18,6 +23,7 @@ public static class RenderCommand
             [
                 OptionSpec.Value("out", "path", "Output image path. {page} in the path is replaced with the page number."),
                 OptionSpec.Value("manifest", "path", "Write a JSON description of the render, for a harness to keep."),
+                OptionSpec.Flag("allow-local-images", "Allow HTML to load image files from the input file's own directory."),
                 .. RenderPipeline.Specs,
                 .. DocumentOptions.Specs,
             ],
@@ -48,6 +54,22 @@ public static class RenderCommand
 
         DocumentCodecCatalog catalog = DocumentOptions.CreateCatalogFrom(context.Line);
         DocumentReadOptions readOptions = DocumentOptions.ReadOptionsFrom(context.Line);
+        if (context.Line.Has("allow-local-images") && source != "-")
+        {
+            string directory = Path.GetDirectoryName(Path.GetFullPath(source))!;
+            long perImageLimit = readOptions.Limits.MaxBinBytes;
+            long remaining = readOptions.Limits.MaxDocumentBytes;
+            var cache = new Dictionary<string, ReadOnlyMemory<byte>?>(StringComparer.Ordinal);
+            readOptions = new HtmlReadOptions(readOptions, name =>
+            {
+                if (cache.TryGetValue(name, out ReadOnlyMemory<byte>? cached))
+                    return cached;
+                ReadOnlyMemory<byte>? bytes = ReadSiblingImage(directory, name, Math.Min(perImageLimit, remaining));
+                remaining -= bytes?.Length ?? 0;
+                cache.Add(name, bytes);
+                return bytes;
+            });
+        }
         LoadedDocument loaded = DocumentIo.LoadOrThrow(source, catalog, readOptions, context.Line.Get("from"));
 
         RenderPipeline pipeline = RenderPipeline.Create(context.Line);
@@ -101,5 +123,30 @@ public static class RenderCommand
             loaded.Diagnostics,
             DocumentOptions.FailOnFrom(context.Line),
             ExitCode.Ok);
+    }
+
+    private static ReadOnlyMemory<byte>? ReadSiblingImage(string directory, string name, long maximumBytes)
+    {
+        if (name.Length == 0 || name is "." or ".." || name.Any(character =>
+            !char.IsAsciiLetterOrDigit(character) && character is not ('.' or '-' or '_' or ' ')))
+            return null;
+
+        try
+        {
+            var file = new FileInfo(Path.Combine(directory, name));
+            if (!file.Exists || (file.Attributes & (FileAttributes.ReparsePoint | FileAttributes.Directory)) != 0)
+                return null;
+
+            using FileStream stream = file.OpenRead();
+            if (stream.Length == 0 || stream.Length > Math.Min(maximumBytes, int.MaxValue))
+                return null;
+            var data = new byte[(int)stream.Length];
+            stream.ReadExactly(data);
+            return data;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
     }
 }

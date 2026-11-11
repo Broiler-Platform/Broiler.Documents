@@ -105,7 +105,10 @@ internal static class HtmlReader
         }
 
         var resources = new DocumentConversionContextBuilder(options.ResourcePolicy);
-        var builder = new HtmlDocumentBuilder(options.Limits, diagnostics, resources);
+        var builder = new HtmlDocumentBuilder(options.Limits, diagnostics, resources)
+        {
+            ResolveImage = (options as HtmlReadOptions)?.ResolveImage,
+        };
         DomNode root = parse.Document.Body is not null
             ? parse.Document.Body
             : parse.Document.DocumentElement is not null ? parse.Document.DocumentElement : parse.Document;
@@ -202,7 +205,10 @@ internal static class HtmlReader
                 continue;
 
             builder.NodesToSkip.Add(element);
-            var partBuilder = new HtmlDocumentBuilder(builder.Limits, builder.Diagnostics, builder.Resources, builder.DiagnosticOnce);
+            var partBuilder = new HtmlDocumentBuilder(builder.Limits, builder.Diagnostics, builder.Resources, builder.DiagnosticOnce)
+            {
+                ResolveImage = builder.ResolveImage,
+            };
             InlineStyle divInline = ApplyInlineElement(element, styleSheet, rootInline, builder.Diagnostics);
             ParagraphStyle divParagraph = ApplyParagraphElement(element, styleSheet, rootParagraph);
             ReadChildren(element, partBuilder, styleSheet, divInline, divParagraph, PreservesWhitespace(element, styleSheet));
@@ -436,7 +442,10 @@ internal static class HtmlReader
     private static IReadOnlyList<RichTextParagraph> ReadNoteParagraphs(
         DomElement element, HtmlStyleSheet styleSheet, HtmlDocumentBuilder builder)
     {
-        var noteBuilder = new HtmlDocumentBuilder(builder.Limits, builder.Diagnostics, builder.Resources, builder.DiagnosticOnce);
+        var noteBuilder = new HtmlDocumentBuilder(builder.Limits, builder.Diagnostics, builder.Resources, builder.DiagnosticOnce)
+        {
+            ResolveImage = builder.ResolveImage,
+        };
         ReadChildren(element, noteBuilder, styleSheet, InlineStyle.Default, ParagraphStyle.Default, preserveWhitespace: false);
         RichTextDocument doc = noteBuilder.Build();
         return doc.Paragraphs.Count > 0 ? doc.Paragraphs : [RichTextParagraph.Empty];
@@ -1157,7 +1166,15 @@ internal static class HtmlReader
             return;
 
         src = src.Trim();
-        if (!src.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+        bool embedded = src.StartsWith("data:", StringComparison.OrdinalIgnoreCase);
+        ReadOnlyMemory<byte> data = default;
+        string? mediaType = null;
+        if (!embedded && builder.ResolveImage?.Invoke(src) is ReadOnlyMemory<byte> resolved)
+        {
+            data = resolved;
+            mediaType = DocumentImageFormats.ContentTypeForSignature(data.Span);
+        }
+        if (!embedded && mediaType is null)
         {
             builder.AddDiagnosticOnce("html.skip.external", "External or embedded HTML content was skipped.");
 
@@ -1179,7 +1196,7 @@ internal static class HtmlReader
             return;
         }
 
-        if (!DataUriParser.TryParse(src, out string mediaType, out ReadOnlyMemory<byte> data, out _))
+        if (embedded && !DataUriParser.TryParse(src, out mediaType, out data, out _))
         {
             builder.Diagnostics.Add(DocumentDiagnostic.Warning(
                 "html.image.malformed",
@@ -1204,7 +1221,7 @@ internal static class HtmlReader
         BImageResource resource;
         try
         {
-            resource = BImageResource.FromEncoded(data, mediaType);
+            resource = BImageResource.FromEncoded(data, mediaType!);
         }
         catch (Exception ex)
         {
@@ -1217,7 +1234,7 @@ internal static class HtmlReader
         var request = new DocumentResourceRequest(
             resource,
             DocumentResourceProvenance.ReadFromSource,
-            DocumentResourceDisposition.Embedded,
+            embedded ? DocumentResourceDisposition.Embedded : DocumentResourceDisposition.Linked,
             name: name,
             sourceFormat: "HTML");
 
@@ -1306,6 +1323,7 @@ internal static class HtmlReader
     {
         public DocumentLimits Limits => limits;
         public DocumentConversionContextBuilder Resources => resources;
+        public Func<string, ReadOnlyMemory<byte>?>? ResolveImage { get; init; }
         public HashSet<DomNode> NodesToSkip { get; } = [];
         public Dictionary<string, DocumentNote> Footnotes { get; } = new(StringComparer.OrdinalIgnoreCase);
 

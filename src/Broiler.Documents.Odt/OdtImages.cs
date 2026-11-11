@@ -1,10 +1,13 @@
 using Broiler.Documents.Resources;
 using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.IO;
 using System.IO.Compression;
 using System.Xml.Linq;
 using Broiler.Documents.Model;
+using Broiler.Graphics.Color;
+using Broiler.Graphics.Imaging;
 
 namespace Broiler.Documents.Odt;
 
@@ -33,6 +36,7 @@ internal sealed class OdtImageLoader(
     private readonly DocumentConversionContextBuilder _resources = resources;
     private enum LoadResult { Success, Missing, Limit, Format, External }
     private readonly Dictionary<string, (PicturePart? Part, LoadResult Result)> _parts = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly Lazy<BImageResource> AudioPreview = new(CreateAudioPreview);
 
     /// <summary>How many pictures this read turned into inline images.</summary>
     public int ImageCount { get; private set; }
@@ -62,6 +66,9 @@ internal sealed class OdtImageLoader(
         {
             if (!foundImage)
             {
+                if (width > 0 && height > 0 && frame.Element(OdtNamespaces.Draw + "plugin") is XElement plugin && IsAudio(plugin))
+                    return ReadAudioPreview(width, height, altText, name, diagnostics);
+
                 diagnostics.AddDiagnosticOnce(
                     "odt.image.shape",
                     "An ODT frame held no embedded picture and was skipped.");
@@ -124,6 +131,40 @@ internal sealed class OdtImageLoader(
 
         ImageCount++;
         return picture.WithResourceId(id2);
+    }
+
+    private static bool IsAudio(XElement plugin) =>
+        ((string?)plugin.Attribute(OdtNamespaces.Draw + "mime-type"))?.StartsWith("audio/", StringComparison.OrdinalIgnoreCase) == true;
+
+    private InlineImage? ReadAudioPreview(double width, double height, string? altText, string? name, IOdtImageDiagnostics diagnostics)
+    {
+        diagnostics.AddDiagnosticOnce("odt.media.audio", "An ODT audio object was represented by a static audio icon.");
+        BImageResource resource = AudioPreview.Value;
+        if (!_resources.TryAdmit(new DocumentResourceRequest(resource, DocumentResourceProvenance.ReadFromSource,
+                DocumentResourceDisposition.Generated, name, "ODT"), DocumentResourceOperations.ExtractToModel,
+                out DocumentResourceId id, out _))
+            return null;
+        ImageCount++;
+        return new InlineImage(resource, id, width, height, altText, name);
+    }
+
+    private static BImageResource CreateAudioPreview()
+    {
+        const int size = 144;
+        using var bitmap = new BBitmap(size, size);
+        using (var canvas = bitmap.OpenCanvas())
+        {
+            var blue = new BColor(30, 139, 205);
+            canvas.FillRect(new RectangleF(0, 0, size, size), new BColor(250, 250, 250));
+            canvas.DrawRectangleStroke(new RectangleF(0.5f, 0.5f, size - 1, size - 1), new BColor(112, 112, 112));
+            for (int i = 0; i < 4; i++)
+                canvas.FillRoundedRect(new RectangleF(43, 42 + i * 14.5f, i == 3 ? 16 : 29, 5), blue, 2.5f, 2.5f);
+            canvas.FillRoundedRect(new RectangleF(72, 85, 17, 20), blue, 8.5f, 10);
+            canvas.FillRoundedRect(new RectangleF(85, 37, 4, 59), blue, 2, 2);
+            canvas.FillPolygon([new(87, 39), new(91, 48), new(97, 55), new(101, 64), new(101, 72), new(98, 79),
+                new(99, 69), new(96, 61), new(90, 55), new(87, 54)], blue);
+        }
+        return BImageResource.FromPixels(bitmap.ToPixelBuffer());
     }
 
     /// <summary>

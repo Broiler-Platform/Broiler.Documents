@@ -2644,7 +2644,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     /// </remarks>
     private (List<LayoutLine> Lines, List<LayoutCell> Cells, List<CutPiece> Pieces, double Height) ComposeBlocks(
         RichTextDocument document, IReadOnlyList<DocumentTable> tables, int from, int to, DocumentPageBox setup,
-        double left, double width, bool keepsDefaultLines = false)
+        double left, double width, bool keepsDefaultLines = false, bool drawParagraphBorders = false)
     {
         var lines = new List<LayoutLine>();
         var cells = new List<LayoutCell>();
@@ -2754,6 +2754,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                     cutTop = y;
                 }
             }
+            if (drawParagraphBorders && count > 0 && paragraph.Style.Border is { } border)
+                cells.Add(ParagraphBorderCell(paragraph.Style, border, composed.Lines[0], composed.Lines[^1], left, width));
             // A wrapping object anchored inside a cell belongs to that cell's
             // flow. Reserve its height before the next paragraph (often its
             // caption), and keep its anchor with the object at a page cut.
@@ -3254,8 +3256,12 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         {
             double width = 0;
             foreach (RichTextParagraph paragraph in shape.Paragraphs)
+            {
+                if (paragraph.Length == 0 && paragraph.Style.Border is not null)
+                    width = Math.Max(width, 4.5);
                 foreach (LayoutLine line in ComposeParagraph(paragraph, null, setup, -1, 0, 20000).Lines)
                     width = Math.Max(width, line.Pieces.Sum(piece => piece.Width) + paragraph.Style.LeftIndentIn(_settings.IndentStepPoints) + paragraph.Style.RightIndentIn);
+            }
             width = Math.Max(width, shape.Tables.Select(table => table.TotalWidth).DefaultIfEmpty(0).Max());
             double textWidth = Math.Min(20000, width + shape.TextPadding.Left + shape.TextPadding.Right);
             _grownWidths[shape] = shape.FitsText ? textWidth : Math.Max(Math.Max(0, shape.Width), textWidth);
@@ -3289,8 +3295,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         try
         {
             RichTextDocument content = RichTextDocument.FromParagraphs(ShapeParagraphs(shape)).WithTables(shape.Tables);
-            return ComposeBlocks(content, shape.Tables, 0, content.ParagraphCount, setup, left,
-                Math.Max(1, BoxWidth(shape) - shape.TextPadding.Left - shape.TextPadding.Right));
+            double width = Math.Max(1, BoxWidth(shape) - shape.TextPadding.Left - shape.TextPadding.Right);
+            return ComposeBlocks(content, shape.Tables, 0, content.ParagraphCount, setup, left, width, drawParagraphBorders: true);
         }
         finally
         {
@@ -3430,16 +3436,21 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 ParagraphStyle style = paragraphs[paragraphLines.Key].Style;
                 if (style.Border is not { } border)
                     continue;
-                LayoutLine first = paragraphLines.First(), last = paragraphLines.Last();
-                double left = frame.Left + style.LeftIndentIn(_settings.IndentStepPoints);
-                double right = frame.Left + frame.Width - style.RightIndentIn;
-                double upper = first.Top - border.Spacing.Top;
-                double lower = last.Top + last.Height + border.Spacing.Bottom;
-                borders.Add(new LayoutCell(new BRect(left - border.Spacing.Left, upper,
-                    Math.Max(0, right - left + border.Spacing.Left + border.Spacing.Right), lower - upper),
-                    default, border.Edges));
+                borders.Add(ParagraphBorderCell(style, border, paragraphLines.First(), paragraphLines.Last(), frame.Left, frame.Width));
             }
         }
+    }
+
+    private LayoutCell ParagraphBorderCell(ParagraphStyle style, ParagraphBorder border, LayoutLine first, LayoutLine last,
+        double left, double width)
+    {
+        double right = left + width - style.RightIndentIn;
+        left += style.LeftIndentIn(_settings.IndentStepPoints);
+        double upper = first.Top - border.Spacing.Top;
+        double lower = last.Top + last.Height + border.Spacing.Bottom;
+        return new LayoutCell(new BRect(left - border.Spacing.Left, upper,
+            Math.Max(0, right - left + border.Spacing.Left + border.Spacing.Right), lower - upper),
+            default, border.Edges);
     }
 
     /// <summary>

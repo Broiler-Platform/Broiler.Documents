@@ -1424,7 +1424,7 @@ public static class OdtWriter
 
         var frame = new XElement(
             OdtNamespaces.Draw + "frame",
-            new XAttribute(OdtNamespaces.Draw + "style-name", "fr1"),
+            new XAttribute(OdtNamespaces.Draw + "style-name", context.GetInlineImageStyleName(image)),
             new XAttribute(
                 OdtNamespaces.Draw + "name",
                 "Image" + part.Index.ToString(CultureInfo.InvariantCulture)),
@@ -1449,6 +1449,20 @@ public static class OdtWriter
     private static XElement BuildParagraphProperties(ParagraphStyle style, bool inList)
     {
         var properties = new XElement(OdtNamespaces.Style + "paragraph-properties");
+        if (style.Border is { } border)
+        {
+            AddEdge("left", border.Edges.Left, border.Spacing.Left);
+            AddEdge("top", border.Edges.Top, border.Spacing.Top);
+            AddEdge("right", border.Edges.Right, border.Spacing.Right);
+            AddEdge("bottom", border.Edges.Bottom, border.Spacing.Bottom);
+
+            void AddEdge(string side, TableBorder edge, double spacing)
+            {
+                OdtWriteContext.AddBorder(properties, "border-" + side, edge);
+                if (spacing > 0)
+                    properties.Add(new XAttribute(OdtNamespaces.Fo + "padding-" + side, OdtUnits.FormatPoints(spacing)));
+            }
+        }
         if (style.TabStops is ParagraphTabStops tabs)
             properties.Add(new XElement(OdtNamespaces.Style + "tab-stops", tabs.Select(tab =>
                 new XElement(OdtNamespaces.Style + "tab-stop",
@@ -2398,7 +2412,37 @@ public static class OdtWriter
             return name;
         }
 
-                public string GetShapeStyleName(DocumentShape shape)
+        public string GetInlineImageStyleName(InlineImage image)
+        {
+            if (!image.Presentation.HasColorAdjustments)
+                return "fr1";
+            XElement style = BuildFrameStyle();
+            XElement properties = style.Element(OdtNamespaces.Style + "graphic-properties")!;
+            AddImageAdjustments(properties, image.Presentation);
+
+            string name = "gr" + (_shapeStyles.Count + 1).ToString(CultureInfo.InvariantCulture);
+            style.SetAttributeValue(OdtNamespaces.Style + "name", name);
+            _shapeStyles.Add(style);
+            return name;
+        }
+
+        private static void AddImageAdjustments(XElement properties, ImagePresentation presentation)
+        {
+            Write("luminance", presentation.Brightness);
+            Write("contrast", presentation.Contrast);
+            Write("red", presentation.RedAdjustment);
+            Write("green", presentation.GreenAdjustment);
+            Write("blue", presentation.BlueAdjustment);
+
+            void Write(string name, double value)
+            {
+                if (value != 0 && double.IsFinite(value))
+                    properties.Add(new XAttribute(OdtNamespaces.Draw + name,
+                        (Math.Clamp(value, -1, 1) * 100).ToString(CultureInfo.InvariantCulture) + "%"));
+            }
+        }
+
+        public string GetShapeStyleName(DocumentShape shape)
         {
             string name = "gr" + (_shapeStyles.Count + 1).ToString(CultureInfo.InvariantCulture);
             var properties = new XElement(
@@ -2422,6 +2466,8 @@ public static class OdtWriter
 
             if (!shape.Printable)
                 properties.Add(new XAttribute(OdtNamespaces.Style + "print-content", "false"));
+            if (shape.Image is { } image)
+                AddImageAdjustments(properties, image.Presentation);
 
             if (shape.IsPageAnchored)
             {

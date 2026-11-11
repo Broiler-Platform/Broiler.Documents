@@ -1078,6 +1078,8 @@ internal static class ExtrasConformance
     {
         var arguments = new List<string> { "render", sample.LocalPath };
         arguments.AddRange(FormatArguments(sample));
+        if (sample.Format == "html")
+            arguments.Add("--allow-local-images");
         arguments.AddRange(
         [
             "--out", Path.Combine(outputDirectory, "page-{page}.bmp"),

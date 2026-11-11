@@ -589,6 +589,7 @@ problem document lost.
 | `odt.image.limit` | Warning | A picture exceeded `MaxBinBytes` and was skipped. |
 | `odt.image.binary` | Warning | An inline picture payload was not valid base64. |
 | `odt.image.shape` | Warning | A frame held no embedded picture. |
+| `odt.media.audio` | Warning | An audio frame is shown with a static icon. |
 | `odt.image.anchored` | Warning | A floating picture was anchored to its paragraph. |
 | `odt.image.denied` | Warning | The caller's resource policy did not permit reading a picture; the message names the denial. |
 | `odt.page.geometry` | Warning | A page layout described a page with no room to write on, so the page was not read. |

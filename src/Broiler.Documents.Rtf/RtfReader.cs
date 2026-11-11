@@ -193,6 +193,7 @@ public static class RtfReader
         // The shape's shapeType: 1 a rectangle, which Word takes when none is
         // given, 20 a line.
         private long _shapeType = 1;
+        private double _shapeRotation;
         private double _shapeLineWidth = 0.75;
         private bool _shapeFlipVertical;
         private bool _shapeInBackground;
@@ -1988,6 +1989,7 @@ public static class RtfReader
             _shapeLeftFromPage = false;
             _shapeFitsText = false;
             _shapeType = 1;
+            _shapeRotation = 0;
             _shapeLineWidth = 0.75;
             _shapeFlipVertical = false;
             _shapeFillStart = BColor.White;
@@ -2086,6 +2088,9 @@ public static class RtfReader
                     break;
                 case "shapeType":
                     _shapeType = number;
+                    break;
+                case "rotation":
+                    _shapeRotation = (number % (360 * 65536)) / 65536d * Math.PI / 180;
                     break;
                 case "fFitShapeToText":
                     _shapeFitsText = number != 0;
@@ -2316,8 +2321,8 @@ public static class RtfReader
 
             var shape = new DocumentShape(
                 _builder.ParagraphCount,
-                left,
-                top,
+                left + (Math.Abs(width) * (1 - Math.Cos(_shapeRotation)) + Math.Abs(height) * Math.Sin(_shapeRotation)) / 2,
+                top + (Math.Abs(height) * (1 - Math.Cos(_shapeRotation)) - Math.Abs(width) * Math.Sin(_shapeRotation)) / 2,
                 Math.Abs(width),
                 Math.Abs(height),
                 fill,
@@ -2333,9 +2338,18 @@ public static class RtfReader
                 zOrder: _shapeZ,
                 offsetFromPage: _shapeVerticalFrame != 2,
                 growsToText: _shapeFitsText,
-                geometry: _shapeType == 3 ? ShapeGeometry.Ellipse : _shapeType == 20
-                    ? ((width * height < 0) != (_shapeFlipVertical ^ _shapeFlipHorizontal) ? ShapeGeometry.LineAscending : ShapeGeometry.Line) : ShapeGeometry.Rectangle,
-                outlineWidth: _shapeLineWidth);
+                geometry: _shapeType switch
+                {
+                    2 => ShapeGeometry.RoundedRectangle,
+                    3 => ShapeGeometry.Ellipse,
+                    5 => ShapeGeometry.Triangle,
+                    20 => (width * height < 0) != (_shapeFlipVertical ^ _shapeFlipHorizontal) ? ShapeGeometry.LineAscending : ShapeGeometry.Line,
+                    _ => ShapeGeometry.Rectangle,
+                },
+                outlineWidth: _shapeLineWidth)
+            {
+                RotationRadians = _shapeRotation,
+            };
             if (running)
             {
                 if (!_runningShapes.TryGetValue(host, out List<DocumentShape>? shapes))

@@ -202,6 +202,10 @@ public sealed class DocumentPagePainter
             return;
         }
 
+        BRect bounds = shape.Bounds;
+        double radius = Math.Min(bounds.Width, bounds.Height) / 6;
+        BPoint apex = new(bounds.Left + bounds.Width / 2, bounds.Top);
+        BPoint lowerLeft = new(bounds.Left, bounds.Bottom), lowerRight = new(bounds.Right, bounds.Bottom);
         if (shape.Fill is ShapeFill fill)
         {
             if (shape.Geometry == ShapeGeometry.Ellipse)
@@ -224,6 +228,10 @@ public sealed class DocumentPagePainter
                     }
                 }
             }
+            else if (shape.Geometry == ShapeGeometry.RoundedRectangle && !fill.IsGradient && !fill.HasExtendedPaint)
+                list.FillRoundedRect(bounds, fill.Start, radius, radius);
+            else if (shape.Geometry == ShapeGeometry.Triangle && !fill.IsGradient && !fill.HasExtendedPaint)
+                list.FillTriangle(apex, lowerLeft, lowerRight, fill.Start);
             else DrawFill(list, shape.Bounds, fill, resolveImage);
         }
 
@@ -236,6 +244,14 @@ public sealed class DocumentPagePainter
             double thickness = shape.OutlineWidth == 0 ? 0.25 : shape.OutlineWidth;
             if (shape.Geometry == ShapeGeometry.Ellipse)
                 list.Append(new BRenderCommand.StrokeRoundedRect(shape.Bounds, shape.Outline, shape.Bounds.Width / 2, shape.Bounds.Height / 2, thickness));
+            else if (shape.Geometry == ShapeGeometry.RoundedRectangle)
+                list.StrokeRoundedRect(bounds, shape.Outline, radius, radius, thickness);
+            else if (shape.Geometry == ShapeGeometry.Triangle)
+            {
+                DrawSegment(list, apex, lowerLeft, shape.Outline, thickness);
+                DrawSegment(list, lowerLeft, lowerRight, shape.Outline, thickness);
+                DrawSegment(list, lowerRight, apex, shape.Outline, thickness);
+            }
             else list.StrokeRect(shape.Bounds, shape.Outline, thickness);
         }
 

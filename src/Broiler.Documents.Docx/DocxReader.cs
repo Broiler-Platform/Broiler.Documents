@@ -2000,6 +2000,32 @@ internal static class DocxReader
     private static bool ReadVmlShapeElement(XElement shape, DocxReadContext context)
     {
         Dictionary<string, string> style = DocxVml.ReadStyle((string?)shape.Attribute("style"));
+        XNamespace office = "urn:schemas-microsoft-com:office:office";
+        if ((string?)shape.Attribute(office + "hr") is "t" or "true" or "1" &&
+            context.PlacementPage is PageGeometry rulePage)
+        {
+            double ruleWidth = rulePage.ContentWidth;
+            if (DocxVml.TryLength(style.GetValueOrDefault("width"), out double specifiedWidth) && specifiedWidth > 0)
+                ruleWidth = Math.Min(ruleWidth, specifiedWidth);
+            double ruleHeight = DocxVml.TryLength(style.GetValueOrDefault("height"), out double specifiedHeight) && specifiedHeight > 0
+                ? specifiedHeight : 1.5;
+            double x = (string?)shape.Attribute(office + "hralign") switch
+            {
+                "left" => 0,
+                "right" => rulePage.ContentWidth - ruleWidth,
+                _ => (rulePage.ContentWidth - ruleWidth) / 2,
+            };
+            double y = context.Band switch
+            {
+                RunningBand.Header => rulePage.HeaderDistance,
+                RunningBand.Footer => rulePage.Height - rulePage.FooterDistance - ruleHeight,
+                _ => 0,
+            };
+            context.Builder.AddShape(new DocumentShape(context.Builder.CurrentParagraphIndex, x, y, ruleWidth, ruleHeight,
+                fill: DocxVml.ReadFill(shape, new BColor(160, 160, 160), context.Builder.AddDiagnosticOnce, "docx.shape.fill", "rule"),
+                offsetFromPage: context.Band != RunningBand.Body));
+            return true;
+        }
         bool segment = shape.Name == DocxNamespaces.Vml + "line" || shape.Name == DocxNamespaces.Vml + "polyline";
         double lineLeft = 0, lineTop = 0, width, height;
         ShapeGeometry geometry = shape.Name == DocxNamespaces.Vml + "oval" ? ShapeGeometry.Ellipse : ShapeGeometry.Rectangle;
@@ -2805,7 +2831,11 @@ internal static class DocxReader
             return BColor.Empty;
 
         XElement? solid = line.Element(DocxNamespaces.Drawing + "solidFill");
-        return solid is not null && TryReadShapeColor(solid, theme, out BColor color) ? color : BColor.Empty;
+        if (solid is null)
+            return BColor.Empty;
+        if (TryReadShapeColor(solid, theme, out BColor color))
+            return color;
+        return solid.Element(DocxNamespaces.Drawing + "schemeClr") is not null ? BColor.Black : BColor.Empty;
     }
 
     /// <summary>A DrawingML colour, a theme's included; see <see cref="DocxDrawingColor"/>.</summary>

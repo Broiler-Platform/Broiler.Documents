@@ -96,7 +96,7 @@ public static class CodecComposition
     public static void RegisterImageCodecs()
     {
         if (!BImageCodecs.IsRegistered)
-            BImageCodecs.Use(new MediaCodecCatalog(ManagedImageCodecs.CreateCodecs()));
+            BImageCodecs.Use(new MediaCodecCatalog([.. ManagedImageCodecs.CreateCodecs(), new TiffImageCodec()]));
     }
 
     /// <summary>

@@ -326,4 +326,4 @@ public sealed class DocumentShape(
 }
 
 /// <summary>Basic shape paths; line directions use page coordinates with y increasing downwards.</summary>
-public enum ShapeGeometry { Rectangle, Ellipse, Line, LineAscending }
+public enum ShapeGeometry { Rectangle, Ellipse, Line, LineAscending, RoundedRectangle, Triangle }

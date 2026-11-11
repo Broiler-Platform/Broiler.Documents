@@ -147,7 +147,7 @@ internal sealed class DocxFrameAccumulator
             Apply(chain[i]);
         Apply(pPr);
 
-        if (dropCap is "drop" or "margin")
+        if (dropCap is "drop" or "margin" || width == 0 && height == 0 && heightRule == "exact")
             return null;
 
         return new DocxFrameProperties(

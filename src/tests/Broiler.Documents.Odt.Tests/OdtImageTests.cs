@@ -147,7 +147,8 @@ public sealed class OdtImageTests
     [Fact]
     public void An_Image_Round_Trips_Through_A_Written_Package()
     {
-        var image = new InlineImage(OdtTestPackage.OnePixelPng, "image/png", 72, 36, "the logo", "logo");
+        InlineImage image = new InlineImage(OdtTestPackage.OnePixelPng, "image/png", 72, 36, "the logo", "logo")
+            .WithPresentation(new ImagePresentation { Brightness = 0.5, RedAdjustment = -0.25 });
         (image, DocumentWriteOptions writeOptions) = Writable(image);
         RichTextDocument document = RichTextDocument.FromParagraphs(
             [RichTextParagraph.Create(InlineImage.PlaceholderText, new InlineStyle { Image = image })]);
@@ -159,6 +160,7 @@ public sealed class OdtImageTests
         Assert.Equal(72, actual.Width);
         Assert.Equal(36, actual.Height);
         Assert.Equal("the logo", actual.AltText);
+        Assert.Equal(image.Presentation, actual.Presentation);
         Assert.Equal(OdtTestPackage.OnePixelPng, actual.Data.ToArray());
     }
 
