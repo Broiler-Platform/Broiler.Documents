@@ -92,6 +92,7 @@ internal sealed class DocxFrameAccumulator
             IsCustomShape = inner.IsCustomShape,
             FitsText = inner.FitsText,
             RotationRadians = inner.RotationRadians,
+            TextFlow = inner.TextFlow,
             WrapMargins = inner.WrapMargins,
             WrapPolygon = inner.WrapPolygon,
             BoundedByPage = inner.BoundedByPage,

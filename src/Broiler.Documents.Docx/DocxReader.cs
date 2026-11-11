@@ -2120,6 +2120,7 @@ internal static class DocxReader
                 (geometry is ShapeGeometry.Line or ShapeGeometry.LineAscending || LaysOutInCell(anchor)))
         {
             IsCustomShape = context.InDiagram,
+            TextFlow = ReadShapeTextFlow(wsp.Element(DocxNamespaces.WordShape + "bodyPr")),
             WrapMargins = Wrap == ShapeWrap.None ? null : Margins,
             BoundedByPage = !context.Builder.InTableCell,
         });
@@ -2159,6 +2160,34 @@ internal static class DocxReader
             long.TryParse((string?)body?.Attribute(attribute), NumberStyles.Integer, CultureInfo.InvariantCulture, out long value)
                 ? Math.Clamp(value / 12700d, 0, 20000) : fallback;
         return new TableCellPadding(Length("lIns", 7.2), Length("tIns", 3.6), Length("rIns", 7.2), Length("bIns", 3.6));
+    }
+
+    /// <summary>
+    /// The way a DrawingML text box's lines run, from <c>a:bodyPr</c>'s
+    /// <c>vert</c>: <c>vert</c> and <c>eaVert</c> read downwards, <c>vert270</c>
+    /// upwards, as LibreOffice's import turns them (<c>TextVerticalType</c>).
+    /// </summary>
+    internal static ShapeTextFlow ReadShapeTextFlow(XElement? body) => (string?)body?.Attribute("vert") switch
+    {
+        "vert" or "eaVert" => ShapeTextFlow.TopToBottom,
+        "vert270" => ShapeTextFlow.BottomToTop,
+        _ => ShapeTextFlow.Horizontal,
+    };
+
+    /// <summary>
+    /// The way a VML text box's lines run, from its <c>layout-flow</c>:
+    /// <c>vertical</c> reads downwards unless <c>mso-layout-flow-alt</c> says
+    /// <c>bottom-to-top</c>, which Word writes beside it for upward text.
+    /// </summary>
+    internal static ShapeTextFlow ReadVmlTextFlow(XElement? textBox)
+    {
+        Dictionary<string, string> style = DocxVml.ReadStyle((string?)textBox?.Attribute("style"));
+        string? flow = style.GetValueOrDefault("layout-flow")?.Trim().ToLowerInvariant();
+        if (flow is not ("vertical" or "vertical-ideographic"))
+            return ShapeTextFlow.Horizontal;
+        return style.GetValueOrDefault("mso-layout-flow-alt")?.Trim().ToLowerInvariant() == "bottom-to-top"
+            ? ShapeTextFlow.BottomToTop
+            : ShapeTextFlow.TopToBottom;
     }
 
     /// <summary>
@@ -2446,6 +2475,7 @@ internal static class DocxReader
             offsetXFromCell: segment && context.Builder.InTableCell && style.GetValueOrDefault("mso-position-horizontal-relative") == "text")
         {
             RotationRadians = rotation,
+            TextFlow = ReadVmlTextFlow(shape.Element(DocxNamespaces.Vml + "textbox")),
         });
         return true;
     }

@@ -264,10 +264,28 @@ public sealed class DocumentPagePainter
             else list.StrokeRect(shape.Bounds, shape.Outline, thickness);
         }
 
-        DrawCells(list, shape.Cells);
-        DrawParagraphShading(list, shape.Lines);
-        foreach (LayoutLine line in shape.Lines)
-            DrawLine(list, line, resolveImage);
+        // Turned text was laid out in the box turned with it; a quarter turn
+        // about the box's centre puts it back: clockwise for text that reads
+        // downwards, anticlockwise for text that reads upwards.
+        bool turned = shape.TextFlow != ShapeTextFlow.Horizontal;
+        if (turned)
+        {
+            double sin = shape.TextFlow == ShapeTextFlow.TopToBottom ? 1 : -1;
+            double cx = bounds.Left + bounds.Width / 2, cy = bounds.Top + bounds.Height / 2;
+            list.PushTransform(new BMatrix3x2(0, sin, -sin, 0, cx + cy * sin, cy - cx * sin));
+        }
+        try
+        {
+            DrawCells(list, shape.Cells);
+            DrawParagraphShading(list, shape.Lines);
+            foreach (LayoutLine line in shape.Lines)
+                DrawLine(list, line, resolveImage);
+        }
+        finally
+        {
+            if (turned)
+                list.PopTransform();
+        }
     }
 
     /// <summary>
