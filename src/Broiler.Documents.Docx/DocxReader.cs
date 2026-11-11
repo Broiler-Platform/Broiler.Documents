@@ -263,9 +263,11 @@ internal static class DocxReader
             if (name == DocxNamespaces.Wordprocessing + "br")
             {
                 if (IsPageBreak(element, context))
-                    builder.HoldPageBreak(column: IsColumnBreak(element));
+                    builder.HoldBlockPageBreak();
                 else if (IsColumnBreak(element) && context.Sections is not null)
-                    builder.HoldPageBreak(column: true);
+                    builder.HoldBlockPageBreak(column: true);
+                else if (!IsColumnBreak(element))
+                    builder.HoldLineBreak();
                 continue;
             }
 
@@ -363,7 +365,7 @@ internal static class DocxReader
             return [RunningContent.Empty];
 
         IReadOnlyList<XElement> sections = DocxSections.Properties(body);
-        var parts = new Dictionary<(string Id, bool IsHeader), (IReadOnlyList<RichTextParagraph> Paragraphs, IReadOnlyList<DocumentShape> Shapes)?>();
+        var parts = new Dictionary<(string Id, bool IsHeader), (IReadOnlyList<RichTextParagraph> Paragraphs, IReadOnlyList<DocumentShape> Shapes, IReadOnlyList<DocumentTable> Tables)?>();
         var contents = new List<RunningContent>(sections.Count);
         for (int index = 0; index < sections.Count; index++)
         {
@@ -447,12 +449,12 @@ internal static class DocxReader
                     parts.Add((relationshipId, isHeader), part);
                 }
 
-                if (part is not var (paragraphs, shapes) || (paragraphs.Count == 0 && shapes.Count == 0))
+                if (part is not var (paragraphs, shapes, tables) || (paragraphs.Count == 0 && shapes.Count == 0))
                     continue;
 
                 content = isHeader
-                    ? content.WithHeader(selection, paragraphs, shapes)
-                    : content.WithFooter(selection, paragraphs, shapes);
+                    ? content.WithHeader(selection, paragraphs, shapes, tables)
+                    : content.WithFooter(selection, paragraphs, shapes, tables);
             }
 
             content = WithPageBorder(content, sections[index]);
@@ -556,10 +558,10 @@ internal static class DocxReader
         // any slot is replaced so a slot that falls back to the default copies
         // the default without the border twice.
         var resolved = selections
-            .Select(selection => (selection, content.EffectiveHeader(selection), content.EffectiveHeaderShapes(selection)))
+            .Select(selection => (selection, content.EffectiveHeader(selection), content.EffectiveHeaderShapes(selection), content.EffectiveHeaderTables(selection)))
             .ToList();
-        foreach ((PageSelection selection, IReadOnlyList<RichTextParagraph> paragraphs, IReadOnlyList<DocumentShape> shapes) in resolved)
-            content = content.WithHeader(selection, paragraphs, [.. shapes, shape]);
+        foreach ((PageSelection selection, IReadOnlyList<RichTextParagraph> paragraphs, IReadOnlyList<DocumentShape> shapes, IReadOnlyList<DocumentTable> tables) in resolved)
+            content = content.WithHeader(selection, paragraphs, [.. shapes, shape], tables);
 
         return content;
     }
@@ -695,8 +697,12 @@ internal static class DocxReader
             ?.Elements(DocxNamespaces.Wordprocessing + "sectPr")
             .LastOrDefault();
 
-        if (sectPr is null)
-            return null;
+        // A body with no section properties at all is one section on the
+        // defaults ECMA-376 states for an empty w:sectPr: a Letter page with
+        // one-inch margins. LibreOffice lays such a body out on exactly that
+        // page (tdf108714.docx, xml_space.docx: 612 x 792 pt, text at 72 pt),
+        // where leaving the page unstated let the renderer's A4 stand in.
+        sectPr ??= new XElement(DocxNamespaces.Wordprocessing + "sectPr");
 
         if (DocxSections.ReadPage(sectPr) is not PageGeometry geometry)
         {
@@ -754,15 +760,17 @@ internal static class DocxReader
     };
 
     /// <summary>
-    /// Reads one header or footer part into the paragraphs and the shapes it
-    /// holds, or null when the part is missing or unreadable.
+    /// Reads one header or footer part into the paragraphs, the shapes and the
+    /// tables it holds, or null when the part is missing or unreadable. The
+    /// tables index into the part's own paragraphs, as the running content
+    /// holds them.
     /// </summary>
     /// <remarks>
     /// A part that holds only a stripe and no words is still a part, so the
     /// shapes come back beside the paragraphs rather than being reported through
     /// an empty paragraph list.
     /// </remarks>
-    private static (IReadOnlyList<RichTextParagraph> Paragraphs, IReadOnlyList<DocumentShape> Shapes)? ReadPart(
+    private static (IReadOnlyList<RichTextParagraph> Paragraphs, IReadOnlyList<DocumentShape> Shapes, IReadOnlyList<DocumentTable> Tables)? ReadPart(
         ZipArchive archive,
         string partPath,
         DocxNumbering numbering,
@@ -806,7 +814,7 @@ internal static class DocxReader
         ReadBlockContent(partXml.Root.Elements(), context, depth: 0);
 
         RichTextDocument part = builder.Build();
-        return (part.Paragraphs, part.Shapes);
+        return (part.Paragraphs, part.Shapes, part.Tables);
     }
 
     private static void FlushPendingDropCap(DocxReadContext context)
@@ -1084,6 +1092,17 @@ internal static class DocxReader
             if (element.Name == DocxNamespaces.Wordprocessing + "r")
             {
                 ReadRun(element, context, style);
+                continue;
+            }
+
+            // A w:br straight in the paragraph, outside any run, is not
+            // allowed by ECMA-376 and is a line break to Word and LibreOffice
+            // all the same (tdf#108714). A page break there is left to the
+            // break handling it always had.
+            if (element.Name == DocxNamespaces.Wordprocessing + "br" &&
+                !IsPageBreak(element, context) && !IsColumnBreak(element))
+            {
+                context.Builder.AppendText(((char)0x2028).ToString(), style);
                 continue;
             }
 
@@ -1795,7 +1814,47 @@ internal static class DocxReader
             return ReadShapeGroup(group, anchor, width, height, context);
         }
 
-        return ReadDrawnShape(wsp!, anchor, 0, 0, width, height, context);
+        // An inline shape is a character of its line, as an inline picture is.
+        // Where it is all its paragraph holds, the line is the shape's height
+        // and the paragraph's alignment places it, which is what the model can
+        // say of it: dml-shape-fillpattern.docx's centred rectangles were drawn
+        // at the column's left edge with their captions beside them.
+        double inlineLeft = 0;
+        if (anchor.Name == DocxNamespaces.WordDrawing + "inline" && !context.Builder.InTableCell &&
+            IsSoleContentOfParagraph(drawing))
+        {
+            inlineLeft = context.Builder.ReserveDiagramBlock(width, height, context.PlacementPage);
+        }
+
+        return ReadDrawnShape(wsp!, anchor, inlineLeft, 0, width, height, context);
+    }
+
+    /// <summary>
+    /// Whether <paramref name="drawing"/> is the only thing its paragraph shows:
+    /// no text, break, tab, note or other object beside it. A markup-compatibility
+    /// fallback is the same object written again for older readers, not content.
+    /// </summary>
+    private static bool IsSoleContentOfParagraph(XElement drawing)
+    {
+        XElement? paragraph = drawing.Ancestors(DocxNamespaces.Wordprocessing + "p").FirstOrDefault();
+        if (paragraph is null)
+            return false;
+
+        XName fallback = DocxNamespaces.MarkupCompatibility + "Fallback";
+        IEnumerable<XElement> shown = paragraph.Descendants().Where(e => !e.Ancestors().TakeWhile(a => a != paragraph).Any(a => a.Name == fallback));
+        int drawings = 0;
+        foreach (XElement element in shown)
+        {
+            if (element.Name == DocxNamespaces.Wordprocessing + "drawing")
+                drawings++;
+            else if (element.Name == DocxNamespaces.Wordprocessing + "t" && !string.IsNullOrWhiteSpace(element.Value))
+                return false;
+            else if (element.Name.Namespace == DocxNamespaces.Wordprocessing &&
+                element.Name.LocalName is "br" or "cr" or "tab" or "sym" or "pict" or "object" or "footnoteReference" or "endnoteReference" or "fldChar" or "instrText")
+                return false;
+        }
+
+        return drawings == 1;
     }
 
     /// <summary>
@@ -2611,6 +2670,9 @@ internal static class DocxReader
             if (context.Page is not PageGeometry running)
                 return (offset, false);
 
+            if (AlignedOrRelativeV(anchor, from, running) is double runningY)
+                return (runningY, false);
+
             return (from switch
             {
                 "margin" => offset + running.MarginTop,
@@ -2625,6 +2687,14 @@ internal static class DocxReader
 
         if (from is null or "paragraph" or "line")
             return (offset, false);
+
+        // wp:align and wp14:pctPosVOffset place the object within its frame, as
+        // their horizontal counterparts do; both are resolved on the page.
+        if (context.PlacementPage is PageGeometry placement &&
+            AlignedOrRelativeV(anchor, from, placement) is double pageY)
+        {
+            return (pageY, true);
+        }
 
         if (FromPageTop(from, offset, context.PlacementPage) is double fromPage)
             return (fromPage, true);

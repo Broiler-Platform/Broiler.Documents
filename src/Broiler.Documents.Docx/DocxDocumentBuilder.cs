@@ -35,6 +35,12 @@ internal sealed class DocxDocumentBuilder(
     private bool _breakIsColumn;
     private bool _breakKeepsLeadingLabel;
     private bool _heldBreakIsColumn;
+
+    // Line breaks stated between blocks rather than in a run, which open the
+    // next paragraph; see HoldLineBreak.
+    private int _heldLineBreaks;
+    private bool _blockPageBreak;
+    private bool _blockBreakIsColumn;
     private int _tableCount;
     private int _unsupportedBlockCount;
 
@@ -213,14 +219,62 @@ internal sealed class DocxDocumentBuilder(
         _heldBreakIsColumn = column;
     }
 
+    /// <summary>
+    /// Holds a line break written between blocks - a <c>w:br</c> directly in
+    /// the body or a cell, which ECMA-376 does not allow and Word reads anyway.
+    /// The next paragraph opens with it, however many blocks it crosses: Word
+    /// and LibreOffice (tdf#108714, writerfilter's postponed breaks) put a
+    /// paragraph followed by such a break and a table into a first cell that
+    /// starts with an empty line.
+    /// </summary>
+    public void HoldLineBreak() => _heldLineBreaks++;
+
+    /// <summary>
+    /// Holds a page or column break written between blocks. Word reads it as
+    /// a break at the head of the next paragraph's first run, which is not the
+    /// same as a page break before that paragraph: an empty paragraph that
+    /// follows the break stays on the page the break ends, and the paragraph
+    /// after it starts the new one (tdf#108714, the upstream test's second
+    /// paragraph). A table that follows takes the break before it, as a held
+    /// break always went (<see cref="TakeBlockBreak"/>).
+    /// </summary>
+    public void HoldBlockPageBreak(bool column = false)
+    {
+        _blockPageBreak = true;
+        _blockBreakIsColumn = column;
+    }
+
+    /// <summary>
+    /// Hides the paragraph that closes a cell right after a nested table, when
+    /// it is empty. Word needs a paragraph there to end the cell and does not
+    /// give it a line; LibreOffice lays it out the same way (26.2 sets a cell
+    /// holding a nested table and an empty paragraph as tall as the nested
+    /// table). Its mark is hidden, which takes it out of the layout as a hidden
+    /// paragraph is taken out (<c>SwTextFrame::IsHiddenNow</c>).
+    /// </summary>
+    public void HideEmptyParagraphAfterNestedTable(IReadOnlyList<DocumentTable> nested)
+    {
+        int last = _paragraphs.Count - 1;
+        if (nested.Count == 0 || last < 0 || nested[^1].ParagraphEnd != last)
+            return;
+
+        RichTextParagraph paragraph = _paragraphs[last];
+        if (paragraph.Length > 0 || _shapes.Exists(shape => shape.ParagraphIndex == last))
+            return;
+
+        _paragraphs[last] = paragraph.WithMarkStyle(paragraph.MarkStyle with { Hidden = true });
+    }
+
     /// <summary>Transfers a break between blocks onto a following table, before
     /// its first cell paragraph can consume it.</summary>
     public (bool Page, bool Column) TakeBlockBreak()
     {
-        bool held = _pageBreakStartsNextParagraph;
-        bool column = _heldBreakIsColumn;
+        bool held = _pageBreakStartsNextParagraph || _blockPageBreak;
+        bool column = _pageBreakStartsNextParagraph ? _heldBreakIsColumn : _blockBreakIsColumn;
         _pageBreakStartsNextParagraph = false;
         _heldBreakIsColumn = false;
+        _blockPageBreak = false;
+        _blockBreakIsColumn = false;
         return (held && !column, held && column);
     }
 
@@ -262,6 +316,20 @@ internal sealed class DocxDocumentBuilder(
         }
 
         _paragraphStyle = style;
+
+        if (_blockPageBreak)
+        {
+            _blockPageBreak = false;
+            NotePageBreak(column: _blockBreakIsColumn, sourceColumn: _blockBreakIsColumn);
+            _blockBreakIsColumn = false;
+        }
+
+        if (_heldLineBreaks > 0)
+        {
+            int breaks = _heldLineBreaks;
+            _heldLineBreaks = 0;
+            AppendText(new string((char)0x2028, breaks), markStyle);
+        }
     }
 
     /// <summary>Reserves the line occupied by a diagram that is the paragraph's only content.</summary>

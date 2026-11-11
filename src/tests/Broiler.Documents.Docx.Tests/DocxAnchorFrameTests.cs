@@ -88,14 +88,17 @@ public sealed class DocxAnchorFrameTests
     }
 
     [Fact]
-    public void Takes_An_Offset_As_Column_Relative_When_The_Document_States_No_Page()
+    public void Measures_An_Offset_On_The_Default_Page_When_The_Document_States_No_Section()
     {
-        // Nothing to convert with, so the offset is read the way every anchor
-        // used to be read.
-        DocumentShape shape = Assert.Single(
-            Read(ShapeRun("page", "paragraph", offsetXPoints: 40), sectPr: string.Empty).Document.Shapes);
+        // A body with no w:sectPr is laid out on the defaults of an empty one, a
+        // Letter page with one-inch margins, as LibreOffice lays it out; the
+        // page-relative offset is converted on that page.
+        RichTextDocument document = Read(ShapeRun("page", "paragraph", offsetXPoints: 40), sectPr: string.Empty).Document;
+        DocumentShape shape = Assert.Single(document.Shapes);
 
-        Assert.Equal(40, shape.OffsetX, 1);
+        Assert.Equal(40 - 72, shape.OffsetX, 1);
+        Assert.Equal(612, document.PageGeometry!.Width, 1);
+        Assert.Equal(792, document.PageGeometry.Height, 1);
     }
 
     [Theory]
