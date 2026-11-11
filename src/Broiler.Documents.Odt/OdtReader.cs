@@ -1917,6 +1917,7 @@ internal static class OdtReader
         {
             Variables = context.Variables,
             FrameTextWidth = frameTextWidth,
+            InShapeText = true,
         };
         // A custom shape holds its geometry alongside its text. The geometry is
         // the shape's form, not content, and walking it as a block reports an
@@ -3311,7 +3312,9 @@ internal static class OdtReader
 
     private static void ReadPicture(XElement frame, OdtReadContext context, InlineStyle style)
     {
-        if (!IsAnchoredInText(frame))
+        // A shape's text keeps only paragraphs and tables, so a picture floating
+        // in a text box (tdf132420) would vanish; draw it in the text instead.
+        if (!IsAnchoredInText(frame) && !context.InShapeText)
         {
             context.Builder.AddDiagnosticOnce(
                 "odt.image.anchored",
