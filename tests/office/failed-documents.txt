@@ -101,20 +101,17 @@ layout/data/nested-sections.fodt
 layout/data/outside_long_data_label.docx
 layout/data/piechart_leaderline.odt
 layout/data/quo_vadis_footnote.fodt
-layout/data/redline_table.fodt
 layout/data/ref_page_get_field.fodt
 layout/data/shape-anchored-in-follow.docx
 layout/data/tabellen_test_windows_1.odt
 layout/data/table-0-height-rows.fodt
 layout/data/table-in-section-split-loop.fodt
-layout/data/table-with-hidden-section.fodt
 layout/data/tdf105481.odt
 layout/data/tdf107209-vert-ltr.fodt
 layout/data/tdf107209-vert-rtl.fodt
 layout/data/tdf108021.odt
 layout/data/tdf114163.odt
 layout/data/tdf115094.docx
-layout/data/tdf115523.fodt
 layout/data/tdf116486.docx
 layout/data/tdf116501.odt
 layout/data/tdf117028.docx
@@ -181,7 +178,6 @@ layout/data/tdf159443.odt
 layout/data/tdf160549.fodt
 layout/data/tdf162614.fodt
 layout/data/tdf163230.fodt
-layout/data/tdf163285.fodt
 layout/data/tdf164903.docx
 layout/data/tdf164905.docx
 layout/data/tdf164932.fodt
@@ -204,7 +200,6 @@ layout/data/tdf171275-grid-no-extra-leading.fodt
 layout/data/tdf171708.docx
 layout/data/tdf172932-grow-all-scripts.fodt
 layout/data/tdf40260.odt
-layout/data/tdf42748.fodt
 layout/data/tdf54465_ColumnsWithFootnoteDoNotOccupyEntirePage_Old.odt
 layout/data/tdf69647_text.docx
 layout/data/tdf72727.odt
@@ -245,10 +240,8 @@ odfexport/data/arabic-zero5-numbering.odt
 odfexport/data/bookmark_order.fodt
 odfexport/data/chapter-number-new-line.odt
 odfexport/data/charborder.odt
-odfexport/data/deleted_table.fodt
 odfexport/data/fdo58949.docx
 odfexport/data/midnight_redline.fodt
-odfexport/data/nestedTableInFooter.odt
 odfexport/data/pagestyle_background_ooo33.odt
 odfexport/data/relh-page.odt
 odfexport/data/sender-initials.fodt
@@ -303,13 +296,10 @@ odfimport/data/draw-image-embedded.fodt
 odfimport/data/draw-image-link.fodt
 odfimport/data/emptyParagraphLoosesFontHeight.fodt
 odfimport/data/empty_line_in_text_box.fodt
-odfimport/data/fdo47267-3.odt
 odfimport/data/fdo56272.odt
 odfimport/data/fdo60842.odt
 odfimport/data/fdo68839.odt
 odfimport/data/fdo69979.odt
-odfimport/data/fdo75872_aoo40.odt
-odfimport/data/fdo75872_ooo33.odt
 odfimport/data/fdo81223.odt
 odfimport/data/fdo82165.odt
 odfimport/data/form-control-implementation.fodt
@@ -604,7 +594,6 @@ ooxmlexport/data/tdf146973_signatureBlock.docx
 ooxmlexport/data/tdf147646_mergedCellNumbering.docx
 ooxmlexport/data/tdf147724.docx
 ooxmlexport/data/tdf147861_customField.docx
-ooxmlexport/data/tdf147892.fodt
 ooxmlexport/data/tdf147978_enhancedPath_commandABVW.odt
 ooxmlexport/data/tdf148026.fodt
 ooxmlexport/data/tdf148057_columnBreak.docx
@@ -684,7 +673,6 @@ ooxmlexport/data/tdf32363.docx
 ooxmlexport/data/tdf46940_dontEquallyDistributeColumns.docx
 ooxmlexport/data/tdf55427_footnote2endnote.odt
 ooxmlexport/data/tdf57589_hashColor.docx
-ooxmlexport/data/tdf61000.docx
 ooxmlexport/data/tdf64264.docx
 ooxmlexport/data/tdf66039.docx
 ooxmlexport/data/tdf66401.docx
@@ -961,9 +949,6 @@ tiledrendering/data/tdf117448.fodt
 tiledrendering/data/tdf168318.fodt
 tiledrendering/data/two-paragraph-background-links.fodt
 uiwriter/data/FrameInHiddenSection.fodt
-uiwriter/data/HiddenSection.odt
-uiwriter/data/database-display-hidden-section.fodt
-uiwriter/data/database-display-hidden-section2.fodt
 uiwriter/data/datasource.ods
 uiwriter/data/draw-anchor-undo.odt
 uiwriter/data/fdo114306.odt
@@ -1057,7 +1042,6 @@ uiwriter/data/tdf168355.odt
 uiwriter/data/tdf169651.odt
 uiwriter/data/tdf39828.fodt
 uiwriter/data/tdf52391.fodt
-uiwriter/data/tdf61154.fodt
 uiwriter/data/tdf65535.fodt
 uiwriter/data/tdf88453-table.odt
 uiwriter/data/tdf88453.odt
