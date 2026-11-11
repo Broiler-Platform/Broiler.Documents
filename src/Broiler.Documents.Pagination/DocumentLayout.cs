@@ -2289,6 +2289,9 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             {
                 RotationRadians = shape.RotationRadians,
                 TextFlow = shape.TextFlow,
+                StretchesTextToBox = shape.StretchesTextToBox,
+                TextOutline = shape.TextOutline,
+                TextOutlineWidth = shape.TextOutlineWidth,
             });
         }
 
@@ -2357,6 +2360,9 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             {
                 RotationRadians = shape.RotationRadians,
                 TextFlow = shape.TextFlow,
+                StretchesTextToBox = shape.StretchesTextToBox,
+                TextOutline = shape.TextOutline,
+                TextOutlineWidth = shape.TextOutlineWidth,
             });
         }
 

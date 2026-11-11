@@ -193,6 +193,23 @@ public sealed class DocumentShape(
     /// </remarks>
     public ShapeTextFlow TextFlow { get; init; }
 
+    /// <summary>
+    /// True when the shape's text is WordArt: each line is stretched across the
+    /// box and the lines together down it, as Word and LibreOffice fit a VML
+    /// <c>v:textpath</c> (a text watermark) to its shape.
+    /// </summary>
+    public bool StretchesTextToBox { get; init; }
+
+    /// <summary>
+    /// The colour the outline of each glyph of <see cref="StretchesTextToBox"/>
+    /// text is stroked in, or <see cref="BColor.Empty"/> for none: WordArt's
+    /// stroke, drawn over the glyphs its fill paints.
+    /// </summary>
+    public BColor TextOutline { get; init; }
+
+    /// <summary>How wide <see cref="TextOutline"/> is stroked, in points.</summary>
+    public double TextOutlineWidth { get; init; }
+
     /// <summary>Optional per-side wrap clearance margins in points (Left, Top, Right, Bottom).</summary>
     public TableCellPadding? WrapMargins { get; init; }
 
@@ -370,6 +387,9 @@ public sealed class DocumentShape(
             ShrinksWidthToText = ShrinksWidthToText,
             RotationRadians = RotationRadians,
             TextFlow = TextFlow,
+            StretchesTextToBox = StretchesTextToBox,
+            TextOutline = TextOutline,
+            TextOutlineWidth = TextOutlineWidth,
             WrapMargins = WrapMargins,
             WrapPolygon = WrapPolygon,
             MinimumWrapRoom = MinimumWrapRoom,

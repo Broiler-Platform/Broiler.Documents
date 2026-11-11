@@ -248,6 +248,18 @@ public sealed class LayoutShape : IPaginatedShapeArtifact
     public ShapeTextFlow TextFlow { get; init; }
 
     /// <summary>
+    /// True when the shape's text is WordArt the painter stretches to fill
+    /// <see cref="Bounds"/>: each line's glyphs across it, all the lines down it.
+    /// </summary>
+    public bool StretchesTextToBox { get; init; }
+
+    /// <summary>The colour WordArt glyph outlines are stroked in, or empty for none.</summary>
+    public BColor TextOutline { get; init; }
+
+    /// <summary>How wide <see cref="TextOutline"/> is stroked, in points.</summary>
+    public double TextOutlineWidth { get; init; }
+
+    /// <summary>
     /// The box turned text is laid out in: <paramref name="bounds"/> with its
     /// width and height exchanged, about the same centre.
     /// </summary>

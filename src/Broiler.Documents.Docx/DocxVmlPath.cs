@@ -94,14 +94,15 @@ internal static class DocxVmlPath
                 continue;
             }
             bool arc = name is "wa" or "wr" or "at" or "ar";
-            if (!arc && name is not ("m" or "l" or "r"))
+            bool curve = name is "c" or "v";
+            if (!arc && !curve && name is not ("m" or "l" or "r"))
                 return null;
 
             int start = index;
             while (index < path.Length && !char.IsAsciiLetter(path[index]))
                 index++;
             string[] values = Values(path[start..index].Trim());
-            if (values.Length == 0 || values.Length % (arc ? 8 : 2) != 0 || (name == "m" && values.Length != 2))
+            if (values.Length == 0 || values.Length % (arc ? 8 : curve ? 6 : 2) != 0 || (name == "m" && values.Length != 2))
                 return null;
 
             if (name == "m")
@@ -138,6 +139,34 @@ internal static class DocxVmlPath
                     {
                         double angle = from + sweep * step / steps;
                         if (!Add(cx + rx * Math.Cos(angle), cy + ry * Math.Sin(angle)))
+                            return null;
+                    }
+                }
+                continue;
+            }
+
+            if (curve)
+            {
+                // A cubic Bezier through two control points to an end point:
+                // c states them absolutely, v relative to the current point
+                // (FDO74774.docx's chart frames are rounded with them).
+                for (int i = 0; i < values.Length; i += 6)
+                {
+                    var v = new double[6];
+                    for (int k = 0; k < 6; k++)
+                        if (!Parameter(values[i + k], out v[k]))
+                            return null;
+                    double x0 = x, y0 = y;
+                    if (name == "v")
+                        for (int k = 0; k < 6; k += 2)
+                            (v[k], v[k + 1]) = (v[k] + x0, v[k + 1] + y0);
+                    const int steps = 12;
+                    for (int step = 1; step <= steps; step++)
+                    {
+                        double t = (double)step / steps, u = 1 - t;
+                        double bx = u * u * u * x0 + 3 * u * u * t * v[0] + 3 * u * t * t * v[2] + t * t * t * v[4];
+                        double by = u * u * u * y0 + 3 * u * u * t * v[1] + 3 * u * t * t * v[3] + t * t * t * v[5];
+                        if (!Add(bx, by))
                             return null;
                     }
                 }
