@@ -936,12 +936,22 @@ internal static class DocxReader
             string? dropStyleId = DocxValueReader.WordValue(dropPPr?.Element(DocxNamespaces.Wordprocessing + "pStyle"));
             InlineStyle dropInherited = ReadInheritedRunStyle(dropStyleId, context);
             ReadParagraphChildren(dropCapParagraph.Elements(), context, dropInherited);
+
+            // The characters stay the paragraph's, as LibreOffice's import
+            // keeps them, and are set apart as its drop cap rather than drawn
+            // as an inline run at the drop's size, which made the first line
+            // as tall as the drop and the page run long.
+            int length = context.Builder.CurrentParagraphLength;
+            if (length > 0)
+                context.Builder.SetDropCap(DocxFrameAccumulator.ReadDropCap(dropPPr, dropStyleId, context, length));
         }
         ReadParagraphChildren(paragraph.Elements(), context, inherited);
         if (context.Sections is not null && DocxSections.EndsSection(paragraph))
             context.Builder.TrimSectionParagraphEnd();
         else if (context.Builder.JoinsFieldCodeParagraph())
             return;
+        if (context.Band == RunningBand.Body && context.PlacementPage is PageGeometry placement)
+            context.Builder.ApplyIncreasedAnchoredObjectSpacing(placement.ContentWidth);
         context.Builder.FinishParagraph();
     }
 
@@ -1601,6 +1611,8 @@ internal static class DocxReader
             !context.Builder.SplitPgBreakAndParaMark;
         if (!deferBreakAfterAnchor)
             context.Builder.EnsureBreakApplied();
+        if (isAnchor)
+            NoteAnchoredObject(picture, context);
         if (ReadDiagram(picture, context)) return;
         if (ReadVmlWordArt(picture, context, style)) return;
 
@@ -1619,6 +1631,33 @@ internal static class DocxReader
             return;
 
         context.Builder.AppendText(InlineImage.PlaceholderText, style with { Image = image });
+    }
+
+    /// <summary>
+    /// Tells the builder of a <c>wp:anchor</c> object in a body paragraph:
+    /// its size, whether text wraps around it, whether it is behind the text
+    /// and its side distances (<see cref="DocxDocumentBuilder.ApplyIncreasedAnchoredObjectSpacing"/>).
+    /// </summary>
+    private static void NoteAnchoredObject(XElement drawing, DocxReadContext context)
+    {
+        if (context.Band != RunningBand.Body || context.InNote || context.Builder.InTableCell)
+            return;
+
+        XElement? anchor = drawing.Element(DocxNamespaces.WordDrawing + "anchor") ??
+            drawing.Descendants(DocxNamespaces.WordDrawing + "anchor").FirstOrDefault();
+        XElement? extent = anchor?.Element(DocxNamespaces.WordDrawing + "extent");
+        if (anchor is null || extent is null)
+            return;
+
+        bool wraps = anchor.Elements().Any(static child =>
+            child.Name.Namespace == DocxNamespaces.WordDrawing &&
+            child.Name.LocalName is "wrapSquare" or "wrapTight" or "wrapThrough" or "wrapTopAndBottom");
+        context.Builder.NoteAnchoredObject(
+            EmuToPoints((string?)extent.Attribute("cx")),
+            EmuToPoints((string?)extent.Attribute("cy")),
+            wraps,
+            (string?)anchor.Attribute("behindDoc") is "1" or "true",
+            EmuToPoints((string?)anchor.Attribute("distL")) + EmuToPoints((string?)anchor.Attribute("distR")));
     }
 
     private static bool ReadDiagram(XElement drawing, DocxReadContext context)
@@ -1722,6 +1761,7 @@ internal static class DocxReader
         {
             WrapMargins = Wrap == ShapeWrap.None ? null : Margins,
             WrapPolygon = Wrap == ShapeWrap.None ? null : ReadWrapPolygon(anchor),
+            BoundedByPage = !context.Builder.InTableCell,
         });
         return true;
     }
@@ -1881,6 +1921,7 @@ internal static class DocxReader
                     zOrder: RelativeHeight(anchor), offsetFromPage: fromPage)
                 {
                     WrapMargins = Wrap == ShapeWrap.None ? null : Margins,
+                    BoundedByPage = !context.Builder.InTableCell,
                 });
             }
             else if (child.Name == DocxNamespaces.WordGroup + "grpSp" && depth < MaxGroupDepth)
@@ -2021,6 +2062,7 @@ internal static class DocxReader
         {
             IsCustomShape = context.InDiagram,
             WrapMargins = Wrap == ShapeWrap.None ? null : Margins,
+            BoundedByPage = !context.Builder.InTableCell,
         });
         return true;
     }

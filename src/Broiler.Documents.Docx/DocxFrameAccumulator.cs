@@ -94,6 +94,7 @@ internal sealed class DocxFrameAccumulator
             RotationRadians = inner.RotationRadians,
             WrapMargins = inner.WrapMargins,
             WrapPolygon = inner.WrapPolygon,
+            BoundedByPage = inner.BoundedByPage,
         };
     }
 
@@ -179,6 +180,40 @@ internal sealed class DocxFrameAccumulator
 
         return new DocxFrameProperties(
             width, height, heightRule, x, y, hAnchor, vAnchor, xAlign, yAlign, wrap, hSpace, vSpace);
+    }
+
+    /// <summary>
+    /// The drop cap a <c>w:dropCap</c> paragraph states for the paragraph it
+    /// opens, with <paramref name="length"/> characters: <c>w:lines</c> (one
+    /// where absent) and <c>w:hSpace</c>, the style chain's beneath the
+    /// paragraph's own.
+    /// </summary>
+    public static DropCap ReadDropCap(XElement? pPr, string? paragraphStyleId, DocxReadContext context, int length)
+    {
+        int lines = 1;
+        double distance = 0;
+        bool inMargin = false;
+
+        void Apply(XElement? pr)
+        {
+            XElement? frame = pr?.Element(DocxNamespaces.Wordprocessing + "framePr");
+            if (frame is null)
+                return;
+
+            if (int.TryParse((string?)frame.Attribute(DocxNamespaces.Wordprocessing + "lines"), NumberStyles.Integer, CultureInfo.InvariantCulture, out int value))
+                lines = value;
+            if (frame.Attribute(DocxNamespaces.Wordprocessing + "hSpace") is not null)
+                distance = DocxValueReader.Twips(frame, "hSpace");
+            if ((string?)frame.Attribute(DocxNamespaces.Wordprocessing + "dropCap") is string type)
+                inMargin = type == "margin";
+        }
+
+        IReadOnlyList<XElement> chain = context.Styles.ParagraphProperties(paragraphStyleId, context.TableStyle, context.TableConditions);
+        for (int i = 0; i < chain.Count; i++)
+            Apply(chain[i]);
+        Apply(pPr);
+
+        return new DropCap(Math.Clamp(lines, 1, DropCap.MaxLines), length, (float)Math.Max(0, distance)) { InMargin = inMargin };
     }
 
     public static bool IsDropCap(XElement? pPr, string? paragraphStyleId, DocxReadContext context)

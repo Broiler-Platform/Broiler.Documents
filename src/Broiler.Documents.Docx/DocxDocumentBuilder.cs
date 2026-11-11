@@ -270,12 +270,18 @@ internal sealed class DocxDocumentBuilder(
 
     public void StartParagraph(ParagraphStyle style, InlineStyle markStyle = default)
     {
-        // A paragraph that continues one whose mark was field code keeps its text;
-        // its own properties are the ones the joined paragraph shows.
+        // A paragraph that continues one whose mark was field code keeps its text
+        // and the objects anchored to it; its own properties are the ones the
+        // joined paragraph shows.
         if (_joinsNextParagraph)
+        {
             _joinsNextParagraph = false;
+        }
         else
+        {
             _segments.Clear();
+            _anchoredObjects.Clear();
+        }
         _markStyle = markStyle;
 
         // The two spellings mean one break. A paragraph reached by a
@@ -292,6 +298,70 @@ internal sealed class DocxDocumentBuilder(
 
         _paragraphStyle = style;
     }
+
+    private readonly List<(double Width, double Height, bool Wraps, bool Behind, double Sides)> _anchoredObjects = [];
+
+    /// <summary>
+    /// Notes a DrawingML object anchored (<c>wp:anchor</c>) to the open body
+    /// paragraph, for <see cref="ApplyIncreasedAnchoredObjectSpacing"/>.
+    /// </summary>
+    /// <param name="sides">Its <c>distL</c> and <c>distR</c> together, in points.</param>
+    public void NoteAnchoredObject(double width, double height, bool wraps, bool behind, double sides) =>
+        _anchoredObjects.Add((width, height, wraps, behind, sides));
+
+    /// <summary>
+    /// Moves the open paragraph below the objects anchored to it where Word
+    /// 2013 and later do, as LibreOffice's DOCX import emulates
+    /// (<c>SectionPropertyMap::HandleIncreasedAnchoredObjectSpacing</c>, tdf#115719):
+    /// four or more objects, at least one behind the text, and the wrapping
+    /// ones, with their side distances, at least as wide as the text area. The
+    /// paragraph's space above becomes at least the objects' heights together.
+    /// </summary>
+    /// <remarks>
+    /// A layout bug of Word's, kept since Word 2013 and imitated at import by
+    /// LibreOffice, which narrowed the condition twice to the documents that
+    /// show it (tdf#123243, tdf#131446). <c>tdf115719.docx</c> puts its two
+    /// text boxes on page two this way; <c>tdf123243.docx</c>, with two
+    /// objects, keeps them on page one.
+    /// </remarks>
+    public void ApplyIncreasedAnchoredObjectSpacing(double textAreaWidth)
+    {
+        if (_anchoredObjects.Count < 4 || WordCompatibilityMode < 15)
+            return;
+
+        double width = 0, height = 0;
+        bool behind = false;
+        foreach ((double objectWidth, double objectHeight, bool wraps, bool objectBehind, double sides) in _anchoredObjects)
+        {
+            behind |= objectBehind;
+            height += objectHeight;
+            if (wraps)
+                width += objectWidth + sides;
+        }
+
+        if (!behind || textAreaWidth > width)
+            return;
+
+        _paragraphStyle = _paragraphStyle with
+        {
+            SpacingBefore = (float)Math.Min(ParagraphStyle.MaxLineHeight, Math.Max(_paragraphStyle.SpacingBefore, height)),
+        };
+    }
+
+    /// <summary>The length of the text the open paragraph holds so far.</summary>
+    public int CurrentParagraphLength
+    {
+        get
+        {
+            int length = 0;
+            foreach (Segment segment in _segments)
+                length += segment.Text.Length;
+            return length;
+        }
+    }
+
+    /// <summary>Sets the open paragraph's opening characters as a drop cap.</summary>
+    public void SetDropCap(DropCap dropCap) => _paragraphStyle = _paragraphStyle with { DropCap = dropCap };
 
     /// <summary>Reserves the line occupied by a diagram that is the paragraph's only content.</summary>
     public double ReserveDiagramBlock(double width, double height, PageGeometry? page)

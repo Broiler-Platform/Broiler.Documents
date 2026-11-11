@@ -195,6 +195,11 @@ public readonly record struct ParagraphStyle
     /// </remarks>
     public BColor Background { get; init; }
 
+    /// <summary>
+    /// The paragraph's opening characters set as a drop cap, or null for none.
+    /// </summary>
+    public DropCap? DropCap { get; init; }
+
     /// <summary>Left-aligned, single-spaced, no list, no indent.</summary>
     public static ParagraphStyle Default => new() { LineSpacing = 1f };
 }
