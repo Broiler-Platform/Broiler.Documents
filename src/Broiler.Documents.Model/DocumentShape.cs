@@ -173,6 +173,21 @@ public sealed class DocumentShape(
     public TableCellPadding? WrapMargins { get; init; }
 
     /// <summary>
+    /// The outline text wraps against instead of the box, for DOCX's
+    /// <c>wrapTight</c> and <c>wrapThrough</c>: vertices as fractions of the
+    /// box's width and height, 0 to 1. Null wraps against the box.
+    /// </summary>
+    public IReadOnlyList<(double X, double Y)>? WrapPolygon { get; init; }
+
+    /// <summary>
+    /// The least room, in points, a line needs beside a shape that wraps on its
+    /// larger side; with less on both sides the line goes below it. Zero lets
+    /// text into any gap. Writer keeps text out of a gap narrower than 2 cm
+    /// (<c>TEXT_MIN</c> in its text-fly code).
+    /// </summary>
+    public double MinimumWrapRoom { get; init; }
+
+    /// <summary>
     /// Where the shape sits among the other shapes: a higher number draws later,
     /// and therefore on top.
     /// </summary>
@@ -294,6 +309,8 @@ public sealed class DocumentShape(
             FitsText = FitsText,
             RotationRadians = RotationRadians,
             WrapMargins = WrapMargins,
+            WrapPolygon = WrapPolygon,
+            MinimumWrapRoom = MinimumWrapRoom,
         };
 
     /// <summary>The shape's own text, empty when it holds none.</summary>

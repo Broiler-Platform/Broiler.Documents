@@ -16,6 +16,12 @@ public readonly record struct ExclusionObstacle : IEquatable<ExclusionObstacle>
     public int SequenceNumber { get; }
     public object? Tag { get; }
 
+    /// <summary>
+    /// The least room a line needs on the side a <see cref="ObstacleSidePolicy.Largest"/>
+    /// obstacle leaves it; with less on both sides the band is blocked. Zero for none.
+    /// </summary>
+    public double MinimumSideRoom { get; init; }
+
     public double Left => Bounds.Left;
     public double Top => Bounds.Top;
     public double Right => Bounds.Right;

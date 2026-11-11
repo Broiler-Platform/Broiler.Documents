@@ -1383,7 +1383,18 @@ internal static class DocxReader
             {
                 // Embedded objects (OLE) include a cached visual presentation
                 // (a VML shape/pict or DrawingML drawing) as a fallback preview.
-                if (child.Element(DocxNamespaces.Wordprocessing + "drawing") is { } drawing)
+                // An ActiveX check box or option button has no preview picture;
+                // it reads as its glyph and caption, as LibreOffice draws it.
+                if (child.Element(DocxNamespaces.Wordprocessing + "control") is { } control &&
+                    !child.Descendants(DocxNamespaces.Vml + "imagedata").Any() &&
+                    context.Images.ReadControl(control, context.Relationships) is { } activeX)
+                {
+                    // The glyph is drawn in the face LibreOffice falls back to for it.
+                    builder.AppendText(activeX.Glyph, style with { FontFamily = "DejaVu Sans" });
+                    if (activeX.Caption.Length > 0)
+                        builder.AppendText(" " + activeX.Caption, style);
+                }
+                else if (child.Element(DocxNamespaces.Wordprocessing + "drawing") is { } drawing)
                     ReadPicture(drawing, context, style);
                 else if (child.Element(DocxNamespaces.Wordprocessing + "pict") is { } pict)
                     ReadPicture(pict, context, style);
@@ -1538,10 +1549,12 @@ internal static class DocxReader
         if (shape is null || textPath is null)
             return false;
         // The shape's v:textpath usually inherits on="t" from its v:shapetype,
-        // which may sit in the other branch of an mc:AlternateContent.
+        // which may sit in the other branch of an mc:AlternateContent. A text
+        // box's content is read detached from the document (fdo78300), so the
+        // type is looked up from the topmost ancestor rather than the document.
         string? typeId = ((string?)shape.Attribute("type"))?.TrimStart('#');
         string? on = (string?)textPath.Attribute("on") ?? (string.IsNullOrEmpty(typeId) ? null :
-            (string?)picture.Document?.Descendants(DocxNamespaces.Vml + "shapetype")
+            (string?)picture.AncestorsAndSelf().Last().Descendants(DocxNamespaces.Vml + "shapetype")
                 .FirstOrDefault(type => (string?)type.Attribute("id") == typeId)
                 ?.Element(DocxNamespaces.Vml + "textpath")?.Attribute("on"));
         if (on is not ("t" or "true" or "1"))
@@ -1705,8 +1718,36 @@ internal static class DocxReader
             offsetFromPage: fromPage)
         {
             WrapMargins = Wrap == ShapeWrap.None ? null : Margins,
+            WrapPolygon = Wrap == ShapeWrap.None ? null : ReadWrapPolygon(anchor),
         });
         return true;
+    }
+
+    /// <summary>
+    /// The <c>wp:wrapPolygon</c> of a <c>wrapTight</c> or <c>wrapThrough</c>
+    /// anchor, as fractions of the picture's box: its coordinates run 0 to
+    /// 21600 across each axis whatever the picture's size.
+    /// </summary>
+    private static IReadOnlyList<(double X, double Y)>? ReadWrapPolygon(XElement anchor)
+    {
+        XElement? polygon = anchor.Descendants(DocxNamespaces.WordDrawing + "wrapPolygon").FirstOrDefault();
+        if (polygon is null || polygon.Parent?.Name.LocalName is not ("wrapTight" or "wrapThrough"))
+            return null;
+
+        var points = new List<(double X, double Y)>();
+        foreach (XElement point in polygon.Elements())
+        {
+            if (point.Name.LocalName is not ("start" or "lineTo") ||
+                !double.TryParse((string?)point.Attribute("x"), NumberStyles.Float, CultureInfo.InvariantCulture, out double x) ||
+                !double.TryParse((string?)point.Attribute("y"), NumberStyles.Float, CultureInfo.InvariantCulture, out double y))
+            {
+                continue;
+            }
+
+            points.Add((Math.Clamp(x / 21600d, 0, 1), Math.Clamp(y / 21600d, 0, 1)));
+        }
+
+        return points.Count >= 3 ? points : null;
     }
 
     /// <summary>
@@ -2026,7 +2067,11 @@ internal static class DocxReader
     /// </remarks>
     private static bool ReadVmlShape(XElement picture, DocxReadContext context)
     {
-        if (picture.Name != DocxNamespaces.Wordprocessing + "pict")
+        // An OLE object's preview (w:object > v:shape > v:imagedata) positions
+        // like any other VML picture, so an absolute one floats too.
+        bool isObjectPreview = picture.Name == DocxNamespaces.Wordprocessing + "object" &&
+            picture.Elements(DocxNamespaces.Vml + "shape").Any(shape => shape.Element(DocxNamespaces.Vml + "imagedata") is not null);
+        if (picture.Name != DocxNamespaces.Wordprocessing + "pict" && !isObjectPreview)
             return false;
 
         bool read = false;
@@ -2083,11 +2128,23 @@ internal static class DocxReader
         if (segment)
         {
             double[]? points = ReadVmlSegmentPoints(shape);
-            if (points is null || style.ContainsKey("rotation"))
+            if (points is null)
             {
                 context.Builder.AddDiagnosticOnce("docx.shape.geometry",
-                    "A VML line used unsupported coordinates, rotation or more than two points and was skipped.");
+                    "A VML line used unsupported coordinates or more than two points and was skipped.");
                 return true;
+            }
+            // A rotated line turns about its box's centre (tdf137765): rotate
+            // the end points there and draw the result unrotated.
+            if (style.Remove("rotation", out string? turn) && DocxVmlShapeWalker.Rotation(turn) is double angle and not 0)
+            {
+                double centerX = (points[0] + points[2]) / 2, centerY = (points[1] + points[3]) / 2;
+                for (int i = 0; i < 4; i += 2)
+                {
+                    double dx = points[i] - centerX, dy = points[i + 1] - centerY;
+                    points[i] = centerX + dx * Math.Cos(angle) - dy * Math.Sin(angle);
+                    points[i + 1] = centerY + dx * Math.Sin(angle) + dy * Math.Cos(angle);
+                }
             }
             lineLeft = Math.Min(points[0], points[2]);
             lineTop = Math.Min(points[1], points[3]);

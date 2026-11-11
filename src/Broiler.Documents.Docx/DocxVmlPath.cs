@@ -5,6 +5,7 @@ using System.Drawing;
 using System.Globalization;
 using System.IO;
 using System.IO.Compression;
+using System.Linq;
 using System.Xml.Linq;
 using Broiler.Graphics.Color;
 using Broiler.Graphics.Imaging;
@@ -44,25 +45,45 @@ internal static class DocxVmlPath
         int pixelsWide = Math.Max(1, (int)Math.Ceiling(width * scale));
         int pixelsHigh = Math.Max(1, (int)Math.Ceiling(height * scale));
 
-        var contours = new List<PointF[]>();
+        // VML's flip mirrors the path inside its box (tdf104115's arc is flip:y).
+        string flip = DocxVml.ReadStyle((string?)shape.Attribute("style")).GetValueOrDefault("flip") ?? "";
+        bool flipX = flip.Contains('x'), flipY = flip.Contains('y');
+
+        // Each contour remembers whether its subpath is filled and stroked:
+        // nf and ns switch either off until the subpath's e.
+        var contours = new List<(PointF[] Points, bool Fill, bool Stroke)>();
         var points = new List<PointF>();
         double x = 0, y = 0;
         int count = 0;
+        bool fillOn = true, strokeOn = true;
         for (int index = 0; index < path.Length;)
         {
             char command = path[index++];
             if (char.IsWhiteSpace(command))
                 continue;
-            if (command == 'e')
-                break;
-            if (command == 'x')
+            string name = command.ToString();
+            if (index < path.Length && (command, path[index]) is ('n', 'f' or 's') or ('w', 'a' or 'r') or ('a', 't' or 'r'))
+                name += path[index++];
+            if (name == "e")
+            {
+                FinishContour();
+                fillOn = strokeOn = true;
+                continue;
+            }
+            if (name is "nf" or "ns")
+            {
+                if (name == "nf") fillOn = false; else strokeOn = false;
+                continue;
+            }
+            if (name == "x")
             {
                 if (points.Count > 0)
                     points.Add(points[0]);
                 FinishContour();
                 continue;
             }
-            if (command is not ('m' or 'l' or 'r'))
+            bool arc = name is "wa" or "wr" or "at" or "ar";
+            if (!arc && name is not ("m" or "l" or "r"))
                 return null;
 
             int start = index;
@@ -72,25 +93,55 @@ internal static class DocxVmlPath
             string[] values = coordinates.Contains(',')
                 ? coordinates.Split(',', StringSplitOptions.TrimEntries)
                 : coordinates.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
-            if (values.Length == 0 || values.Length % 2 != 0 || (command == 'm' && values.Length != 2))
+            if (values.Length == 0 || values.Length % (arc ? 8 : 2) != 0 || (name == "m" && values.Length != 2))
                 return null;
 
-            if (command == 'm')
+            if (name == "m")
                 FinishContour();
-            else if (points.Count == 0)
+            else if (points.Count == 0 && !arc)
                 return null;
+
+            if (arc)
+            {
+                for (int i = 0; i < values.Length; i += 8)
+                {
+                    var v = new double[8];
+                    for (int k = 0; k < 8; k++)
+                        if (!Coordinate(values[i + k], out v[k]))
+                            return null;
+                    // An arc of the ellipse in the box (v0,v1)-(v2,v3) from the ray
+                    // through (v4,v5) to the ray through (v6,v7): wa and wr run
+                    // clockwise, at and ar counter-clockwise; ar and wr start a
+                    // new subpath where at and wa draw a line to the arc's start.
+                    double cx = (v[0] + v[2]) / 2, cy = (v[1] + v[3]) / 2;
+                    double rx = Math.Abs(v[2] - v[0]) / 2, ry = Math.Abs(v[3] - v[1]) / 2;
+                    if (rx <= 0 || ry <= 0)
+                        return null;
+                    double from = Math.Atan2((v[5] - cy) / ry, (v[4] - cx) / rx);
+                    double to = Math.Atan2((v[7] - cy) / ry, (v[6] - cx) / rx);
+                    bool clockwise = name[0] == 'w';
+                    double sweep = to - from;
+                    if (clockwise && sweep <= 0) sweep += 2 * Math.PI;
+                    if (!clockwise && sweep >= 0) sweep -= 2 * Math.PI;
+                    if (name is "ar" or "wr")
+                        FinishContour();
+                    int steps = Math.Max(2, (int)Math.Ceiling(Math.Abs(sweep) / (Math.PI / 64)));
+                    for (int step = 0; step <= steps; step++)
+                    {
+                        double angle = from + sweep * step / steps;
+                        if (!Add(cx + rx * Math.Cos(angle), cy + ry * Math.Sin(angle)))
+                            return null;
+                    }
+                }
+                continue;
+            }
 
             for (int i = 0; i < values.Length; i += 2)
             {
-                if (++count > 4096 || !Coordinate(values[i], out double a) || !Coordinate(values[i + 1], out double b))
+                if (!Coordinate(values[i], out double a) || !Coordinate(values[i + 1], out double b))
                     return null;
-                x = command == 'r' ? x + a : a;
-                y = command == 'r' ? y + b : b;
-                double px = (x - originX) * pixelsWide / spaceX;
-                double py = (y - originY) * pixelsHigh / spaceY;
-                if (!double.IsFinite(px) || !double.IsFinite(py) || Math.Abs(px) > 1e6 || Math.Abs(py) > 1e6)
+                if (!Add(name == "r" ? x + a : a, name == "r" ? y + b : b))
                     return null;
-                points.Add(new PointF((float)px, (float)py));
             }
         }
 
@@ -101,11 +152,12 @@ internal static class DocxVmlPath
         using var bitmap = new BBitmap(pixelsWide, pixelsHigh);
         using (var canvas = bitmap.OpenCanvas())
         {
-            if (!fill.IsEmpty)
-                canvas.FillGlyphContours(contours, fill);
+            var filled = contours.Where(c => c.Fill).Select(c => c.Points).ToList();
+            if (!fill.IsEmpty && filled.Count > 0)
+                canvas.FillGlyphContours(filled, fill);
             if (!stroke.IsEmpty)
-                foreach (PointF[] contour in contours)
-                    canvas.DrawPathStroke(contour, stroke, (float)Math.Clamp(strokeWidth * scale, 0.5, 1536));
+                foreach (var contour in contours.Where(c => c.Stroke))
+                    canvas.DrawPathStroke(contour.Points, stroke, (float)Math.Clamp(strokeWidth * scale, 0.5, 1536));
         }
 
         return EncodePng(bitmap);
@@ -113,8 +165,23 @@ internal static class DocxVmlPath
         void FinishContour()
         {
             if (points.Count >= 2)
-                contours.Add([.. points]);
+                contours.Add(([.. points], fillOn, strokeOn));
             points.Clear();
+        }
+
+        bool Add(double nextX, double nextY)
+        {
+            if (++count > 4096)
+                return false;
+            (x, y) = (nextX, nextY);
+            double px = (x - originX) * pixelsWide / spaceX;
+            double py = (y - originY) * pixelsHigh / spaceY;
+            if (flipX) px = pixelsWide - px;
+            if (flipY) py = pixelsHigh - py;
+            if (!double.IsFinite(px) || !double.IsFinite(py) || Math.Abs(px) > 1e6 || Math.Abs(py) > 1e6)
+                return false;
+            points.Add(new PointF((float)px, (float)py));
+            return true;
         }
     }
 

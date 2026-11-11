@@ -258,4 +258,37 @@ public sealed class DocxVmlShapeTests
         Assert.StartsWith("Watch LIVE\u2028ask", paragraph.Text);
         Assert.Contains(result.Diagnostics, d => d.Code == "docx.shape.wordart");
     }
+
+    [Fact]
+    public void A_WordArt_Shape_In_A_Text_Box_Inherits_Its_Type_And_Draws_Its_String()
+    {
+        // fdo78300: the text box's content is read detached from the document,
+        // so the v:shapetype that turns the text path on was not found.
+        DocumentReadResult result = Read(
+            "<v:shape style='position:absolute;margin-left:30pt;width:175pt;height:40pt' stroked='f'>" +
+            "<v:textbox><w:txbxContent><w:p><w:r><w:pict>" +
+            "<v:shapetype id='t136' coordsize='21600,21600'><v:textpath on='t' fitshape='t'/></v:shapetype>" +
+            "<v:shape type='#t136' style='width:150pt;height:19.5pt' fillcolor='#9400ed'>" +
+            "<v:textpath style='font-family:\"Arial Black\"' string='Homer was sleeping'/></v:shape>" +
+            "</w:pict></w:r></w:p></w:txbxContent></v:textbox></v:shape>");
+
+        DocumentShape box = Assert.Single(result.Document.Shapes);
+        Assert.Contains(box.Paragraphs, p => p.Text.Contains("Homer was sleeping"));
+        Assert.DoesNotContain(result.Diagnostics, d => d.Code == "docx.shape.geometry");
+    }
+
+    [Fact]
+    public void An_Arc_Path_With_Fill_And_Stroke_Switches_Is_Drawn_As_A_Picture()
+    {
+        // tdf104115: the built-in arc (o:spt 19) writes wr arcs and nf/ns
+        // switches, which the path reader refused, so only the box was drawn.
+        DocumentReadResult result = Read(
+            "<v:shape coordsize='21600,19987' style='position:absolute;left:0;top:0;width:10pt;height:20pt;flip:y' " +
+            "filled='f' strokeweight='3pt' path='wr-21600,-1613,21600,41587,8190,,21600,19987nfewr-21600,-1613,21600,41587," +
+            "8190,,21600,19987l,19987nsxe'/>");
+
+        DocumentShape shape = Assert.Single(result.Document.Shapes);
+        Assert.NotNull(shape.Image);
+        Assert.DoesNotContain(result.Diagnostics, d => d.Code == "docx.shape.geometry");
+    }
 }

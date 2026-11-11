@@ -71,7 +71,43 @@ internal sealed class OdtStyles : IOdtImageDiagnostics
     }
 
     /// <summary>The number of paragraph and text styles that were loaded.</summary>
-    public int Count => _styles.Count;
+    public int Count => _styles.Count - _builtInHeadings;
+
+    private int _builtInHeadings;
+
+    /// <summary>
+    /// The paragraph style a <c>text:h</c> that names none is drawn in:
+    /// <c>Heading N</c> for its outline level, as Writer assigns the outline
+    /// levels by default. A document that does not define it gets Writer's
+    /// built-in one (DocumentStylePoolManager): a child of <c>Heading</c>, bold,
+    /// at 130%, 115%, 101%, 95% then 85% of it, 12, 10, 7 then 6 pt above and
+    /// 6 pt below. Null for a level outside one to ten.
+    /// </summary>
+    public string? HeadingStyleName(int level)
+    {
+        if (level is < 1 or > 10)
+            return null;
+        string name = "Heading_20_" + level.ToString(CultureInfo.InvariantCulture);
+        var key = new StyleKey(ParagraphFamily, name);
+        if (_styles.ContainsKey(key))
+            return name;
+
+        string size = level switch { 1 => "130%", 2 => "115%", 3 => "101%", 4 => "95%", _ => "85%" };
+        string above = level switch { 1 => "12pt", 2 => "10pt", 3 => "7pt", _ => "6pt" };
+        _styles[key] = new StyleDefinition(
+            name,
+            _styles.ContainsKey(new StyleKey(ParagraphFamily, "Heading")) ? "Heading" : null,
+            new XElement(OdtNamespaces.Style + "paragraph-properties",
+                new XAttribute(OdtNamespaces.Fo + "margin-top", above),
+                new XAttribute(OdtNamespaces.Fo + "margin-bottom", "6pt")),
+            new XElement(OdtNamespaces.Style + "text-properties",
+                new XAttribute(OdtNamespaces.Fo + "font-size", size),
+                new XAttribute(OdtNamespaces.Fo + "font-weight", "bold")),
+            null,
+            null);
+        _builtInHeadings++;
+        return name;
+    }
 
     /// <summary>The number of list styles that were loaded.</summary>
     public int ListStyleCount => _listStyles.ContainsKey(OutlineKey) ? _listStyles.Count - 1 : _listStyles.Count;
@@ -703,8 +739,19 @@ internal sealed class OdtStyles : IOdtImageDiagnostics
     public ListDefinition? DefinitionForList(string? listStyleName) => FindListStyle(listStyleName)?.Definition;
 
     /// <summary>Explicit label-alignment indents for a list level, in points.</summary>
+    /// <remarks>
+    /// A list that names no style at all takes Writer's built-in numbering
+    /// rule (SwNumRule's label-alignment defaults): the text at a quarter inch
+    /// per level plus one, the label a quarter inch before it. tdf163285.fodt's
+    /// unstyled list sets its text at 1.27 cm, not at one 18 pt indent step.
+    /// </remarks>
     public (float? Left, float? First) IndentsForList(string? name, int level) =>
-        FindListStyle(name)?.IndentsAt(level) ?? (null, null);
+        string.IsNullOrEmpty(name)
+            ? ((float)(UnstyledListIndent * (Math.Max(1, level) + 1)), (float)-UnstyledListIndent)
+            : FindListStyle(name)?.IndentsAt(level) ?? (null, null);
+
+    /// <summary>Writer's built-in list indent step, a quarter inch, in points.</summary>
+    private const double UnstyledListIndent = 18.0;
 
     private ListStyle? FindListStyle(string? name)
     {

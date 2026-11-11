@@ -501,9 +501,13 @@ LibreOffice's `DomainMapperTableHandler` does:
   ICO.
 - A missing, external or unsupported-format picture is kept as an
   `InlineImage` placeholder with its stated size and alternative text
-  (`docx.image.missing`, `docx.image.external`, `docx.image.format`). EMF/WMF
-  metafiles — Word's charts, SmartArt and shape fallbacks — cannot be decoded
-  to pixels here and report `docx.image.format` rather than drawing as
+  (`docx.image.missing`, `docx.image.external`, `docx.image.format`). An EMF
+  is rasterized to PNG by the shared `EmfRasterizer` (the one RTF's
+  `\emfblip` uses): polygons, polylines, Bezier paths, rectangles, ellipses
+  and DIB blits (`STRETCHDIBITS`, `BITBLT`, `STRETCHBLT`, `ALPHABLEND`), so
+  `n779834.docx`'s header watermark logo draws. Text records are not drawn
+  and clip paths are ignored. A WMF, or an EMF drawing nothing in that
+  subset, still reports `docx.image.format` rather than drawing as
   nothing. An `r:link` image is not fetched, as that would be a network or
   file request driven by document content (ADR 0004).
 - A write stores each distinct image once under `word/media`, with its
@@ -555,6 +559,16 @@ LibreOffice's `DomainMapperTableHandler` does:
   reads as the page background's, approximations reported as
   `docx.shape.fill`; the outline is `strokecolor`, VML's default black, or none
   where `stroked` is off; the text is the `w:txbxContent` in its `v:textbox`.
+- An embedded object's preview (`w:object` > `v:shape` > `v:imagedata`) that
+  is `position:absolute` floats at its CSS box like a `w:pict` picture, so
+  `tdf133035.docx`'s OLE icon sits at its margins instead of at the start of
+  the line. The icon's caption is EMF text and is not drawn.
+- An ActiveX Forms 2.0 check box or option button (`w:object` > `w:control`,
+  no preview picture) reads as text: a ballot box or circle glyph, set when
+  its `Value` is `1`, drawn in DejaVu Sans as LibreOffice's fallback, then its
+  caption. The caption lives only in the control's compound-file `contents`
+  stream (MS-OFORMS `MorphDataControl`), which `DocxActiveX` reads
+  (`tdf118169.docx`). Other control classes are still skipped.
 - The column any shape frame converts to is that of the text's page: the
   margins of the last section that started a page, which a following
   continuous section keeps as LibreOffice lays it out. `tdf123163-1.docx`
@@ -596,6 +610,14 @@ LibreOffice's `DomainMapperTableHandler` does:
   widths, default 0.75 pt. Export keeps paths and widths and writes no fill
   for unfilled shapes. Group rotations and arbitrary preset paths remain
   outside this subset; VML line endpoints are not read by this path.
+- A rotated VML `v:line` (`tdf137765_testVmlLineShapeRotated.docx`) turns its
+  end points about their midpoint, clockwise by `rotation`, and is drawn as
+  the unrotated line between them; it was skipped before.
+- VML freeform paths read the arc commands `wa`, `wr`, `at` and `ar`, the
+  `nf`/`ns` fill and stroke switches (reset at each `e`, which no longer ends
+  the path), and the style's `flip`. `tdf104115.docx`'s built-in arc drew
+  its box before; LibreOffice collapses that arc to a zero-length butt-capped
+  path and draws no ink, which is not mimicked.
 - Text boxes keep DrawingML `bodyPr` insets and VML `inset`, explicit zero
   included; defaults are 7.2 points across and 3.6 down, and their paragraph
   spacing and list numbering lie inside. A box too short for its first line
@@ -651,6 +673,10 @@ sized so the longest line fits the shape's width. Glyphs are not stretched to
 the path (`docx.shape.wordart`). The sample's centred footer frame
 (`w:framePr w:xAlign="center"` in a footer) is still drawn at the left margin.
 
+The same applies inside a VML text box (`fdo78300.docx`): the box's
+`w:txbxContent` is read detached from the document, so the `v:shapetype`
+that turns the text path on is looked up from the content's topmost ancestor.
+
 ## Intentional Limits
 
 Each feature's limits are stated with it above. Beyond those:
@@ -704,7 +730,7 @@ told apart from one that *is* blank:
 | `docx.image.missing` | Warning | A picture referenced a media part the package does not contain. |
 | `docx.image.relationship` | Warning | A picture named an undefined relationship. |
 | `docx.image.external` | Warning | A picture linked to an image outside the package, which is not fetched. |
-| `docx.image.format` | Warning | A picture used a format this codec does not carry (EMF/WMF and the like). |
+| `docx.image.format` | Warning | A picture used a format this codec does not carry (WMF, or an EMF the rasterizer draws nothing of). |
 | `docx.image.limit` | Warning | An image part exceeded `MaxBinBytes` and was skipped. |
 | `docx.image.shape` | Warning | A drawing held no embedded picture. |
 | `docx.image.anchored` | Warning | A floating picture was anchored to its paragraph. |
@@ -757,6 +783,34 @@ Only a child inherited from a `v:shapetype` is replaced now. LibreOffice also
 draws an inline group shrunk to its children's bounds at the anchor, not with
 the canvas's empty lead space, so a top-level group stating no position starts
 its coordinate space at its children's least left and top.
+
+## Twip values past the 16-bit limit
+
+`large-twips.docx` states a `w:tblInd` and left cell margins of 65000 twips.
+Word, like LibreOffice's `convertTwipToMm100_Limited`, reads a table indent or
+cell margin of 32768 twips or more as a legacy 16-bit overflow and uses zero, so
+the table sits at the margin. Broiler pushed it 45 inches off the page and drew
+a blank one; `DocxValueReader.LimitTwips` now applies the same limit.
+
+## Floating table rows fused by keeps at the page foot
+
+`tdf170846_2.docx` anchors a floating table near the foot of page 1 whose first
+row's paragraphs all keep with the next and keep their lines, so the row is one
+unsplittable piece taller than the room left. Broiler carried the whole table
+to page 2 and left page 1 blank. LibreOffice neither splits nor moves the frame:
+it stays at its anchor and is cut off at the foot of the body. A first floating
+row whose first line fits but whose fused piece does not is now placed clipped
+(`RowBox.Clipped`) in the same way; a row that does not fit at all still moves.
+
+## Wrap polygons
+
+`tdf123163-1.docx` anchors full-width pictures with `wrapThrough` and a
+`wp:wrapPolygon` that covers the whole width at the top and only one side below,
+so LibreOffice runs text into the open corner. The polygon was ignored and the
+picture's whole box excluded text, pushing columns onto later pages. Pictures
+now carry `DocumentShape.WrapPolygon` (vertices as fractions of the box, from
+the 0-21600 coordinates), and `TextWrapExclusions` adds one rectangle per band
+between vertex heights, as wide as the outline in that band.
 
 ## Standards and rights
 
