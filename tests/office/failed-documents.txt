@@ -44,7 +44,6 @@ htmlimport/data/emojis16BE.html
 htmlimport/data/green-highlight.html
 htmlimport/data/hidden-textframe.html
 htmlimport/data/image-lazy-read.html
-htmlimport/data/image-size.html
 htmlimport/data/image-width-auto.html
 htmlimport/data/inlined_image.html
 htmlimport/data/list-style.html
@@ -135,7 +134,6 @@ layout/data/tdf123163-1.docx
 layout/data/tdf123268.odt
 layout/data/tdf123898.odt
 layout/data/tdf124423.docx
-layout/data/tdf124423.odt
 layout/data/tdf124600.docx
 layout/data/tdf124796.odt
 layout/data/tdf125334.odt
@@ -244,8 +242,6 @@ mailmerge/data/one-empty-address.ods
 mailmerge/data/pagecounttest.ott
 mailmerge/data/tdf128148.odt
 odfexport/data/2_MathType3.docx
-odfexport/data/DUMMY2.odt
-odfexport/data/DUMMY2B.odt
 odfexport/data/IsLegal.fodt
 odfexport/data/ParagraphMarkerMarkup.fodt
 odfexport/data/arabic-zero-numbering.odt
@@ -265,7 +261,6 @@ odfexport/data/fillbitmap3.odt
 odfexport/data/midnight_redline.fodt
 odfexport/data/nestedTableInFooter.odt
 odfexport/data/pagestyle_background_ooo33.odt
-odfexport/data/relh-page-tdf80282.odt
 odfexport/data/relh-page.odt
 odfexport/data/section-columns-separator.fodt
 odfexport/data/sender-initials.fodt
@@ -305,7 +300,6 @@ odfexport/data/tdf160518_page_in_text_body_style.fodt
 odfexport/data/tdf163575.docx
 odfexport/data/tdf166011.fodt
 odfexport/data/tdf166011ee.fodt
-odfexport/data/tdf168980.docx
 odfexport/data/tdf169882.odt
 odfexport/data/tdf71583.odt
 odfexport/data/tdf75837.fodt
@@ -403,7 +397,6 @@ ooxmlexport/data/fdo66688.docx
 ooxmlexport/data/fdo66781.docx
 ooxmlexport/data/fdo69636.docx
 ooxmlexport/data/fdo70457.docx
-ooxmlexport/data/fdo70812.docx
 ooxmlexport/data/fdo71834.docx
 ooxmlexport/data/fdo73215.docx
 ooxmlexport/data/fdo73596_AlphaSeparator.docx
@@ -418,7 +411,6 @@ ooxmlexport/data/fdo76803.docx
 ooxmlexport/data/fdo76979.docx
 ooxmlexport/data/fdo77117.docx
 ooxmlexport/data/fdo77129.docx
-ooxmlexport/data/fdo77476.docx
 ooxmlexport/data/fdo77759.docx
 ooxmlexport/data/fdo77812.docx
 ooxmlexport/data/fdo77887.docx
@@ -579,7 +571,6 @@ ooxmlexport/data/tdf125657.docx
 ooxmlexport/data/tdf126533_axialAngle.docx
 ooxmlexport/data/tdf126533_axialAngle2.docx
 ooxmlexport/data/tdf126792.odt
-ooxmlexport/data/tdf128245.docx
 ooxmlexport/data/tdf128646.docx
 ooxmlexport/data/tdf128820.fodt
 ooxmlexport/data/tdf128889.fodt
@@ -673,7 +664,6 @@ ooxmlexport/data/tdf153964_topMarginAfterBreak15.docx
 ooxmlexport/data/tdf154369.docx
 ooxmlexport/data/tdf154703_framePr2.rtf
 ooxmlexport/data/tdf155707.docx
-ooxmlexport/data/tdf155903.odt
 ooxmlexport/data/tdf156105_percentSuffix.odt
 ooxmlexport/data/tdf158597.docx
 ooxmlexport/data/tdf159032.docx
@@ -966,7 +956,6 @@ rtfimport/data/fdo80742.rtf
 rtfimport/data/fdo81033.rtf
 rtfimport/data/fdo82071.rtf
 rtfimport/data/fdo84685.rtf
-rtfimport/data/groupshape-rotation.rtf
 rtfimport/data/groupshape.rtf
 rtfimport/data/hidden-para-separator.rtf
 rtfimport/data/ink.rtf
@@ -1011,8 +1000,6 @@ tiledrendering/data/shape-fill-link.fodt
 tiledrendering/data/tdf117448.fodt
 tiledrendering/data/tdf168318.fodt
 tiledrendering/data/two-paragraph-background-links.fodt
-uiwriter/data/DUMMY2.odt
-uiwriter/data/DUMMY2B.odt
 uiwriter/data/FrameInHiddenSection.fodt
 uiwriter/data/HiddenSection.odt
 uiwriter/data/IndexElementsInHiddenSections.fodt
