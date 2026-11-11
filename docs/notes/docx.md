@@ -563,6 +563,12 @@ LibreOffice's `DomainMapperTableHandler` does:
   is `position:absolute` floats at its CSS box like a `w:pict` picture, so
   `tdf133035.docx`'s OLE icon sits at its margins instead of at the start of
   the line. The icon's caption is EMF text and is not drawn.
+- An ActiveX Forms 2.0 check box or option button (`w:object` > `w:control`,
+  no preview picture) reads as text: a ballot box or circle glyph, set when
+  its `Value` is `1`, drawn in DejaVu Sans as LibreOffice's fallback, then its
+  caption. The caption lives only in the control's compound-file `contents`
+  stream (MS-OFORMS `MorphDataControl`), which `DocxActiveX` reads
+  (`tdf118169.docx`). Other control classes are still skipped.
 - The column any shape frame converts to is that of the text's page: the
   margins of the last section that started a page, which a following
   continuous section keeps as LibreOffice lays it out. `tdf123163-1.docx`

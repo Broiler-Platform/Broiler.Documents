@@ -355,6 +355,33 @@ internal sealed class DocxImageLoader(ZipArchive archive, DocumentLimits limits,
     }
 
     /// <summary>
+    /// Reads the check box or option button a <c>w:control</c> names: its
+    /// <c>activeX</c> part's class id and, through that part's relationships,
+    /// the persisted compound file. Null for any other control or a broken chain.
+    /// </summary>
+    public DocxActiveX.Control? ReadControl(XElement control, DocxRelationships relationships)
+    {
+        string? id = (string?)control.Attribute(DocxNamespaces.Relationships + "id");
+        if (id is null || !relationships.TryGet(id, out DocxRelationship? relationship) || relationship is null ||
+            relationship.TargetModeExternal || DocxPackage.FindEntry(archive, relationship.Target) is not ZipArchiveEntry entry)
+            return null;
+
+        var ignored = new List<DocumentDiagnostic>();
+        XElement? root = DocxPackage.LoadEntryXml(entry, limits, ignored, "docx.control")?.Root;
+        string? binaryId = (string?)root?.Attribute(DocxNamespaces.Relationships + "id");
+        if (root is null || binaryId is null)
+            return null;
+        XNamespace activeX = "http://schemas.microsoft.com/office/2006/activeX";
+        DocxRelationships binaryRelationships = DocxPackage.ReadRelationships(archive,
+            DocxPackage.RelationshipsPartPath(relationship.Target), DocxPackage.BasePartDirectory(relationship.Target), limits, ignored);
+        if (!binaryRelationships.TryGet(binaryId, out DocxRelationship? binary) || binary is null || binary.TargetModeExternal ||
+            DocxPackage.FindEntry(archive, binary.Target) is not ZipArchiveEntry binaryEntry ||
+            ReadEntryBytes(binaryEntry, limits.MaxBinBytes) is not byte[] bytes)
+            return null;
+        return DocxActiveX.Read((string?)root.Attribute(activeX + "classid"), bytes);
+    }
+
+    /// <summary>
     /// Loads a media part's bytes, once per part path. A part that fails — too
     /// large, missing, or not a raster format — is cached as a failure so a
     /// document that references it a hundred times reports once and does not

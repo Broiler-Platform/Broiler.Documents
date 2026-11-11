@@ -1383,7 +1383,18 @@ internal static class DocxReader
             {
                 // Embedded objects (OLE) include a cached visual presentation
                 // (a VML shape/pict or DrawingML drawing) as a fallback preview.
-                if (child.Element(DocxNamespaces.Wordprocessing + "drawing") is { } drawing)
+                // An ActiveX check box or option button has no preview picture;
+                // it reads as its glyph and caption, as LibreOffice draws it.
+                if (child.Element(DocxNamespaces.Wordprocessing + "control") is { } control &&
+                    !child.Descendants(DocxNamespaces.Vml + "imagedata").Any() &&
+                    context.Images.ReadControl(control, context.Relationships) is { } activeX)
+                {
+                    // The glyph is drawn in the face LibreOffice falls back to for it.
+                    builder.AppendText(activeX.Glyph, style with { FontFamily = "DejaVu Sans" });
+                    if (activeX.Caption.Length > 0)
+                        builder.AppendText(" " + activeX.Caption, style);
+                }
+                else if (child.Element(DocxNamespaces.Wordprocessing + "drawing") is { } drawing)
                     ReadPicture(drawing, context, style);
                 else if (child.Element(DocxNamespaces.Wordprocessing + "pict") is { } pict)
                     ReadPicture(pict, context, style);
