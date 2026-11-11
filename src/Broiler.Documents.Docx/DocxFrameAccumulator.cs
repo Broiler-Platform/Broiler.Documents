@@ -99,12 +99,20 @@ internal sealed class DocxFrameAccumulator
         };
     }
 
+    /// <remarks>
+    /// In a header or footer only a frame placed on the page is read as one: a
+    /// <c>w:vAnchor</c> of <c>page</c> or <c>margin</c>, which is where Word and
+    /// LibreOffice draw it whatever the band holds, as <c>tdf112446_frameStyle.docx</c>'s
+    /// page number 237 points down a 297-point page. A running band's frame
+    /// that hangs from its paragraph (<c>vAnchor="text"</c>, the usual page
+    /// number at the band's right) stays a paragraph of the band, as before.
+    /// </remarks>
     public static DocxFrameProperties? ReadProperties(
         XElement? pPr,
         string? paragraphStyleId,
         DocxReadContext context)
     {
-        if (context.Band != RunningBand.Body || context.InNote || context.Builder.InTableCell)
+        if (context.InNote || context.Builder.InTableCell)
             return null;
 
         IReadOnlyList<XElement> chain = context.Styles.ParagraphProperties(paragraphStyleId, context.TableStyle, context.TableConditions);
@@ -174,9 +182,23 @@ internal sealed class DocxFrameAccumulator
 
         for (int i = 0; i < chain.Count; i++)
             Apply(chain[i]);
+
+        // A position the paragraph states itself replaces the alignment its
+        // style gives: tdf112446_frameStyle.docx's page number names x="3742"
+        // over a style's xAlign="right", and LibreOffice places it at x
+        // (HoriOrient NONE in its test for the bug).
+        XElement? own = pPr?.Element(DocxNamespaces.Wordprocessing + "framePr");
+        if (own?.Attribute(DocxNamespaces.Wordprocessing + "x") is not null &&
+            own.Attribute(DocxNamespaces.Wordprocessing + "xAlign") is null)
+            xAlign = null;
+        if (own?.Attribute(DocxNamespaces.Wordprocessing + "y") is not null &&
+            own.Attribute(DocxNamespaces.Wordprocessing + "yAlign") is null)
+            yAlign = null;
         Apply(pPr);
 
         if (dropCap is "drop" or "margin" || width == 0 && height == 0 && heightRule == "exact")
+            return null;
+        if (context.Band != RunningBand.Body && (vAnchor is not ("page" or "margin") || yAlign == "inline"))
             return null;
 
         return new DocxFrameProperties(

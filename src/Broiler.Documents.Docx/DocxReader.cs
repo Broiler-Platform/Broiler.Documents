@@ -810,8 +810,9 @@ internal static class DocxReader
             SplitPgBreakAndParaMark = splitPgBreakAndParaMark,
         };
         var context = new DocxReadContext(
-            partRelationships, numbering, styles, images, builder, page, band);
+            partRelationships, numbering, styles, images, builder, page, band, Frames: new DocxFrameAccumulator());
         ReadBlockContent(partXml.Root.Elements(), context, depth: 0);
+        context.Frames?.Finish(context);
 
         RichTextDocument part = builder.Build();
         return (part.Paragraphs, part.Shapes, part.Tables);
