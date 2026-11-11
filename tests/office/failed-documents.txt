@@ -98,7 +98,6 @@ layout/data/inline-textbox-position.docx
 layout/data/input_field_name.fodt
 layout/data/legend-itemorder-min.docx
 layout/data/linked_frames_section_bug.odt
-layout/data/many-paragraphs-per-page-in-6-columns.odt
 layout/data/merge_hidden_redline.docx
 layout/data/merge_hidden_redline_lineheight.rtf
 layout/data/min-wtf.rtf
@@ -292,7 +291,6 @@ odfexport/data/tdf137199.docx
 odfexport/data/tdf139126.odt
 odfexport/data/tdf143793_noBodyWrapping.odt
 odfexport/data/tdf144319.odt
-odfexport/data/tdf145871.odt
 odfexport/data/tdf150149.fodt
 odfexport/data/tdf151100.docx
 odfexport/data/tdf152710.odt
@@ -346,9 +344,7 @@ odfimport/data/tdf151375.ott
 odfimport/data/tdf159549.fodt
 odfimport/data/tdf162398.fodt
 odfimport/data/tdf167774.odt
-odfimport/data/tdf41542_borderlessPadding.odt
 odfimport/data/tdf76349_1columnBreak.odt
-odfimport/data/timeFormFormats.odt
 ooxmlexport/data/090716_Studentische_Arbeit_VWS.docx
 ooxmlexport/data/1-table-1-page.docx
 ooxmlexport/data/128197_compat15.docx
@@ -400,7 +396,6 @@ ooxmlexport/data/embedded-xlsx.docx
 ooxmlexport/data/embedded_chart.odt
 ooxmlexport/data/fdo46361.docx
 ooxmlexport/data/fdo53985.docx
-ooxmlexport/data/fdo55381.docx
 ooxmlexport/data/fdo60957-2.docx
 ooxmlexport/data/fdo61343.docx
 ooxmlexport/data/fdo65833.docx
@@ -409,7 +404,6 @@ ooxmlexport/data/fdo66781.docx
 ooxmlexport/data/fdo69636.docx
 ooxmlexport/data/fdo70457.docx
 ooxmlexport/data/fdo70812.docx
-ooxmlexport/data/fdo70838.docx
 ooxmlexport/data/fdo71834.docx
 ooxmlexport/data/fdo73215.docx
 ooxmlexport/data/fdo73596_AlphaSeparator.docx
@@ -433,7 +427,6 @@ ooxmlexport/data/fdo78384.docx
 ooxmlexport/data/fdo78420.docx
 ooxmlexport/data/fdo78432.docx
 ooxmlexport/data/fdo78658.docx
-ooxmlexport/data/fdo78659.docx
 ooxmlexport/data/fdo78663.docx
 ooxmlexport/data/fdo78883.docx
 ooxmlexport/data/fdo79008.docx
@@ -457,7 +450,6 @@ ooxmlexport/data/floattable-nested-cell-start.odt
 ooxmlexport/data/floattable-nested.odt
 ooxmlexport/data/formula-result.fodt
 ooxmlexport/data/groupshape-picture.docx
-ooxmlexport/data/groupshape-rotation.docx
 ooxmlexport/data/groupshape-smarttag.docx
 ooxmlexport/data/gutter-top.docx
 ooxmlexport/data/hyperlink-field.odt
@@ -540,8 +532,6 @@ ooxmlexport/data/tdf109310_endnoteStyleForMSO.docx
 ooxmlexport/data/tdf111964.docx
 ooxmlexport/data/tdf112118.docx
 ooxmlexport/data/tdf112169.odt
-ooxmlexport/data/tdf112287.docx
-ooxmlexport/data/tdf112287B.docx
 ooxmlexport/data/tdf112446_frameStyle.docx
 ooxmlexport/data/tdf114308.docx
 ooxmlexport/data/tdf117988.docx
@@ -606,7 +596,6 @@ ooxmlexport/data/tdf133070_testRelativeAnchorHeightFromBottomMarginHasFooter.doc
 ooxmlexport/data/tdf133163.fodt
 ooxmlexport/data/tdf133363.docx
 ooxmlexport/data/tdf133370_columnBreak.odt
-ooxmlexport/data/tdf133457.docx
 ooxmlexport/data/tdf133473.docx
 ooxmlexport/data/tdf133647.docx
 ooxmlexport/data/tdf133701.docx
@@ -623,11 +612,9 @@ ooxmlexport/data/tdf135665.docx
 ooxmlexport/data/tdf135774_numberingCRProps.docx
 ooxmlexport/data/tdf136386_WrapPolygonLineShape.odt
 ooxmlexport/data/tdf136404.fodt
-ooxmlexport/data/tdf136814.odt
 ooxmlexport/data/tdf137335_whitespaceLineHeight.docx
 ooxmlexport/data/tdf137335_whitespaceLineHeight2.docx
 ooxmlexport/data/tdf137641_RelativeFromTopMargin.docx
-ooxmlexport/data/tdf137642_Vertical_Alignment_toppage.docx
 ooxmlexport/data/tdf137655.docx
 ooxmlexport/data/tdf137765_testVmlLineShapeRotated.docx
 ooxmlexport/data/tdf137850_compat14ZOrder.docx
@@ -688,9 +675,6 @@ ooxmlexport/data/tdf154703_framePr2.rtf
 ooxmlexport/data/tdf155707.docx
 ooxmlexport/data/tdf155903.odt
 ooxmlexport/data/tdf156105_percentSuffix.odt
-ooxmlexport/data/tdf157572_defaultVAnchor.docx
-ooxmlexport/data/tdf157572_insidiousCombination.docx
-ooxmlexport/data/tdf157572_noVAlignAsText.docx
 ooxmlexport/data/tdf158597.docx
 ooxmlexport/data/tdf159032.docx
 ooxmlexport/data/tdf159158_zOrder_1and0equalB.docx
@@ -738,7 +722,6 @@ ooxmlexport/data/tdf172113_linespacingLineBreaks.odt
 ooxmlexport/data/tdf172113_linespacingNumbering.odt
 ooxmlexport/data/tdf172233_linespacingGap.odt
 ooxmlexport/data/tdf32363.docx
-ooxmlexport/data/tdf41542_borderlessPadding.odt
 ooxmlexport/data/tdf46940_dontEquallyDistributeColumns.docx
 ooxmlexport/data/tdf55427_footnote2endnote.odt
 ooxmlexport/data/tdf57589_hashColor.docx
@@ -779,9 +762,7 @@ ooxmlexport/data/testWordArtWithinDraingtool.docx
 ooxmlexport/data/test_line_spacing.docx
 ooxmlexport/data/test_msword_hang.docx
 ooxmlexport/data/test_segfault_while_save.docx
-ooxmlexport/data/watermark-font.docx
 ooxmlexport/data/watermark-shapetype.docx
-ooxmlexport/data/watermark.docx
 ooxmlimport/data/WordArt.docx
 ooxmlimport/data/bnc779620.docx
 ooxmlimport/data/btlr-frame-vml.docx
@@ -828,7 +809,6 @@ ooxmlimport/data/tdf129912.docx
 ooxmlimport/data/tdf133448.docx
 ooxmlimport/data/tdf133647.docx
 ooxmlimport/data/tdf133647_unicode.docx
-ooxmlimport/data/tdf134902.docx
 ooxmlimport/data/tdf141969-font_in_table_with_style.docx
 ooxmlimport/data/tdf143219_ContourWrap_rotate.docx
 ooxmlimport/data/tdf143475_rotatedWord2007imageInline.docx
@@ -886,16 +866,12 @@ rtfexport/data/fdo48037.rtf
 rtfexport/data/fdo48193.rtf
 rtfexport/data/fdo48446.rtf
 rtfexport/data/fdo49893-2.rtf
-rtfexport/data/fdo52989.rtf
-rtfexport/data/fdo55493.rtf
 rtfexport/data/fdo55504-1-min.rtf
 rtfexport/data/fdo59638.rtf
 rtfexport/data/fdo62044.rtf
 rtfexport/data/fdo66040.rtf
 rtfexport/data/fdo66682.rtf
-rtfexport/data/fdo70221.rtf
 rtfexport/data/fdo72031.rtf
-rtfexport/data/fdo76633.rtf
 rtfexport/data/fdo79384.rtf
 rtfexport/data/fdo82860.odt
 rtfexport/data/fdo83204.rtf
@@ -903,8 +879,6 @@ rtfexport/data/fdo83464.rtf
 rtfexport/data/fdo85889-mac.rtf
 rtfexport/data/fdo85889-pc.rtf
 rtfexport/data/fdo85889-pca.rtf
-rtfexport/data/fdo86761.rtf
-rtfexport/data/graphic-object-fliph.rtf
 rtfexport/data/gutter-top.rtf
 rtfexport/data/hexcrlf.rtf
 rtfexport/data/i120928.rtf
@@ -912,7 +886,6 @@ rtfexport/data/invalidParagraphStyle.rtf
 rtfexport/data/levelfollow.rtf
 rtfexport/data/listWithLgl.rtf
 rtfexport/data/min-3.rtf
-rtfexport/data/n192129.rtf
 rtfexport/data/n825305.rtf
 rtfexport/data/num-override-start.rtf
 rtfexport/data/numbering-font.rtf
@@ -956,8 +929,6 @@ rtfexport/data/tdf153195.rtf
 rtfexport/data/tdf153613_anchoredAfterPgBreak.rtf
 rtfexport/data/tdf153613_anchoredAfterPgBreak4.rtf
 rtfexport/data/tdf153613_anchoredAfterPgBreak5.rtf
-rtfexport/data/tdf153613_inlineAfterPgBreak.rtf
-rtfexport/data/tdf153613_inlineAfterPgBreak2.rtf
 rtfexport/data/tdf156030.rtf
 rtfexport/data/tdf158586_lostFrame.rtf
 rtfexport/data/tdf158586_pageBreak0.rtf
@@ -974,7 +945,6 @@ rtfexport/data/tdf167569.rtf
 rtfexport/data/tdf167661.rtf
 rtfexport/data/tdf49073.rtf
 rtfexport/data/tdf65642.rtf
-rtfexport/data/tdf77349.rtf
 rtfexport/data/tdf88811.rtf
 rtfexport/data/tdf90421.fodt
 rtfexport/data/tdf94456.rtf
@@ -996,7 +966,6 @@ rtfimport/data/fdo80742.rtf
 rtfimport/data/fdo81033.rtf
 rtfimport/data/fdo82071.rtf
 rtfimport/data/fdo84685.rtf
-rtfimport/data/fdo85179.rtf
 rtfimport/data/groupshape-rotation.rtf
 rtfimport/data/groupshape.rtf
 rtfimport/data/hidden-para-separator.rtf
@@ -1034,7 +1003,6 @@ tiledrendering/data/3pages-shape.odt
 tiledrendering/data/background-image-link.fodt
 tiledrendering/data/comments-on-load.docx
 tiledrendering/data/dummy.fodt
-tiledrendering/data/form-image-link.fodt
 tiledrendering/data/image-bullet-link.fodt
 tiledrendering/data/large-chart-labels.odt
 tiledrendering/data/numrules.odt
@@ -1088,7 +1056,6 @@ uiwriter/data/tdf111969_field.fodt
 uiwriter/data/tdf111969_fieldB.fodt
 uiwriter/data/tdf112741.fodt
 uiwriter/data/tdf114973.fodt
-uiwriter/data/tdf116403-considerborders.odt
 uiwriter/data/tdf116789.fodt
 uiwriter/data/tdf118311.fodt
 uiwriter/data/tdf124904.fodt
@@ -1160,12 +1127,10 @@ uiwriter/data/text-with-formula-one-paragraph.fodt
 uiwriter/data/textfield-getanchor-gettext-in-footer.odt
 uiwriter/data/unfloatable_floating_table.odt
 uiwriter/data/variable-field-table-row-split-header.fodt
-uiwriter/data/watermark.docx
 unowriter/data/bookmark_1.html
 unowriter/data/hyperlink.fodt
 unowriter/data/tdf161035.fodt
 unowriter/data/textboxInColumn2.fodt
-ww8export/data/bordercolours.odt
 ww8export/data/charborder.odt
 ww8export/data/checkbox_control.odt
 ww8export/data/empty_group.docx
@@ -1178,8 +1143,6 @@ ww8export/data/tdf127316_autoEscapement2.odt
 ww8export/data/tdf127862_pageFillStyle.odt
 ww8export/data/tdf132726.odt
 ww8export/data/tdf134264.docx
-ww8export/data/tdf136814.odt
-ww8export/data/tdf41542_borderlessPadding.odt
 ww8export/data/tdf46441-2.odt
 ww8export/data/tdf55427_footnote2endnote.odt
 ww8export/data/tdf70838.odt
