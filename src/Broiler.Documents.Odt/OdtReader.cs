@@ -637,13 +637,19 @@ internal static class OdtReader
             if (part is null)
                 continue;
 
-            PageGeometry? page = !isHeader ? ReadPageGeometry(master, styles, []) : null;
+            // A header's frames are placed against the page as well: one aligned to
+            // the right of the page's content area (i84870.fodt) needs its width,
+            // and without a page it was put a frame's width left of the margin.
+            PageGeometry? page = ReadPageGeometry(master, styles, []);
             XElement? footerProperties = !isHeader ? PageLayoutProperties(master, styles)?.Parent
                 ?.Element(OdtNamespaces.Style + "footer-style")
                 ?.Element(OdtNamespaces.Style + "header-footer-properties") : null;
-            double? footerOrigin = page is PageGeometry geometry
-                ? geometry.Height - geometry.MarginBottom + (footerProperties is null ? 0 : Math.Max(0, Length(footerProperties, "margin-top")))
-                : null;
+            // Where the band starts down the page, which a frame anchored to one of
+            // its paragraphs measures from: the header starts at the page's top
+            // margin, the footer below the body and the footer's own spacing.
+            double? bandOrigin = page is not PageGeometry geometry ? null
+                : isHeader ? geometry.HeaderDistance
+                : geometry.Height - geometry.MarginBottom + (footerProperties is null ? 0 : Math.Max(0, Length(footerProperties, "margin-top")));
             // A page number that states no format of its own takes the one of the
             // page it is on (style:num-format on the page layout), as Writer does.
             ListNumberFormat? outerFormat = styles.PageNumberFormat;
@@ -653,7 +659,7 @@ internal static class OdtReader
             IReadOnlyList<DocumentTable> tables;
             try
             {
-                (paragraphs, shapes, tables) = ReadPart(part, styles, images, limits, diagnostics, page, footerOrigin);
+                (paragraphs, shapes, tables) = ReadPart(part, styles, images, limits, diagnostics, page, bandOrigin);
             }
             finally
             {
@@ -1585,8 +1591,8 @@ internal static class OdtReader
                 return (0, x, fromTop, true);
             }
 
-            if (anchorType is "paragraph" or "char" && context.FooterOrigin is double footerTop)
-                return (0, x, footerTop + y, true);
+            if (anchorType is "paragraph" or "char" && context.BandOrigin is double bandTop)
+                return (0, x, bandTop + y, true);
 
             return (0, x, y, false);
         }
@@ -2096,10 +2102,10 @@ internal static class OdtReader
         DocumentLimits limits,
         List<DocumentDiagnostic> diagnostics,
         PageGeometry? page,
-        double? footerOrigin)
+        double? bandOrigin)
     {
         var builder = new OdtDocumentBuilder(limits, diagnostics);
-        var context = new OdtReadContext(styles, images, builder, page) { FooterOrigin = footerOrigin };
+        var context = new OdtReadContext(styles, images, builder, page) { BandOrigin = bandOrigin };
         ReadBlockContent(part.Elements(), context, list: null, depth: 0);
         context.DropPageBreak();
 

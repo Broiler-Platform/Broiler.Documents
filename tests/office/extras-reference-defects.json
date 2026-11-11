@@ -395,6 +395,17 @@
       "samples": ["rtfimport/data/tblrepeat.rtf"],
       "evidence": "The table's first three rows carry \\trhdr. LibreOffice 24.2's RTF import ignored \\trhdr, so the pinned PDF draws the three header rows on page one only and leaves page two, which holds the table's empty rows, blank. The fix, committed to master on 2025-02-18 and first released in 25.8, came with this sample and a test asserting HeaderRowCount 3. Local LibreOffice 26.2 repeats the rows on page two, as broilerdoc does. The text export lists the header text once either way, so only the pixel check is affected.",
       "reference": "docs/notes/office-issue-234-rtf.md"
+    },
+    {
+      "id": "tdf165089-word-grid-centred",
+      "bug": "tdf#165089",
+      "fixedIn": "25.8",
+      "fixCommits": ["fd7717f81b18faab0e400c9fa3e87c4579f254d1"],
+      "upstreamTests": ["sw/qa/extras/layout/layout5.cxx testTdf165089"],
+      "axes": ["pixel"],
+      "samples": ["layout/data/tdf165089.fodt"],
+      "evidence": "The page has a printed line text grid of four lines and the document sets the MsWordCompGridMetrics compatibility flag. LibreOffice 24.2 centres the grid on the page, so the pinned PDF draws the paragraph and the grid lines about 4.4 in down the page. The fix, committed to master on 2025-02-18 and first released in 25.8, turns the centring off under Word grid metrics; its test pins the paragraph to the top of the page, as the sample's own text says it should be. Local LibreOffice 26.2.6.3 draws the paragraph at the top of the body, where broilerdoc draws it. The text export is the same either way.",
+      "reference": "docs/notes/office-issue-236-odt-layout.md"
     }
   ]
 }
