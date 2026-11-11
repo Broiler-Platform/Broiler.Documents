@@ -93,7 +93,15 @@ internal sealed class OdtImageLoader(
 
             if (lastResult is LoadResult.Missing or LoadResult.External or LoadResult.Format && width > 0 && height > 0)
             {
-                var placeholder = InlineImage.CreateMissingPayload(width, height, altText, name);
+                // A picture the package does not hold - an entry that is absent, or a
+                // relative link out of the package that LibreOffice resolves against
+                // the file system and does not find - prints as an empty frame in
+                // LibreOffice: its replacement graphic is not part of the printed or
+                // exported page. The box keeps its place and draws nothing. A URL or
+                // an undecodable format keeps the mark, because LibreOffice draws a
+                // picture there that this codec does not.
+                var placeholder = InlineImage.CreateMissingPayload(width, height, altText, name,
+                    marked: lastResult != LoadResult.Missing);
                 if (!_resources.TryAdmit(
                         new DocumentResourceRequest(
                             placeholder.Resource,

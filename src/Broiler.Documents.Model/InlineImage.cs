@@ -242,7 +242,8 @@ public sealed class InlineImage(
     string? altText = null,
     string? name = null,
     ImagePresentation? presentation = null,
-    bool isMissingPayload = false)
+    bool isMissingPayload = false,
+    bool marksMissingPayload = true)
 {
     /// <summary>
     /// Creates a placeholder image for a picture whose payload is missing,
@@ -253,7 +254,8 @@ public sealed class InlineImage(
         double? height,
         string? altText = null,
         string? name = null,
-        ImagePresentation? presentation = null) =>
+        ImagePresentation? presentation = null,
+        bool marked = true) =>
         new(
             BImageResource.FromEncoded(ReadOnlyMemory<byte>.Empty, "application/octet-stream"),
             default,
@@ -262,7 +264,8 @@ public sealed class InlineImage(
             altText,
             name,
             presentation,
-            isMissingPayload: true);
+            isMissingPayload: true,
+            marksMissingPayload: marked);
 
     /// <summary>
     /// True when the picture payload could not be loaded (missing from the container,
@@ -271,6 +274,15 @@ public sealed class InlineImage(
     /// </summary>
     public bool IsMissingPayload { get; } = isMissingPayload ||
         (resource.TryGetEncoded(out ReadOnlyMemory<byte> rawBytes, out _) && rawBytes.IsEmpty && !resource.TryGetPixels(out _));
+
+    /// <summary>
+    /// Whether a page marks the box of a picture whose payload is missing. True
+    /// by default: the page shows where content is missing. False where the
+    /// source's own application prints nothing there - LibreOffice prints an
+    /// ODT frame whose linked picture it cannot find as an empty box - so the
+    /// box keeps its place in the layout and draws no ink.
+    /// </summary>
+    public bool MarksMissingPayload { get; } = marksMissingPayload;
     /// <summary>
     /// U+FFFC OBJECT REPLACEMENT CHARACTER — the one character an image run
     /// holds. Text is never stored for an image; alternative text lives in
@@ -427,22 +439,22 @@ public sealed class InlineImage(
 
     /// <summary>Returns the same image drawn at a different size.</summary>
     public InlineImage WithSize(double? width, double? height) =>
-        new(Resource, ResourceId, width, height, AltText, Name, Presentation, IsMissingPayload);
+        new(Resource, ResourceId, width, height, AltText, Name, Presentation, IsMissingPayload, MarksMissingPayload);
 
     /// <summary>Returns the same image with different alternative text.</summary>
     public InlineImage WithAltText(string? altText) =>
-        new(Resource, ResourceId, Width, Height, altText, Name, Presentation, IsMissingPayload);
+        new(Resource, ResourceId, Width, Height, altText, Name, Presentation, IsMissingPayload, MarksMissingPayload);
 
     /// <summary>Returns the same image cropped and masked differently.</summary>
     public InlineImage WithPresentation(ImagePresentation? presentation) =>
-        new(Resource, ResourceId, Width, Height, AltText, Name, presentation, IsMissingPayload);
+        new(Resource, ResourceId, Width, Height, AltText, Name, presentation, IsMissingPayload, MarksMissingPayload);
 
     /// <summary>
     /// Returns the same image bound to a different conversion context's entry,
     /// which is what admitting a pasted or merged picture produces.
     /// </summary>
     public InlineImage WithResourceId(DocumentResourceId resourceId) =>
-        new(Resource, resourceId, Width, Height, AltText, Name, Presentation, IsMissingPayload);
+        new(Resource, resourceId, Width, Height, AltText, Name, Presentation, IsMissingPayload, MarksMissingPayload);
 
     private static double? Validate(double? value, string name)
     {
