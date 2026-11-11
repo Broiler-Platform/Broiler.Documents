@@ -466,6 +466,23 @@ public sealed class DocumentLayoutSectionTests
     }
 
     [Fact]
+    public void An_Even_First_Section_Opens_On_Page_Two_And_Page_Anchors_Count_The_Blank()
+    {
+        // LibreOffice starts a document whose first page style is left-only on
+        // page 2, and a frame anchored to page 3 then stands on the page after.
+        RichTextDocument document = RichTextDocument.FromParagraphs([Line("left")])
+            .WithSections([new DocumentSection(0, 1, 1, 0, breakType: SectionBreakType.EvenPage)])
+            .WithShapes([new DocumentShape(0, 10, 10, 20, 20, anchorPage: 3)]);
+
+        IReadOnlyList<LayoutPage> pages = Layout(document).Pages;
+
+        Assert.Equal(3, pages.Count);
+        Assert.True(pages[0].IsParityBlank);
+        Assert.Equal(0, pages[1].Lines[0].ParagraphIndex);
+        Assert.NotEmpty(pages[2].Shapes);
+    }
+
+    [Fact]
     public void Section_Break_Even_Page_Creates_Blank_Page_When_Landing_On_Odd_Page()
     {
         int perColumn = PerColumn();

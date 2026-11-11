@@ -132,4 +132,21 @@ public sealed class OdtPageStyleTransitionTests
         Assert.Equal(300, result.Document.PageGeometry!.Width);
         Assert.Equal("foot B", Assert.Single(result.Document.RunningContent.Footer(PageSelection.Default)).Text);
     }
+
+    [Fact]
+    public void A_Left_Only_Page_Layout_Starts_On_An_Even_Page()
+    {
+        // stable-at-page-anchored-fly-position.odt opens on a page-usage="left"
+        // master: LibreOffice puts a blank page before it, and its at-page
+        // anchors count that page.
+        string masters = Masters(false).Replace(
+            "<style:page-layout style:name=\"b\">", "<style:page-layout style:name=\"b\" style:page-usage=\"left\">");
+        var result = OdtTestPackage.ReadStyled(
+            "<text:p text:style-name=\"switch\">first</text:p><text:p text:style-name=\"switch\">second</text:p>",
+            masters, "<style:style style:name=\"switch\" style:family=\"paragraph\" style:master-page-name=\"Other\"/>");
+
+        var sections = result.Document.Sections;
+        Assert.Equal(SectionBreakType.EvenPage, DocumentSection.Containing(sections, 0)!.BreakType);
+        Assert.Equal(SectionBreakType.EvenPage, DocumentSection.Containing(sections, 1)!.BreakType);
+    }
 }
