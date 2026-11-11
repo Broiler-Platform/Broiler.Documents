@@ -77,33 +77,6 @@ internal sealed class OdtStyles : IOdtImageDiagnostics
         _diagnostics = diagnostics;
     }
 
-    /// <summary>
-    /// Whether graphic style <paramref name="name"/> is a Writer text frame's:
-    /// it is, or comes down from, the <c>Frame</c> style. A drawing shape's
-    /// style (a text box drawn as a shape) has no such parent.
-    /// <paramref name="builtIn"/> says the document does not define
-    /// <c>Frame</c>: Writer then gives the style its built-in Frame
-    /// (DocumentStylePoolManager), which draws a black hairline border.
-    /// </summary>
-    public bool DescendsFromFrameStyle(string? name, out bool builtIn)
-    {
-        builtIn = false;
-        var visited = new HashSet<string>(StringComparer.Ordinal);
-        string? current = name;
-        while (!string.IsNullOrEmpty(current) && visited.Count <= _maxChainDepth && visited.Add(current))
-        {
-            if (current == "Frame")
-            {
-                builtIn = !_styles.ContainsKey(new StyleKey("graphic", current));
-                return true;
-            }
-            if (!_styles.TryGetValue(new StyleKey("graphic", current), out StyleDefinition? definition))
-                return false;
-            current = definition.ParentStyleName;
-        }
-        return false;
-    }
-
     /// <summary>The number of paragraph and text styles that were loaded.</summary>
     public int Count => _styles.Count - _builtInHeadings;
 
@@ -448,6 +421,17 @@ internal sealed class OdtStyles : IOdtImageDiagnostics
         return result;
     }
 
+    /// <summary>Writer's built-in frame style, which a document may name as a parent without defining it.</summary>
+    private const string WriterFrameStyle = "Frame";
+
+    /// <summary>
+    /// The edge Writer's built-in "Frame" style gives a text frame: a black hairline
+    /// (<c>DocumentStylePoolManager</c>, <c>RES_POOLFRM_FRAME</c>). A frame whose
+    /// style derives from "Frame" in a document that does not define it is drawn with it.
+    /// </summary>
+    private static readonly XElement WriterFrameStyleBorder =
+        new(OdtNamespaces.Style + "graphic-properties", new XAttribute(OdtNamespaces.Fo + "border", "0.06pt solid #000000"));
+
     /// <summary>
     /// Each style family's properties with what its parents state beneath them.
     /// </summary>
@@ -480,9 +464,16 @@ internal sealed class OdtStyles : IOdtImageDiagnostics
                 if (own.TryGetValue(current, out XElement? properties))
                     chain.Add(properties);
 
-                current = styles.TryGetValue(new StyleKey(family, current), out StyleDefinition? definition)
-                    ? definition.ParentStyleName
-                    : null;
+                if (styles.TryGetValue(new StyleKey(family, current), out StyleDefinition? definition))
+                {
+                    current = definition.ParentStyleName;
+                }
+                else
+                {
+                    if (family == "graphic" && current == WriterFrameStyle && chain.Count > 0)
+                        chain.Add(WriterFrameStyleBorder);
+                    current = null;
+                }
             }
 
             if (chain.Count == 0)

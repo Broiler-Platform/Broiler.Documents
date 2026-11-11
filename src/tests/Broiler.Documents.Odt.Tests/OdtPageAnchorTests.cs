@@ -184,14 +184,18 @@ public sealed class OdtPageAnchorTests
     }
 
     [Fact]
-    public void A_Minimum_Height_Above_The_Frames_Height_Is_The_Least_The_Box_Is()
+    public void A_Frames_Height_Overrides_A_Larger_Minimum_Height_And_The_Box_Still_Grows()
     {
+        // LibreOffice reads the text box's fo:min-height and then the frame's
+        // svg:height into one height (XMLTextFrameContext_Impl), so the frame's
+        // wins; uiwriter/data/tdf104440.odt lays its frames out 9.979 cm high,
+        // not at their 14.9 cm minimum.
         DocumentShape shape = Assert.Single(Read(
             Frame(OnPageThree, Box, textBoxAttributes: "fo:min-height=\"2in\""),
             GraphicStyle("fr1", string.Empty)).Document.Shapes);
 
         Assert.True(shape.GrowsToText);
-        Assert.Equal(144, shape.Height, 3);
+        Assert.Equal(72, shape.Height, 3);
     }
 
     [Fact]

@@ -349,7 +349,9 @@ Each item needs conformance fixtures and explicit diagnostics before it lands.
   text; only a note's citation is raised and made smaller. `tdf77417.docx`'s
   footnote marks "(a)" and "(b)" are drawn at full size on the baseline, and
   `fdo68607.docx`'s "19th" is set at full size, which wraps its definition
-  one word earlier than LibreOffice does.
+  one word earlier than LibreOffice does. `tdf127316_autoEscapement2.odt`'s
+  40 pt runs at `super 80%` down to `sub 20%` are drawn full size, so each
+  paragraph wraps and the document runs to 6 pages where LibreOffice sets 2.
 - **The DOCX widow and orphan default.** A DOCX with a `w:pPrDefault` keeps two
   lines of every paragraph that states nothing, in Word and in LibreOffice
   (`DocumentStyleDefaults.WidowOrphanLines`, issue #185); 1,701 of the

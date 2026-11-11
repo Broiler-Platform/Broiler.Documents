@@ -1004,13 +1004,16 @@ internal static class OdtReader
 
         // A text box that states fo:min-height grows to its text from there
         // (ODF 1.3, `fo:min-height` on a text box), whether or not the frame states a height too; one
-        // that states neither is sized by its text alone.
+        // that states neither is sized by its text alone. When the frame states svg:height as well,
+        // that height is the least the box is: LibreOffice reads the text box's attributes before the
+        // frame's into one height (XMLTextFrameContext_Impl), so the frame's svg:height overrides the
+        // text box's fo:min-height and the box stays a growing one.
         bool statedHeight = OdtUnits.TryParseLength(
             (string?)drawing.Attribute(OdtNamespaces.Svg + "height"), out double height);
         bool grows = OdtUnits.TryParseLength(
             (string?)textBox?.Attribute(OdtNamespaces.Fo + "min-height"), out double minHeight);
-        if (grows)
-            height = statedHeight ? Math.Max(height, minHeight) : minHeight;
+        if (grows && !statedHeight)
+            height = minHeight;
         bool sizedByText = !statedHeight && textBox is null && GrowsToItsText(drawing, context.Styles);
         if (!grows && !statedHeight && (textBox is not null || sizedByText))
             (grows, height) = (true, 0);
@@ -1023,32 +1026,23 @@ internal static class OdtReader
         (ShapeFill? fill, BColor outline, bool behindText, ShapeWrap wrap, WrapSide wrapSide) =
             ReadShapeStyle(styleName, context.Styles, implicitSolid: drawing.Name != OdtNamespaces.Draw + "frame");
         double outlineWidth = OdtUnits.TryParseLength((string?)graphic?.Attribute(OdtNamespaces.Svg + "stroke-width"), out double strokeWidth) ? strokeWidth : 0.75;
-        if (drawing.Name == OdtNamespaces.Draw + "frame" && graphic?.Attribute(OdtNamespaces.Fo + "border") is not null)
+        // A Writer text frame's edge is its fo:border, as a picture frame's is
+        // (ReadFloatingPicture): the svg:stroke-color it inherits from the default
+        // graphic style is for drawing shapes, and LibreOffice draws no line from
+        // it. A frame inside a draw:g is a drawing object and keeps its line, and
+        // so does one whose own style turns a line on with draw:stroke (a shape's
+        // text box saved as a frame, ww8export/data/tdf136620.odt).
+        // The model keeps one outline, so a frame with only some edges drawn
+        // (fo:border-top and the like) is outlined with the first of them.
+        string? borderAttribute = drawing.Name == OdtNamespaces.Draw + "frame" ? FrameBorderAttribute(graphic) : null;
+        if (drawing.Name == OdtNamespaces.Draw + "frame" && drawing.Parent?.Name != OdtNamespaces.Draw + "g" &&
+            borderAttribute is null && !StatesOwnStroke(styleName, context.Styles))
+            outline = BColor.Empty;
+        if (borderAttribute is not null)
         {
-            TableBorder border = OdtTableReader.ReadBorderEdge(graphic, "border");
+            TableBorder border = OdtTableReader.ReadBorderEdge(graphic!, borderAttribute);
             outline = border.Width > 0 ? border.Color : BColor.Empty;
             outlineWidth = border.Width;
-        }
-        else if (drawing.Name == OdtNamespaces.Draw + "frame" &&
-            context.Styles.DescendsFromFrameStyle(styleName, out bool builtInFrame) &&
-            graphic?.Attributes().Any(attribute => attribute.Name.Namespace == OdtNamespaces.Fo &&
-                attribute.Name.LocalName.StartsWith("border", StringComparison.Ordinal)) != true)
-        {
-            // A Writer text frame's edge is its fo:border alone, as a picture
-            // frame's is (ReadFloatingPicture): the svg:stroke-color most files
-            // give the default graphic style is for drawing shapes, and
-            // LibreOffice draws no line from it around a frame that states no
-            // border (tdf46441-2.odt's nested Frame15). A text box drawn as a
-            // shape (a style with no Frame parent, tdf136620.odt) keeps its
-            // stroke. A frame with a border on some sides only keeps the
-            // outline it had: the model has one outline for all four. A frame
-            // whose Frame parent the file does not define gets Writer's
-            // built-in one, with its black hairline
-            // (redlineFrame_at_char_start_inside.fodt).
-            if (builtInFrame)
-                (outline, outlineWidth) = (BColor.Black, 0.06);
-            else
-                outline = BColor.Empty;
         }
 
         // A frame keeps its text in a draw:text-box; a custom shape carries the
@@ -1117,16 +1111,18 @@ internal static class OdtReader
                 "bottom" => CellVerticalAlignment.Bottom,
                 _ => CellVerticalAlignment.Top,
             },
+            // A frame that states no svg:width, only its text box's fo:min-width, is
+            // Writer's auto-width frame (XMLTextFrameContext_Impl sets WidthType MIN
+            // for it): it widens to its text, and the layout stops it at the text
+            // column, where its text wraps.
             growsWidthToText: (string?)graphic?.Attribute(OdtNamespaces.Draw + "auto-grow-width") == "true" ||
                 (width <= 0 && textBox is not null) ||
                 (drawing.Attribute(OdtNamespaces.Svg + "width") is null &&
                 textBox?.Attribute(OdtNamespaces.Fo + "min-width") is not null &&
-                (string?)graphic?.Attribute(OdtNamespaces.Draw + "auto-grow-width") != "false" &&
-                (string?)graphic?.Attribute(OdtNamespaces.Fo + "wrap-option") == "no-wrap"),
+                (string?)graphic?.Attribute(OdtNamespaces.Draw + "auto-grow-width") != "false"),
             frameName: linked ? frameName : null,
             nextFrameName: nextFrameName,
-            geometry: drawing.Name == OdtNamespaces.Draw + "ellipse" ||
-                (string?)drawing.Element(OdtNamespaces.Draw + "enhanced-geometry")?.Attribute(OdtNamespaces.Draw + "type") is "ellipse" ? ShapeGeometry.Ellipse : ShapeGeometry.Rectangle,
+            geometry: ReadShapeGeometry(drawing),
             outlineWidth: outlineWidth,
             offsetXFromCell: context.TableDepth > 0 &&
                 ((string?)graphic?.Attribute(OdtNamespaces.Style + "horizontal-rel") is null or "paragraph" or "paragraph-content"),
@@ -1231,6 +1227,55 @@ internal static class OdtReader
                 lines * paragraph.Style.LineBoxHeight(size * 1.15);
         }
         return top;
+    }
+
+    /// <summary>
+    /// The <c>fo:border</c> attribute a frame's edge is read from: the shorthand
+    /// when it is stated, or else the first of the four edges that draws a line.
+    /// Null when the frame states no border at all.
+    /// </summary>
+    private static string? FrameBorderAttribute(XElement? graphic)
+    {
+        if (graphic is null)
+            return null;
+        if (graphic.Attribute(OdtNamespaces.Fo + "border") is not null)
+            return "border";
+        string[] edges = ["border-top", "border-bottom", "border-left", "border-right"];
+        string? stated = null;
+        foreach (string edge in edges)
+        {
+            if (graphic.Attribute(OdtNamespaces.Fo + edge) is null)
+                continue;
+            stated ??= edge;
+            if (OdtTableReader.ReadBorderEdge(graphic, edge).Width > 0)
+                return edge;
+        }
+        return stated;
+    }
+
+    /// <summary>
+    /// Whether a drawing's own style chain, not the document's default graphic
+    /// style, states a <c>draw:stroke</c> other than <c>none</c>.
+    /// </summary>
+    private static bool StatesOwnStroke(string? styleName, OdtStyles styles) =>
+        !string.IsNullOrEmpty(styleName) && styles.GraphicProperties.TryGetValue(styleName, out XElement? own) &&
+        (string?)own.Attribute(OdtNamespaces.Draw + "stroke") is string stroke && stroke != "none";
+
+    /// <summary>
+    /// The outline a drawing paints: an ellipse (<c>draw:ellipse</c>, or a custom
+    /// shape of <c>draw:type="ellipse"</c>), a diamond (<c>draw:type="diamond"</c>,
+    /// the four edge midpoints joined), or the box itself.
+    /// </summary>
+    private static ShapeGeometry ReadShapeGeometry(XElement drawing)
+    {
+        if (drawing.Name == OdtNamespaces.Draw + "ellipse")
+            return ShapeGeometry.Ellipse;
+        return (string?)drawing.Element(OdtNamespaces.Draw + "enhanced-geometry")?.Attribute(OdtNamespaces.Draw + "type") switch
+        {
+            "ellipse" => ShapeGeometry.Ellipse,
+            "diamond" => ShapeGeometry.Diamond,
+            _ => ShapeGeometry.Rectangle,
+        };
     }
 
     private static bool TryReadShapeRotation(XElement drawing, out double angle, out double x, out double y)
@@ -2718,9 +2763,11 @@ internal static class OdtReader
         if (name.Namespace != OdtNamespaces.Text)
             return false;
 
+        // A linked section's text:section-source only names where its text comes
+        // from; the section holds the copy LibreOffice saved, which is what it shows.
         return name.LocalName is
             "sequence-decls" or "variable-decls" or "user-field-decls" or
-            "dde-connection-decls" or "alphabetical-index-auto-mark-file" or
+            "dde-connection-decls" or "alphabetical-index-auto-mark-file" or "section-source" or
             "soft-page-break" or "index-title" or "index-title-template" or
             "index-body-template" or "bookmark" or "bookmark-start" or "bookmark-end" or
             "change" or "change-start" or "change-end";

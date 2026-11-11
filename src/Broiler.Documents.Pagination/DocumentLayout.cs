@@ -3423,13 +3423,30 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             }
             width = Math.Max(width, shape.Tables.Select(table => table.TotalWidth).DefaultIfEmpty(0).Max());
             double textWidth = Math.Min(20000, width + shape.TextPadding.Left + shape.TextPadding.Right);
-            _grownWidths[shape] = shape.FitsText ? textWidth : Math.Max(Math.Max(0, shape.Width), textWidth);
+            _grownWidths[shape] = shape.FitsText ? textWidth : Math.Max(Math.Max(0, shape.Width), Math.Min(textWidth, GrownWidthLimit(shape, setup)));
         }
         if ((!shape.GrowsToText && !shape.FitsText) || ShapeParagraphs(shape).Count == 0 || BoxWidth(shape) <= 0 || _grownHeights.ContainsKey(shape))
             return;
 
         double height = ComposeShapeBlocks(shape, setup, 0).Height + shape.TextPadding.Top + shape.TextPadding.Bottom;
         _grownHeights[shape] = shape.FitsText ? height : Math.Max(Math.Max(0, shape.Height), height);
+    }
+
+    /// <summary>
+    /// The widest a box that grows to its text may become: the text column, less
+    /// what the box's offset already uses of it.
+    /// </summary>
+    /// <remarks>
+    /// Writer measures an auto-width frame's text set on one line no wider than the
+    /// page's print area (<c>SwTextFrame::CalcFitToContent</c>), and then keeps the
+    /// frame inside the text column it is anchored in (<c>SwFlyFreeFrame::CheckClip</c>),
+    /// so a frame offset into the column wraps its text at the column's right edge.
+    /// A box placed from a table cell's text area keeps the whole column.
+    /// </remarks>
+    private static double GrownWidthLimit(DocumentShape shape, DocumentPageBox setup)
+    {
+        double column = Math.Max(1, setup.ContentWidthPoints);
+        return shape.OffsetXFromCell ? column : Math.Max(1, column - Math.Max(0, shape.OffsetX));
     }
 
     /// <summary>The height a shape's box is drawn at, grown to its text where it grows.</summary>
