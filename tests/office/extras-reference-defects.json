@@ -421,6 +421,34 @@
       "samples": ["ooxmlexport/data/tdf170119_bottomSpacing.docx"],
       "evidence": "A page break ends page one, and the next paragraph is an empty continuous-section mark with 200 pt of space below. The pinned 24.2 PDF starts page two with a 150 pt gap, clips the first line of the last paragraph at the page foot and puts its second line alone on a third page. The fix ('cont-sectPr w/ pgbrk == emulate bottomSpacing', master 2025-12-25, cherry-picked to libreoffice-26-2 and libreoffice-25-8) came with this sample and a test asserting two pages ('Without the fix, page 2 started with a 150pt gap, pushing content to the third page'). Local LibreOffice 26.2.6.3 exports two pages with the last paragraph at the top of page two, as broilerdoc draws it. The text export holds every line.",
       "reference": "docs/notes/office-issue-236-docx-pagination.md"
+    },
+    {
+      "id": "tdf160984-docx-endnotes-on-own-page",
+      "bug": "tdf#160984",
+      "fixedIn": "24.8",
+      "fixCommits": [
+        "6885dcd7ec7b82a946d8344bfc27a3e88eecc44a",
+        "1ae5ea3f78cca11ba18f2dd1a06f875263336a3b"
+      ],
+      "upstreamTests": [
+        "sw/qa/writerfilter/cppunittests/filter/WriterFilter.cxx testInlineEndnoteAndFootnoteDOCX"
+      ],
+      "axes": ["pixel"],
+      "samples": [
+        "ooxmlexport/data/fdo79062.docx",
+        "ooxmlexport/data/tdf109310_endnoteStyleForMSO.docx",
+        "ooxmlexport/data/tdf121784.docx",
+        "ooxmlexport/data/tdf141172.docx",
+        "ooxmlexport/data/tdf141231_arabicHebrewNumbering.docx",
+        "ooxmlexport/data/tdf141548.docx",
+        "ooxmlexport/data/tdf143399.docx",
+        "ooxmlexport/data/tdf171002.docx",
+        "ooxmlexport/data/tdf82173_endnoteStyle.docx",
+        "ooxmlexport/data/tdf87460.docx",
+        "ooxmlexport/data/testGlossary.docx"
+      ],
+      "evidence": "LibreOffice 24.2 imports DOCX endnotes without its ContinuousEndnotes setting, so it collects them on a page of their own in its Endnote page style: a default-size page with no header or footer, after the last page of the body. Word sets them right after the body text. The fix reimplemented continuous endnotes as an endnote section after the body (commit 6885dcd7, 2024-05-14) and enabled it for DOCX import (commit 1ae5ea3f, 2024-05-21); both are in libreoffice-24.8.0.1 and not in 24.2.7.2. Each listed sample has a two-page 24.2 reference whose second page holds only endnotes; local LibreOffice 26.2.6.3 sets the endnotes after the body, on one page for ten of them, and on the body's own page size with its header for tdf141231_arabicHebrewNumbering.docx. broilerdoc draws the same page count as 26.2 for each. The text export holds the endnote text either way, so only the pixel check is affected.",
+      "reference": "docs/notes/office-issue-236-docx-layout.md"
     }
   ]
 }

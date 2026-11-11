@@ -87,7 +87,9 @@ public sealed class DocxFloatingPictureTests
 
         DocumentShape shape = Assert.Single(Read(drawing).Document.Shapes);
 
-        Assert.Equal(72, shape.OffsetX, 3);
+        // One inch from the page's left edge is the column's edge on the
+        // default page (one-inch margins) a body without w:sectPr is laid out on.
+        Assert.Equal(0, shape.OffsetX, 3);
         Assert.Equal(36, shape.OffsetY, 3);
     }
 

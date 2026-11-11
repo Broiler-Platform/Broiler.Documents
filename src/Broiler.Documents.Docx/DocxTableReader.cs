@@ -143,6 +143,7 @@ internal static class DocxTableReader
                 context.Builder.PushTableSink(nested);
                 readBlocks(cell.Elements(), cellContext, depth + 1);
                 context.Builder.PopTableSink();
+                context.Builder.HideEmptyParagraphAfterNestedTable(nested);
 
                 // A cell ends the reach of a page break held in it: the
                 // paragraphs of every cell are one flat list, so the next one
