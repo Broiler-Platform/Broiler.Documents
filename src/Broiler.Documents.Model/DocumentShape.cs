@@ -188,6 +188,26 @@ public sealed class DocumentShape(
     public double MinimumWrapRoom { get; init; }
 
     /// <summary>
+    /// True when the shape belongs to its anchor's page however far down it
+    /// reaches, rather than taking its paragraph to the next page when it would
+    /// pass the foot of the text area: a DrawingML object outside a table,
+    /// which Writer's DOCX import does not let follow the text flow, so its
+    /// layout environment is the page, not the body
+    /// (<c>SwEnvironmentOfAnchoredObject</c>).
+    /// </summary>
+    /// <remarks>
+    /// <c>tdf123243.docx</c> anchors two text boxes to a paragraph 450 points
+    /// down a US Letter page; the taller, grown to its text, runs past the
+    /// page's foot. LibreOffice keeps both, and the paragraph, on page one and
+    /// draws what passes the page's edge nowhere. Only a shape whose top is
+    /// already past the page's foot takes its paragraph along, or one that
+    /// keeps text above and below it (<see cref="ShapeWrap.TopAndBottom"/>),
+    /// which still moves as before: <c>fdo43573-2-min.docx</c>'s pictures keep
+    /// its 19 pages that way.
+    /// </remarks>
+    public bool BoundedByPage { get; init; }
+
+    /// <summary>
     /// Where the shape sits among the other shapes: a higher number draws later,
     /// and therefore on top.
     /// </summary>
@@ -311,6 +331,7 @@ public sealed class DocumentShape(
             WrapMargins = WrapMargins,
             WrapPolygon = WrapPolygon,
             MinimumWrapRoom = MinimumWrapRoom,
+            BoundedByPage = BoundedByPage,
         };
 
     /// <summary>The shape's own text, empty when it holds none.</summary>

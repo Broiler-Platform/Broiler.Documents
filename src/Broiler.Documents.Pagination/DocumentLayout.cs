@@ -1437,12 +1437,24 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
             // Move a wrapping frame and its anchor together when it cannot fit
             // below preceding content. An oversized frame is allowed once on a
-            // fresh page rather than repeatedly making empty pages.
+            // fresh page rather than repeatedly making empty pages. A shape
+            // bounded by its page that text may run beside stays unless it
+            // starts below the page (tdf123243.docx); one that keeps text above
+            // and below it still moves.
             if (!setup.Continuous && ColumnHasContent() && _documentShapes.Any(shape =>
                 (shape.Wraps || shape.IsAsCharacter) && !shape.IsPageAnchored && shape.ParagraphIndex == paragraphIndex &&
                 (shape.OffsetFromPage
                     ? y > shape.OffsetY + BoxHeight(shape) && y + BoxHeight(shape) > contentBottom
-                    : ResolvedShapeTop(shape, y, setup) + BoxHeight(shape) > contentBottom)))
+                    : shape.BoundedByPage && shape.Wrap != ShapeWrap.TopAndBottom
+                        ? ResolvedShapeTop(shape, y, setup) >= setup.HeightPoints
+                        : ResolvedShapeTop(shape, y, setup) + BoxHeight(shape) > contentBottom)) ||
+                // A paragraph whose space above alone runs past the column's
+                // foot starts the next column, and its shapes go with it rather
+                // than standing from where it would have started
+                // (tdf115719.docx, whose spacing the DOCX reader raised to the
+                // height of the objects anchored to it, as Word lays it out).
+                !setup.Continuous && ColumnHasContent() && y + Math.Max(0, style.SpacingBefore) >= contentBottom &&
+                _documentShapes.Any(shape => !shape.IsPageAnchored && shape.ParagraphIndex == paragraphIndex))
             {
                 BreakColumn();
                 if (truncated)

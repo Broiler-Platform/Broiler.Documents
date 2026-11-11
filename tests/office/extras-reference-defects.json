@@ -395,6 +395,21 @@
       "samples": ["rtfimport/data/tblrepeat.rtf"],
       "evidence": "The table's first three rows carry \\trhdr. LibreOffice 24.2's RTF import ignored \\trhdr, so the pinned PDF draws the three header rows on page one only and leaves page two, which holds the table's empty rows, blank. The fix, committed to master on 2025-02-18 and first released in 25.8, came with this sample and a test asserting HeaderRowCount 3. Local LibreOffice 26.2 repeats the rows on page two, as broilerdoc does. The text export lists the header text once either way, so only the pixel check is affected.",
       "reference": "docs/notes/office-issue-234-rtf.md"
+    },
+    {
+      "id": "tdf170119-section-below-spacing-after-page-break",
+      "bug": "tdf#170119",
+      "fixedIn": "25.8",
+      "fixCommits": [
+        "582c032aaa4524abf5b5a630400cf7ecdc2acf8a",
+        "ed5aaa03906807c93fe6847f66f847007777174d",
+        "5fe1c8aa84506a9fa530d50034fc997c2a042357"
+      ],
+      "upstreamTests": ["sw/qa/extras/ooxmlexport/ooxmlexport25.cxx testTdf170119_bottomSpacing"],
+      "axes": ["pixel"],
+      "samples": ["ooxmlexport/data/tdf170119_bottomSpacing.docx"],
+      "evidence": "A page break ends page one, and the next paragraph is an empty continuous-section mark with 200 pt of space below. The pinned 24.2 PDF starts page two with a 150 pt gap, clips the first line of the last paragraph at the page foot and puts its second line alone on a third page. The fix ('cont-sectPr w/ pgbrk == emulate bottomSpacing', master 2025-12-25, cherry-picked to libreoffice-26-2 and libreoffice-25-8) came with this sample and a test asserting two pages ('Without the fix, page 2 started with a 150pt gap, pushing content to the third page'). Local LibreOffice 26.2.6.3 exports two pages with the last paragraph at the top of page two, as broilerdoc draws it. The text export holds every line.",
+      "reference": "docs/notes/office-issue-236-docx-pagination.md"
     }
   ]
 }
