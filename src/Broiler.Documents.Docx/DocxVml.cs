@@ -238,6 +238,25 @@ internal static class DocxVml
     }
 
     /// <summary>
+    /// A stroke weight (<c>strokeweight</c>, <c>v:stroke weight</c>) in points.
+    /// A bare number is in EMUs, as LibreOffice's VML import reads it
+    /// (<c>oox/source/vml/vmlformatting.cxx</c>, <c>decodeMeasureToEmu</c> with
+    /// no unit): <c>weight="28440"</c> is 2.24 pt, not 28 440 pt.
+    /// </summary>
+    public static bool TryStrokeWeight(string? value, out double points)
+    {
+        points = 0;
+        if (string.IsNullOrWhiteSpace(value))
+            return false;
+        if (TryNumber(value.Trim(), out double emu))
+        {
+            points = emu / 12700;
+            return double.IsFinite(points);
+        }
+        return TryLength(value, out points);
+    }
+
+    /// <summary>
     /// A CSS length in a VML style, in points, sign kept: a shape's margins move
     /// it up and left as often as down and right. A bare number is in points,
     /// VML's own unit.

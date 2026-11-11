@@ -2413,7 +2413,7 @@ internal static class DocxReader
         RichTextDocument shapeContent = ReadShapeText(shape, context);
         IReadOnlyList<RichTextParagraph> paragraphs = ShapeParagraphs(shapeContent);
         BColor outline = ReadVmlOutline(shape);
-        double outlineWidth = DocxVml.TryLength((string?)shape.Attribute("strokeweight") ??
+        double outlineWidth = DocxVml.TryStrokeWeight((string?)shape.Attribute("strokeweight") ??
             (string?)shape.Element(DocxNamespaces.Vml + "stroke")?.Attribute("weight"), out double strokeWidth) ? strokeWidth : 0.75;
         string? path = (string?)shape.Attribute("path") ?? (string?)shape.Element(DocxNamespaces.Vml + "path")?.Attribute("v");
         TableCellPadding textPadding = ReadVmlPadding(shape.Element(DocxNamespaces.Vml + "textbox"));

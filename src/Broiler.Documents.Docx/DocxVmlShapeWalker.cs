@@ -165,7 +165,7 @@ internal static class DocxVmlShapeWalker
             var style = DocxVml.ReadStyle((string?)result.Attribute("style"));
             foreach (XAttribute attr in element.Attributes())
                 if (!attr.IsNamespaceDeclaration && (attr.Name.LocalName != "style" || ReferenceEquals(element, source)))
-                    result.SetAttributeValue(attr.Name, attr.Value);
+                    result.SetAttributeValue(attr.Name, attr.Name == "adj" ? MergeAdjust((string?)result.Attribute("adj"), attr.Value) : attr.Value);
             if (ReferenceEquals(element, source))
                 foreach (var pair in DocxVml.ReadStyle((string?)element.Attribute("style"))) style[pair.Key] = pair.Value;
             if (style.Count > 0) result.SetAttributeValue("style", string.Join(";", style.Select(p => p.Key + ":" + p.Value)));
@@ -188,6 +188,22 @@ internal static class DocxVmlShapeWalker
         if (source.Name.LocalName == "shape" && (string?)result.Attribute(XName.Get("spt", "urn:schemas-microsoft-com:office:office")) == "3")
             result.Name = DocxNamespaces.Vml + "oval";
         return result;
+    }
+
+    /// <summary>
+    /// A shape's adjust values over its type's: a field the shape leaves empty
+    /// (<c>adj=",254405"</c>) keeps the type's default (fdo73215's elbow).
+    /// </summary>
+    private static string MergeAdjust(string? inherited, string own)
+    {
+        if (string.IsNullOrEmpty(inherited) || !own.Contains(','))
+            return own;
+        string[] defaults = inherited.Split(',');
+        string[] fields = own.Split(',');
+        for (int i = 0; i < fields.Length && i < defaults.Length; i++)
+            if (fields[i].Trim().Length == 0)
+                fields[i] = defaults[i];
+        return string.Join(",", fields);
     }
 
     private static double Align(string? position, double slack) => position switch

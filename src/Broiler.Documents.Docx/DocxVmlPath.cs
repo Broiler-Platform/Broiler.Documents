@@ -41,6 +41,17 @@ internal static class DocxVmlPath
 
         if (!Pair((string?)shape.Attribute("coordorigin") ?? "0,0", out double originX, out double originY))
             return null;
+        // A preset's path names its guides (@n) and adjust values (#n).
+        double[]? guides = null;
+        double[] adjust = [];
+        if (path.Contains('@') || path.Contains('#'))
+        {
+            adjust = Adjustments((string?)shape.Attribute("adj"));
+            guides = EvaluateFormulas(shape, adjust, originX, originY, spaceX, spaceY);
+            if (guides is null)
+                return null;
+        }
+        bool Parameter(string value, out double result) => Resolve(value, guides, adjust, out result);
         double scale = Math.Min(2, 1536 / Math.Max(width, height));
         int pixelsWide = Math.Max(1, (int)Math.Ceiling(width * scale));
         int pixelsHigh = Math.Max(1, (int)Math.Ceiling(height * scale));
@@ -89,10 +100,7 @@ internal static class DocxVmlPath
             int start = index;
             while (index < path.Length && !char.IsAsciiLetter(path[index]))
                 index++;
-            string coordinates = path[start..index].Trim();
-            string[] values = coordinates.Contains(',')
-                ? coordinates.Split(',', StringSplitOptions.TrimEntries)
-                : coordinates.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+            string[] values = Values(path[start..index].Trim());
             if (values.Length == 0 || values.Length % (arc ? 8 : 2) != 0 || (name == "m" && values.Length != 2))
                 return null;
 
@@ -107,7 +115,7 @@ internal static class DocxVmlPath
                 {
                     var v = new double[8];
                     for (int k = 0; k < 8; k++)
-                        if (!Coordinate(values[i + k], out v[k]))
+                        if (!Parameter(values[i + k], out v[k]))
                             return null;
                     // An arc of the ellipse in the box (v0,v1)-(v2,v3) from the ray
                     // through (v4,v5) to the ray through (v6,v7): wa and wr run
@@ -138,7 +146,7 @@ internal static class DocxVmlPath
 
             for (int i = 0; i < values.Length; i += 2)
             {
-                if (!Coordinate(values[i], out double a) || !Coordinate(values[i + 1], out double b))
+                if (!Parameter(values[i], out double a) || !Parameter(values[i + 1], out double b))
                     return null;
                 if (!Add(name == "r" ? x + a : a, name == "r" ? y + b : b))
                     return null;
@@ -155,9 +163,16 @@ internal static class DocxVmlPath
             var filled = contours.Where(c => c.Fill).Select(c => c.Points).ToList();
             if (!fill.IsEmpty && filled.Count > 0)
                 canvas.FillGlyphContours(filled, fill);
+            float penWidth = (float)Math.Clamp(strokeWidth * scale, 0.5, 1536);
+            // A preset connector runs along its box's edges (an elbow's two
+            // arms, fdo73215); kept whole inside the picture, the stroke is
+            // not halved at its edge.
+            float inset = guides is null ? 0 : Math.Min(penWidth / 2, Math.Min(pixelsWide, pixelsHigh) / 2f);
             if (!stroke.IsEmpty)
                 foreach (var contour in contours.Where(c => c.Stroke))
-                    canvas.DrawPathStroke(contour.Points, stroke, (float)Math.Clamp(strokeWidth * scale, 0.5, 1536));
+                    canvas.DrawPathStroke(inset == 0 ? contour.Points : [.. contour.Points.Select(point => new PointF(
+                        Math.Clamp(point.X, inset, pixelsWide - inset), Math.Clamp(point.Y, inset, pixelsHigh - inset)))],
+                        stroke, penWidth);
         }
 
         return EncodePng(bitmap);
@@ -179,6 +194,12 @@ internal static class DocxVmlPath
             if (flipX) px = pixelsWide - px;
             if (flipY) py = pixelsHigh - py;
             if (!double.IsFinite(px) || !double.IsFinite(py) || Math.Abs(px) > 1e6 || Math.Abs(py) > 1e6)
+                return false;
+            // A preset whose guides carry it outside its box (an elbow
+            // connector's or a callout's leader, fdo73215) would be cut off
+            // at the picture's edge; leave such a shape to its box.
+            if (guides is not null && (px < -0.05 * pixelsWide || px > 1.05 * pixelsWide ||
+                py < -0.05 * pixelsHigh || py > 1.05 * pixelsHigh))
                 return false;
             points.Add(new PointF((float)px, (float)py));
             return true;
@@ -252,5 +273,141 @@ internal static class DocxVmlPath
         result = 0;
         return value.Length == 0 || (double.TryParse(value, NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint,
             CultureInfo.InvariantCulture, out result) && double.IsFinite(result));
+    }
+
+    /// <summary>
+    /// A command's parameters: separated by commas or white space, and a guide
+    /// or adjust reference starts a new one even with no separator
+    /// (<c>l@3@2</c> is two values).
+    /// </summary>
+    internal static string[] Values(string coordinates)
+    {
+        string[] fields = coordinates.Contains(',')
+            ? coordinates.Split(',', StringSplitOptions.TrimEntries)
+            : coordinates.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+        if (!fields.Any(field => field.Length > 1 && field.IndexOfAny(['@', '#'], 1) > 0))
+            return fields;
+        var values = new List<string>();
+        foreach (string field in fields)
+        {
+            if (field.Length == 0)
+            {
+                values.Add(field);
+                continue;
+            }
+            int begin = 0;
+            for (int i = 1; i <= field.Length; i++)
+            {
+                if (i < field.Length && field[i] is not ('@' or '#'))
+                    continue;
+                values.Add(field[begin..i].Trim());
+                begin = i;
+            }
+        }
+        return [.. values];
+    }
+
+    /// <summary>A shape's adjust values (<c>adj</c>); an omitted one is zero.</summary>
+    private static double[] Adjustments(string? adj)
+    {
+        if (string.IsNullOrWhiteSpace(adj))
+            return [];
+        string[] fields = adj.Split(',', StringSplitOptions.TrimEntries);
+        var values = new double[Math.Min(fields.Length, 10)];
+        for (int i = 0; i < values.Length; i++)
+            if (!Coordinate(fields[i], out values[i]))
+                values[i] = 0;
+        return values;
+    }
+
+    /// <summary>A path parameter: a number, a guide (<c>@n</c>) or an adjust value (<c>#n</c>).</summary>
+    private static bool Resolve(string value, double[]? guides, ReadOnlySpan<double> adjust, out double result)
+    {
+        result = 0;
+        if (value.Length > 1 && value[0] is '@' or '#')
+        {
+            if (!int.TryParse(value.AsSpan(1), NumberStyles.None, CultureInfo.InvariantCulture, out int index))
+                return false;
+            if (value[0] == '#')
+            {
+                result = index < adjust.Length ? adjust[index] : 0;
+                return index < 10;
+            }
+            if (guides is null || index >= guides.Length)
+                return false;
+            result = guides[index];
+            return true;
+        }
+        return Coordinate(value, out result);
+    }
+
+    /// <summary>
+    /// Evaluates a shape's <c>v:formulas</c> in order, each <c>v:f eqn</c> one
+    /// of the VML guide operations (val, sum, prod, mid, abs, min, max, if,
+    /// mod, sqrt, sin, cos, tan, atan2, cosatan2, sinatan2, sumangle, ellipse)
+    /// on numbers, adjust values, earlier guides and the shape's coordinate
+    /// space (width, height, xcenter, ycenter, ...). Angles are in 1/65536
+    /// degrees. Returns null when a formula cannot be read, so the caller falls
+    /// back on the box. Device measures (pixelWidth, emuWidth, ...) are not
+    /// known here: the picture frame (o:spt 75) that names them stays a box,
+    /// whose outline is drawn whole rather than clipped at the image edge.
+    /// </summary>
+    internal static double[]? EvaluateFormulas(XElement shape, double[] adjust, double originX, double originY, double spaceX, double spaceY)
+    {
+        var formulas = shape.Element(DocxNamespaces.Vml + "formulas")?.Elements(DocxNamespaces.Vml + "f").Take(128).ToList() ?? [];
+        var guides = new double[formulas.Count];
+        const double Degree = 65536;
+        for (int index = 0; index < formulas.Count; index++)
+        {
+            string[] parts = ((string?)formulas[index].Attribute("eqn") ?? "").Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length == 0)
+                return null;
+            var args = new double[3];
+            double[] earlier = guides[..index];
+            for (int i = 1; i < parts.Length && i <= 3; i++)
+            {
+                double? named = parts[i] switch
+                {
+                    "width" or "xrange" or "xlimo" => spaceX,
+                    "height" or "yrange" or "ylimo" => spaceY,
+                    "xcenter" => originX + spaceX / 2,
+                    "ycenter" => originY + spaceY / 2,
+                    "hasstroke" or "hasfill" or "lineDrawn" => 1,
+                    _ => null,
+                };
+                if (named is double known)
+                    args[i - 1] = known;
+                else if (!Resolve(parts[i], earlier, adjust, out args[i - 1]))
+                    return null;
+            }
+            double a = args[0], b = args[1], c = args[2];
+            static double Radians(double angle) => angle / Degree * Math.PI / 180;
+            double value = parts[0] switch
+            {
+                "val" => a,
+                "sum" => a + b - c,
+                "prod" or "product" => c == 0 ? 0 : a * b / c,
+                "mid" => (a + b) / 2,
+                "abs" => Math.Abs(a),
+                "min" => Math.Min(a, b),
+                "max" => Math.Max(a, b),
+                "if" => a > 0 ? b : c,
+                "mod" => Math.Sqrt(a * a + b * b + c * c),
+                "sqrt" => Math.Sqrt(Math.Max(0, a)),
+                "sin" => a * Math.Sin(Radians(b)),
+                "cos" => a * Math.Cos(Radians(b)),
+                "tan" => a * Math.Tan(Radians(b)),
+                "atan2" => Math.Atan2(b, a) * 180 / Math.PI * Degree,
+                "cosatan2" => a * Math.Cos(Math.Atan2(c, b)),
+                "sinatan2" => a * Math.Sin(Math.Atan2(c, b)),
+                "sumangle" => a + b * Degree - c * Degree,
+                "ellipse" => b == 0 ? 0 : c * Math.Sqrt(Math.Max(0, 1 - a / b * (a / b))),
+                _ => double.NaN,
+            };
+            if (!double.IsFinite(value) || Math.Abs(value) > 1e9)
+                return null;
+            guides[index] = value;
+        }
+        return guides;
     }
 }
