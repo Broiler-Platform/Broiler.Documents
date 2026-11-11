@@ -204,7 +204,10 @@ internal static class DocxTableReader
         }
 
         double cellPadding = ReadCellPadding(styleTableParts, properties);
-        double leftIndent = DocxValueReader.Twips(TableProperty(styleTableParts, properties, "tblInd"), "w");
+        double leftIndent = DocxValueReader.TryReadTwips(
+            TableProperty(styleTableParts, properties, "tblInd")?.Attribute(DocxNamespaces.Wordprocessing + "w"), out int indentTwips)
+            ? DocxValueReader.LimitTwips(indentTwips) / 20d
+            : 0;
         TablePosition? position = ReadPosition(properties);
         bool inCell = context.Builder.InTableCell;
         // Word stores a break before a table on its first cell paragraph,
@@ -688,7 +691,7 @@ internal static class DocxTableReader
                 else if (type is null or "dxa" && DocxValueReader.TryReadTwips(
                     value.Attribute(DocxNamespaces.Wordprocessing + "w"), out int twips) && twips >= 0)
                 {
-                    target = twips / 20.0;
+                    target = DocxValueReader.LimitTwips(twips) / 20.0;
                     stated = true;
                 }
             }
@@ -721,7 +724,7 @@ internal static class DocxTableReader
                 return null;
             }
 
-            return twips / 20.0;
+            return DocxValueReader.LimitTwips(twips) / 20.0;
         }
     }
 

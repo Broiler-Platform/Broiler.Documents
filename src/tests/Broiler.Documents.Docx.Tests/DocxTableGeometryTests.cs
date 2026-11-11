@@ -28,6 +28,21 @@ public sealed class DocxTableGeometryTests
     }
 
     [Fact]
+    public void Reads_twip_values_past_the_16_bit_limit_as_zero_like_word()
+    {
+        // large-twips.docx: Word and LibreOffice treat a tblInd or cell margin of
+        // 32768 twips or more as zero rather than pushing the table off the page.
+        DocumentTable table = Assert.Single(Read(
+            "<w:tblInd w:type=\"dxa\" w:w=\"65000\"/><w:tblCellMar><w:left w:type=\"dxa\" w:w=\"65000\"/></w:tblCellMar>",
+            "<w:tcMar><w:left w:type=\"dxa\" w:w=\"65000\"/></w:tcMar>").Tables);
+        Assert.Equal(0, table.LeftIndent);
+        Assert.Equal(0, table.Rows[0].Cells[0].Padding!.Value.Left);
+
+        DocumentTable limit = Assert.Single(Read("<w:tblInd w:type=\"dxa\" w:w=\"32767\"/>").Tables);
+        Assert.Equal(32767 / 20d, limit.LeftIndent);
+    }
+
+    [Fact]
     public void Table_and_cell_geometry_round_trips_and_survives_paragraph_edits()
     {
         RichTextDocument document = Read("<w:tblW w:type=\"pct\" w:w=\"2500\"/>" +

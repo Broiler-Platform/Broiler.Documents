@@ -758,6 +758,14 @@ draws an inline group shrunk to its children's bounds at the anchor, not with
 the canvas's empty lead space, so a top-level group stating no position starts
 its coordinate space at its children's least left and top.
 
+## Twip values past the 16-bit limit
+
+`large-twips.docx` states a `w:tblInd` and left cell margins of 65000 twips.
+Word, like LibreOffice's `convertTwipToMm100_Limited`, reads a table indent or
+cell margin of 32768 twips or more as a legacy 16-bit overflow and uses zero, so
+the table sits at the margin. Broiler pushed it 45 inches off the page and drew
+a blank one; `DocxValueReader.LimitTwips` now applies the same limit.
+
 ## Standards and rights
 
 DOCX is ECMA-376, republished as ISO/IEC 29500. Its rights position (the
