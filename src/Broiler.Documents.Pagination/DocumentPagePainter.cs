@@ -130,6 +130,7 @@ public sealed class DocumentPagePainter
         {
             DrawCells(list, page.Cells);
             DrawParagraphShading(list, page.Lines);
+            DrawParagraphBorders(list, page.Lines);
             foreach (LayoutLine line in page.Lines)
                 DrawLine(list, line, resolveImage);
         }
@@ -147,6 +148,7 @@ public sealed class DocumentPagePainter
             // Body text & inline table cells
             DrawCells(list, page.InlineCells);
             DrawParagraphShading(list, page.InlineLines);
+            DrawParagraphBorders(list, page.InlineLines);
             foreach (LayoutLine line in page.InlineLines)
                 DrawLine(list, line, resolveImage);
 
@@ -395,6 +397,61 @@ public sealed class DocumentPagePainter
                 list.FillRect(box, color);
 
             open = null;
+        }
+    }
+
+    /// <summary>
+    /// Paints the borders of body paragraphs: one box round each run of lines
+    /// of a paragraph, and of the neighbours that join it, in one column. The
+    /// box stands outside the text by each edge's distance and line, from the
+    /// indent (the hanging first line's, where it hangs) to the right indent.
+    /// </summary>
+    private static void DrawParagraphBorders(BRenderList list, IReadOnlyList<LayoutLine> lines)
+    {
+        List<LayoutCell>? boxes = null;
+        LayoutLine? first = null, last = null;
+        double left = 0, right = 0;
+
+        foreach (LayoutLine line in lines)
+        {
+            if (line.Border is not { } border)
+                continue;
+
+            double lineLeft = line.IndentLeft;
+            double lineRight = line.IndentLeft + line.IndentWidth;
+            bool continues = first is not null && last is not null && Equals(first.Border, border) &&
+                (line.ParagraphIndex == last.ParagraphIndex || (line.ParagraphIndex == last.ParagraphIndex + 1 && line.BorderJoinsPrevious)) &&
+                Math.Abs(lineRight - right) < 0.01 && line.Top >= last.Top + last.Height - 0.01;
+            if (!continues)
+            {
+                Flush();
+                first = line;
+                left = lineLeft;
+                right = lineRight;
+            }
+
+            left = Math.Min(left, Math.Min(lineLeft, line.Pieces.Count > 0 ? line.Pieces[0].X : lineLeft));
+            last = line;
+        }
+
+        Flush();
+        if (boxes is not null)
+            DrawCells(list, boxes);
+
+        void Flush()
+        {
+            if (first?.Border is { } border && last is not null)
+            {
+                CellBorders edges = border.Edges;
+                double top = first.Top - first.LeadingSkip - border.Spacing.Top - (edges.Top.IsVisible ? edges.Top.Width : 0);
+                double bottom = last.Top + last.Height + border.Spacing.Bottom + (edges.Bottom.IsVisible ? edges.Bottom.Width : 0);
+                double boxLeft = left - border.Spacing.Left - (edges.Left.IsVisible ? edges.Left.Width : 0);
+                double boxRight = right + border.Spacing.Right + (edges.Right.IsVisible ? edges.Right.Width : 0);
+                if (bottom > top && boxRight > boxLeft)
+                    (boxes ??= []).Add(new LayoutCell(new BRect(boxLeft, top, boxRight - boxLeft, bottom - top), BColor.Empty, edges));
+            }
+
+            first = last = null;
         }
     }
 
