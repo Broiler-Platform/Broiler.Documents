@@ -4,8 +4,13 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using System.IO.Compression;
+using System.Text;
 using Broiler.Graphics.Color;
+using Broiler.Graphics.Geometry;
 using Broiler.Graphics.Imaging;
+using Broiler.Graphics.Rendering;
+using Broiler.Graphics.RenderList;
+using Broiler.Graphics.Text;
 
 namespace Broiler.Documents.Resources;
 
@@ -13,9 +18,11 @@ namespace Broiler.Documents.Resources;
 /// Rasterizes the vector subset of an Enhanced Metafile (an RTF <c>\emfblip</c> or a DOCX <c>.emf</c> media part) to a PNG:
 /// filled and stroked polygons, polylines, Bezier paths, rectangles, ellipses
 /// and DIB blits (STRETCHDIBITS, BITBLT, STRETCHBLT, ALPHABLEND) under the
-/// window/viewport mapping and world transform. Text is not drawn and clip
-/// paths are ignored. Returns null when the metafile draws nothing this subset
-/// understands.
+/// window/viewport mapping and world transform, and EXTTEXTOUTW/A text in the
+/// selected EXTCREATEFONTINDIRECTW font, text colour and alignment. Text draws
+/// through the graphics stack's process-wide font resolution, so the faces are
+/// the ones the render was given. Clip paths are ignored. Returns null when the
+/// metafile draws nothing this subset understands.
 /// </summary>
 internal static class EmfRasterizer
 {
@@ -30,11 +37,18 @@ internal static class EmfRasterizer
         public BColor Brush = new(255, 255, 255);
         public BColor Pen = new(0, 0, 0);
         public double PenWidth = 1;
+        public EmfFont? Font;
+        public BColor TextColor = new(0, 0, 0);
+        public BColor BackColor = new(255, 255, 255);
+        public uint TextAlign;
 
         public Dc Clone() => (Dc)MemberwiseClone();
     }
 
-    private readonly record struct GdiObject(bool IsBrush, BColor Color, double Width);
+    private readonly record struct GdiObject(bool IsBrush, BColor Color, double Width, EmfFont? Font = null);
+
+    /// <summary>A LOGFONTW as EXTCREATEFONTINDIRECTW states it, in logical units.</summary>
+    private sealed record EmfFont(string Family, int Height, int Escapement, bool Bold, bool Italic);
 
     public static bool IsEmf(ReadOnlySpan<byte> data) =>
         data.Length >= 88 && BinaryPrimitives.ReadUInt32LittleEndian(data) == 1 &&
@@ -320,6 +334,15 @@ internal static class EmfRasterizer
                     figures.Clear();
                     inPath = false;
                     break;
+                case 82 when size >= 104: // EXTCREATEFONTINDIRECTW: ihFont, then a LOGFONTW
+                    objects[U32(r, 8)] = new GdiObject(false, BColor.Empty, 0, ReadFont(r));
+                    break;
+                case 22 when size >= 12: dc.TextAlign = U32(r, 8); break; // SETTEXTALIGN
+                case 24 when size >= 12: dc.TextColor = ColorRef(U32(r, 8)); break; // SETTEXTCOLOR
+                case 25 when size >= 12: dc.BackColor = ColorRef(U32(r, 8)); break; // SETBKCOLOR
+                case 83 or 84 when size >= 76: // EXTTEXTOUTA, EXTTEXTOUTW
+                    AddText(r, wide: type == 84);
+                    break;
                 case 81 when size >= 80: // STRETCHDIBITS
                     if (U32(r, 68) == SrcCopy)
                         AddBlit(r, I32(r, 24), I32(r, 28), I32(r, 72), I32(r, 76), I32(r, 32), I32(r, 36), I32(r, 40), I32(r, 44),
@@ -355,9 +378,19 @@ internal static class EmfRasterizer
                 run++;
                 continue;
             }
+            if (ops[run].Text is not null)
+            {
+                // A run of text goes through the renderer, which owns font resolution,
+                // onto a transparent layer composited over what is drawn so far.
+                var list = new BRenderList();
+                for (; run < ops.Count && ops[run].Text is TextDraw text; run++)
+                    DrawText(list, text);
+                CompositeLayer(rgba, pixelsWide, pixelsHigh, list);
+                continue;
+            }
             using (var canvas = bitmap.OpenCanvas())
             {
-                for (; run < ops.Count && ops[run].Blit is null; run++)
+                for (; run < ops.Count && ops[run].Blit is null && ops[run].Text is null; run++)
                 {
                     Op op = ops[run];
                     if (op.StrokeWidth > 0)
@@ -387,6 +420,175 @@ internal static class EmfRasterizer
             ops.Add(new Op([], BColor.Empty, 0, new Blit(dib, Map(xDest, yDest), Map(xDest + cxDest, yDest), Map(xDest, yDest + cyDest),
                 xSrc, ySrc, cxSrc, cySrc, sourceAlpha, constantAlpha)));
         }
+
+        // EMR_EXTTEXTOUTW/A: bounds (8), iGraphicsMode (24), exScale/eyScale (28, 32),
+        // then the EMRTEXT at 36: reference point, nChars, offString, options,
+        // rectangle, offDx. Offsets are from the start of the record.
+        void AddText(ReadOnlySpan<byte> r, bool wide)
+        {
+            if (dc.Font is not EmfFont font)
+                return;
+            int refX = I32(r, 36), refY = I32(r, 40), count = I32(r, 44), offString = I32(r, 48);
+            uint options = U32(r, 52);
+            int offDx = I32(r, 72);
+            int charBytes = wide ? 2 : 1;
+            if (count <= 0 || count > 8192 || offString < 76 || offString > r.Length - count * charBytes)
+                return;
+            if ((options & EtoOpaque) != 0 && !dc.BackColor.IsEmpty)
+            {
+                double l = I32(r, 56), t = I32(r, 60), rr = I32(r, 64), b = I32(r, 68);
+                if (rr > l && b > t)
+                    ops.Add(new Op([[Map(l, t), Map(rr, t), Map(rr, b), Map(l, b), Map(l, t)]], dc.BackColor, 0, null));
+            }
+            // Glyph indices name glyphs of a face this rasterizer cannot see: there are no characters to draw.
+            if ((options & EtoGlyphIndex) != 0)
+                return;
+            string text = wide
+                ? Encoding.Unicode.GetString(r.Slice(offString, count * 2))
+                : Encoding.Latin1.GetString(r.Slice(offString, count));
+
+            // ETO_PDY interleaves a vertical offset after each horizontal one.
+            int dxStride = (options & EtoPdy) != 0 ? 8 : 4;
+            int[]? dx = null;
+            if (offDx >= 76 && offDx <= r.Length - count * dxStride)
+            {
+                dx = new int[count];
+                for (int i = 0; i < count; i++)
+                    dx[i] = I32(r, offDx + i * dxStride);
+            }
+
+            // LOGFONT: a negative height is the em size, a positive one the cell
+            // height (em plus internal leading), which is about 1.15 em in common faces.
+            double em = font.Height < 0 ? -(double)font.Height : font.Height > 0 ? font.Height / 1.15 : 12;
+            double escapement = font.Escapement / 10.0 * Math.PI / 180;
+            double cos = Math.Cos(escapement), sin = Math.Sin(escapement);
+            PointF origin = Map(refX, refY);
+            PointF along = Map(refX + cos, refY - sin), across = Map(refX + sin, refY + cos);
+            double ax = along.X - origin.X, ay = along.Y - origin.Y, alongScale = Math.Sqrt(ax * ax + ay * ay);
+            double cx = across.X - origin.X, cy = across.Y - origin.Y, acrossScale = Math.Sqrt(cx * cx + cy * cy);
+            double sizePx = em * acrossScale;
+            if (!(alongScale > 0) || !double.IsFinite(alongScale) || !(sizePx >= 0.5) || sizePx > 4096)
+                return;
+            (double ux, double uy) = (ax / alongScale, ay / alongScale);
+
+            var style = new BFontStyle(font.Family, sizePx, font.Bold ? BFontWeight.Bold : BFontWeight.Normal,
+                font.Italic ? BFontSlant.Italic : BFontSlant.Normal);
+            double[]? offsets = null;
+            double width;
+            if (dx is not null)
+            {
+                offsets = new double[count];
+                double sum = 0;
+                for (int i = 0; i < count; i++)
+                {
+                    offsets[i] = sum * alongScale;
+                    sum += dx[i];
+                }
+                width = sum * alongScale;
+            }
+            else
+            {
+                width = BTextMeasurer.MeasureAdvance(text, style);
+            }
+
+            // TA_UPDATECP draws at, and then advances, the current position.
+            bool updateCurrent = (dc.TextAlign & 1) != 0;
+            double x = updateCurrent ? current.X : origin.X, y = updateCurrent ? current.Y : origin.Y;
+            double shift = (dc.TextAlign & 6) switch { 6 => -width / 2, 2 => -width, _ => 0 };
+            double ascent = sizePx * 0.8;
+            double drop = (dc.TextAlign & 24) switch
+            {
+                24 => 0, // TA_BASELINE
+                8 => -Math.Max(0, BTextMeasurer.GetLineHeight(style) - ascent), // TA_BOTTOM
+                _ => ascent, // TA_TOP
+            };
+            x += ux * shift - uy * drop;
+            y += uy * shift + ux * drop;
+            if (updateCurrent)
+                current = new PointF((float)(x + ux * width), (float)(y + uy * width));
+            if (!dc.TextColor.IsEmpty)
+                ops.Add(new Op([], BColor.Empty, 0, null, new TextDraw(text, offsets, new BPoint(x, y), ux, uy, style, dc.TextColor)));
+        }
+    }
+
+    private const uint EtoOpaque = 0x2, EtoGlyphIndex = 0x10, EtoPdy = 0x2000;
+
+    /// <summary>
+    /// One EXTTEXTOUT call in page pixels: the baseline origin, the baseline's
+    /// unit direction, and each character's offset along it when the record
+    /// placed the characters itself.
+    /// </summary>
+    private sealed record TextDraw(string Text, double[]? Offsets, BPoint Baseline, double Ux, double Uy, BFontStyle Font, BColor Color);
+
+    private static EmfFont ReadFont(ReadOnlySpan<byte> r)
+    {
+        // LOGFONTW at 12: lfHeight, lfWidth, lfEscapement, lfOrientation, lfWeight,
+        // then lfItalic (32) and, from 40, a 32-character face name.
+        var face = new StringBuilder();
+        for (int at = 40; at + 1 < 104 && face.Length < 32; at += 2)
+        {
+            char c = (char)BinaryPrimitives.ReadUInt16LittleEndian(r[at..]);
+            if (c == '\0')
+                break;
+            face.Append(c);
+        }
+        string family = face.ToString().Trim();
+        return new EmfFont(family.Length == 0 ? "Arial" : family, I32(r, 12), I32(r, 20), I32(r, 28) >= 600, r[32] != 0);
+    }
+
+    private static void DrawText(BRenderList list, TextDraw text)
+    {
+        bool rotated = Math.Abs(text.Uy) > 1e-6 || text.Ux < 0;
+        if (rotated)
+            list.PushTransform(new BMatrix3x2(text.Ux, text.Uy, -text.Uy, text.Ux, text.Baseline.X, text.Baseline.Y));
+        double x = rotated ? 0 : text.Baseline.X, y = (rotated ? 0 : text.Baseline.Y) - text.Font.Size * 0.8;
+        // Characters the record placed itself are drawn where it put them, unless
+        // the script shapes across characters, where the run is drawn whole.
+        if (text.Offsets is double[] offsets && IsPerCharacter(text.Text))
+        {
+            for (int i = 0; i < text.Text.Length; i++)
+                if (!char.IsWhiteSpace(text.Text[i]))
+                    list.DrawText(new BTextRun(text.Text[i].ToString(), text.Font, text.Color), new BPoint(x + offsets[i], y));
+        }
+        else
+        {
+            list.DrawText(new BTextRun(text.Text, text.Font, text.Color), new BPoint(x, y));
+        }
+        if (rotated)
+            list.PopTransform();
+    }
+
+    private static bool IsPerCharacter(string text)
+    {
+        foreach (char c in text)
+            if (c >= (char)0x0590 || c is >= (char)0x0300 and <= (char)0x036F)
+                return false;
+        return true;
+    }
+
+    /// <summary>Renders a list onto a transparent layer and composites it, straight alpha, over the page.</summary>
+    private static void CompositeLayer(byte[] rgba, int pageWidth, int pageHeight, BRenderList list)
+    {
+        using var renderer = new BImageRenderer();
+        using BBitmap layer = renderer.RenderToImage(list, new BSurfaceDescriptor(new BSize(pageWidth, pageHeight), 1.0),
+            new BFrameContext(new BColor(0, 0, 0, 0)));
+        byte[] source = layer.ToPixelBuffer(copy: false).Rgba;
+        int width = Math.Min(layer.Width, pageWidth), height = Math.Min(layer.Height, pageHeight);
+        for (int y = 0; y < height; y++)
+        {
+            for (int x = 0; x < width; x++)
+            {
+                int s = (y * layer.Width + x) * 4, d = (y * pageWidth + x) * 4;
+                double alpha = source[s + 3] / 255.0;
+                if (alpha <= 0)
+                    continue;
+                double destAlpha = rgba[d + 3] / 255.0;
+                double outAlpha = alpha + destAlpha * (1 - alpha);
+                for (int c = 0; c < 3; c++)
+                    rgba[d + c] = (byte)Math.Round((source[s + c] * alpha + rgba[d + c] * destAlpha * (1 - alpha)) / outAlpha);
+                rgba[d + 3] = (byte)Math.Round(outAlpha * 255);
+            }
+        }
     }
 
     private const uint SrcCopy = 0x00CC0020;
@@ -394,7 +596,7 @@ internal static class EmfRasterizer
     private sealed record Blit(Dib Source, PointF Origin, PointF XEdge, PointF YEdge, int XSrc, int YSrc, int CxSrc, int CySrc,
         bool SourceAlpha, byte ConstantAlpha);
 
-    private sealed record Op(PointF[][] Contours, BColor Color, float StrokeWidth, Blit? Blit);
+    private sealed record Op(PointF[][] Contours, BColor Color, float StrokeWidth, Blit? Blit, TextDraw? Text = null);
 
     /// <summary>A decoded device-independent bitmap, top row first, as BGRA.</summary>
     private sealed record Dib(int Width, int Height, byte[] Bgra);
@@ -531,11 +733,14 @@ internal static class EmfRasterizer
                 case 6: dc.Pen = new BColor(255, 255, 255); dc.PenWidth = 1; break;
                 case 7: dc.Pen = new BColor(0, 0, 0); dc.PenWidth = 1; break;
                 case 8: dc.Pen = BColor.Empty; break;
+                case >= 10 and <= 17: dc.Font = null; break; // a stock font: its face is the device's, not one the metafile names
             }
         }
         else if (objects.TryGetValue(handle, out GdiObject value))
         {
-            if (value.IsBrush)
+            if (value.Font is not null)
+                dc.Font = value.Font;
+            else if (value.IsBrush)
                 dc.Brush = value.Color;
             else
             {

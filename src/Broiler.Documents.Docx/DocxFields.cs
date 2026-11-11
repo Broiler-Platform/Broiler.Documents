@@ -74,6 +74,12 @@ internal sealed class DocxFields
 
     public bool SuppressesResult => _open.Exists(static open => open.Separated && open.HiddenResult);
 
+    /// <summary>
+    /// Whether what is being read is inside a field's instruction: some open field
+    /// has not reached its separator, so even a nested field's result is code.
+    /// </summary>
+    public bool InCode => _open.Exists(static open => !open.Separated);
+
     public static bool IsHiddenResult(string instruction) =>
         Tokens(instruction) is [string name, ..] && name.Equals("SET", StringComparison.OrdinalIgnoreCase);
 
