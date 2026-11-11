@@ -8,13 +8,11 @@ docbookexport/data/tdf91095.docx
 embedded_fonts/data/font_used_in_header_only.fodt
 globalfilter/data/checkbox_form_field.odt
 globalfilter/data/document_with_linked_graphic.odt
-globalfilter/data/document_with_two_images.odt
 globalfilter/data/dropdown_form_field.odt
 globalfilter/data/fieldmark_QUOTE_nest.docx
 globalfilter/data/fieldmark_QUOTE_nest.fodt
 globalfilter/data/fieldmark_QUOTE_nest.rtf
 globalfilter/data/graphic_shape.odt
-globalfilter/data/images_with_special_IDs.odt
 globalfilter/data/skipimages.docx
 globalfilter/data/text13e.odt
 htmlexport/data/char_border_and_font_color.fodt
@@ -74,7 +72,6 @@ layout/data/Cool16071_footnoteTailKeptWhenTruncated.fodt
 layout/data/Cool16072_keepTogetherRowVsFootnoteSpace.fodt
 layout/data/Cool16072_rowMovesPastAPushedFootnote.fodt
 layout/data/Cool16072_rowWithOwnFootnoteKeepsThePage.fodt
-layout/data/ToC-in-linked-frame-on-first-page-style.fodt
 layout/data/abi11870-2.odt
 layout/data/charttable.odt
 layout/data/combined_chars_5.fodt
@@ -111,12 +108,10 @@ layout/data/tabellen_test_windows_1.odt
 layout/data/table-0-height-rows.fodt
 layout/data/table-in-section-split-loop.fodt
 layout/data/table-with-hidden-section.fodt
-layout/data/table_in_text_change.fodt
 layout/data/tdf105481.odt
 layout/data/tdf107209-vert-ltr.fodt
 layout/data/tdf107209-vert-rtl.fodt
 layout/data/tdf108021.odt
-layout/data/tdf109137.docx
 layout/data/tdf114163.odt
 layout/data/tdf115094.docx
 layout/data/tdf115523.fodt
@@ -168,7 +163,6 @@ layout/data/tdf138773.docx
 layout/data/tdf138951.odt
 layout/data/tdf139336_ColumnsWithFootnoteDoNotOccupyEntirePage.docx
 layout/data/tdf142694-1.odt
-layout/data/tdf143239-1-min.odt
 layout/data/tdf144450.fodt
 layout/data/tdf146704_EndnoteInSection.odt
 layout/data/tdf148897.odt
@@ -205,7 +199,6 @@ layout/data/tdf169607-big-letters.fodt
 layout/data/tdf169999.fodt
 layout/data/tdf170477.docx
 layout/data/tdf170846_1.docx
-layout/data/tdf170846_2.docx
 layout/data/tdf171161.fodt
 layout/data/tdf171275-grid-no-extra-leading.fodt
 layout/data/tdf171708.docx
@@ -254,7 +247,6 @@ odfexport/data/chapter-number-new-line.odt
 odfexport/data/charborder.odt
 odfexport/data/deleted_table.fodt
 odfexport/data/fdo58949.docx
-odfexport/data/fillbitmap3.odt
 odfexport/data/midnight_redline.fodt
 odfexport/data/nestedTableInFooter.odt
 odfexport/data/pagestyle_background_ooo33.odt
@@ -413,8 +405,6 @@ ooxmlexport/data/fdo79008.docx
 ooxmlexport/data/fdo79062.docx
 ooxmlexport/data/fdo79668.docx
 ooxmlexport/data/fdo79968.docx
-ooxmlexport/data/fdo79969_xlsb.docx
-ooxmlexport/data/fdo79969_xlsm.docx
 ooxmlexport/data/fdo80097.docx
 ooxmlexport/data/fdo80523_pptm.docx
 ooxmlexport/data/fdo80523_sldm.docx
@@ -435,7 +425,6 @@ ooxmlexport/data/gutter-top.docx
 ooxmlexport/data/hyperlink-field.odt
 ooxmlexport/data/internal_hyperlink_ole.odt
 ooxmlexport/data/kde302504-1.odt
-ooxmlexport/data/large-twips.docx
 ooxmlexport/data/layout-flow-alt-alone.docx
 ooxmlexport/data/line-break-in-ref.docx
 ooxmlexport/data/listWithLgl.docx
@@ -565,7 +554,6 @@ ooxmlexport/data/tdf132149_pgBreak2.odt
 ooxmlexport/data/tdf132475_printField.docx
 ooxmlexport/data/tdf132752.docx
 ooxmlexport/data/tdf132754.docx
-ooxmlexport/data/tdf133035.docx
 ooxmlexport/data/tdf133045_TestShapeAlignmentRelativeFromTopMargin.docx
 ooxmlexport/data/tdf133052.docx
 ooxmlexport/data/tdf133070_testRelativeAnchorHeightFromBottomMarginHasFooter.docx
@@ -583,8 +571,6 @@ ooxmlexport/data/tdf135329_lostImage.odt
 ooxmlexport/data/tdf135343_columnSectionBreak_c14v2.docx
 ooxmlexport/data/tdf135343_columnSectionBreak_c15.docx
 ooxmlexport/data/tdf135595_HFtableWrap.odt
-ooxmlexport/data/tdf135660.docx
-ooxmlexport/data/tdf135665.docx
 ooxmlexport/data/tdf135774_numberingCRProps.docx
 ooxmlexport/data/tdf136386_WrapPolygonLineShape.odt
 ooxmlexport/data/tdf136404.fodt
@@ -592,7 +578,6 @@ ooxmlexport/data/tdf137335_whitespaceLineHeight.docx
 ooxmlexport/data/tdf137335_whitespaceLineHeight2.docx
 ooxmlexport/data/tdf137641_RelativeFromTopMargin.docx
 ooxmlexport/data/tdf137655.docx
-ooxmlexport/data/tdf137765_testVmlLineShapeRotated.docx
 ooxmlexport/data/tdf137850_compat14ZOrder.docx
 ooxmlexport/data/tdf137850_compat15ZOrder.docx
 ooxmlexport/data/tdf138739.docx
@@ -647,7 +632,6 @@ ooxmlexport/data/tdf153964_numberingAfterBreak14.docx
 ooxmlexport/data/tdf153964_topMarginAfterBreak14.docx
 ooxmlexport/data/tdf153964_topMarginAfterBreak15.docx
 ooxmlexport/data/tdf154369.docx
-ooxmlexport/data/tdf154703_framePr2.rtf
 ooxmlexport/data/tdf155707.docx
 ooxmlexport/data/tdf156105_percentSuffix.odt
 ooxmlexport/data/tdf158597.docx
@@ -719,7 +703,6 @@ ooxmlexport/data/tdf90810short.docx
 ooxmlexport/data/tdf92470_footnoteRestart.docx
 ooxmlexport/data/tdf94628.docx
 ooxmlexport/data/tdf95189.docx
-ooxmlexport/data/tdf95777.docx
 ooxmlexport/data/tdf95848.docx
 ooxmlexport/data/tdf95848_2.docx
 ooxmlexport/data/tdf97090.docx
@@ -837,7 +820,6 @@ rtfexport/data/fdo48037.rtf
 rtfexport/data/fdo48193.rtf
 rtfexport/data/fdo48446.rtf
 rtfexport/data/fdo49893-2.rtf
-rtfexport/data/fdo55504-1-min.rtf
 rtfexport/data/fdo59638.rtf
 rtfexport/data/fdo62044.rtf
 rtfexport/data/fdo66040.rtf
@@ -929,7 +911,6 @@ rtfimport/data/cont-section-pagebreak.rtf
 rtfimport/data/fdo46662.rtf
 rtfimport/data/fdo47036.rtf
 rtfimport/data/fdo49892.rtf
-rtfimport/data/fdo52052.rtf
 rtfimport/data/fdo74599.rtf
 rtfimport/data/fdo79319.rtf
 rtfimport/data/fdo80742.rtf
@@ -975,19 +956,16 @@ tiledrendering/data/dummy.fodt
 tiledrendering/data/image-bullet-link.fodt
 tiledrendering/data/large-chart-labels.odt
 tiledrendering/data/numrules.odt
-tiledrendering/data/redline-notification-during-save.odt
 tiledrendering/data/shape-fill-link.fodt
 tiledrendering/data/tdf117448.fodt
 tiledrendering/data/tdf168318.fodt
 tiledrendering/data/two-paragraph-background-links.fodt
 uiwriter/data/FrameInHiddenSection.fodt
 uiwriter/data/HiddenSection.odt
-uiwriter/data/IndexElementsInHiddenSections.fodt
 uiwriter/data/database-display-hidden-section.fodt
 uiwriter/data/database-display-hidden-section2.fodt
 uiwriter/data/datasource.ods
 uiwriter/data/draw-anchor-undo.odt
-uiwriter/data/embeddedPPTX.docx
 uiwriter/data/fdo114306.odt
 uiwriter/data/fdo114306_2.odt
 uiwriter/data/fdo82191.odt
@@ -1105,7 +1083,6 @@ ww8export/data/tdf118133.docx
 ww8export/data/tdf120629.odt
 ww8export/data/tdf122460_header.odt
 ww8export/data/tdf127316_autoEscapement2.odt
-ww8export/data/tdf127862_pageFillStyle.odt
 ww8export/data/tdf132726.odt
 ww8export/data/tdf134264.docx
 ww8export/data/tdf46441-2.odt
