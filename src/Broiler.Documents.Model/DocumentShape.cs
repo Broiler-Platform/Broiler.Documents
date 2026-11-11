@@ -322,7 +322,23 @@ public sealed class DocumentShape(
 
     /// <summary>Creates a copy of this shape anchored to a different paragraph.</summary>
     public DocumentShape WithParagraphIndex(int paragraphIndex) =>
-        new(paragraphIndex, OffsetX, OffsetY, Width, Height, Fill, Outline, Paragraphs, Image, BehindText, Wrap, WrapSide, WrapDistance, ZOrder, AnchorPage, OffsetFromPage, GrowsToText, Tables, TextPadding, TextVerticalAlignment, TextOverflow, GrowsWidthToText, FrameName, NextFrameName, Geometry, OutlineWidth, OffsetXFromCell, CellHorizontalAlignment, Printable)
+        WithPlacement(paragraphIndex, OffsetX, OffsetY, AnchorPage, OffsetFromPage, Wrap, ZOrder);
+
+    /// <summary>
+    /// Creates a copy of this shape placed somewhere else: another anchor and
+    /// offset, how the body text treats it, and where it stacks. A reader uses
+    /// it to lift a frame nested in another frame's text out to the frame's
+    /// own anchor.
+    /// </summary>
+    public DocumentShape WithPlacement(
+        int paragraphIndex,
+        double offsetX,
+        double offsetY,
+        int anchorPage,
+        bool offsetFromPage,
+        ShapeWrap wrap,
+        int zOrder) =>
+        new(paragraphIndex, offsetX, offsetY, Width, Height, Fill, Outline, Paragraphs, Image, BehindText, wrap, WrapSide, WrapDistance, zOrder, anchorPage, offsetFromPage, GrowsToText, Tables, TextPadding, TextVerticalAlignment, TextOverflow, GrowsWidthToText, FrameName, NextFrameName, Geometry, OutlineWidth, OffsetXFromCell, CellHorizontalAlignment, Printable)
         {
             IsAsCharacter = IsAsCharacter,
             IsCustomShape = IsCustomShape,
