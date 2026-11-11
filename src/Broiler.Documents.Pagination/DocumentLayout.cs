@@ -2262,6 +2262,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 cells, shape.Geometry, shape.OutlineWidth)
             {
                 RotationRadians = shape.RotationRadians,
+                TextFlow = shape.TextFlow,
             });
         }
 
@@ -2329,6 +2330,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 shape.Image, shape.BehindText, shape.ZOrder, cells, shape.Geometry, shape.OutlineWidth)
             {
                 RotationRadians = shape.RotationRadians,
+                TextFlow = shape.TextFlow,
             });
         }
 
@@ -3398,6 +3400,17 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     /// </summary>
     private void NoteGrownHeight(DocumentShape shape, DocumentPageBox setup)
     {
+        // Turned text runs along the box's height, so the box keeps its height
+        // and a box fitted to its text takes the width its turned lines need,
+        // as LibreOffice fits tdf127825.docx's downward text box to its two
+        // lines rather than to the 186 points it states.
+        if (shape.TextFlow != ShapeTextFlow.Horizontal)
+        {
+            if (shape.GrowsToText && ShapeParagraphs(shape).Count > 0 && shape.Height > 0 && !_grownWidths.ContainsKey(shape))
+                _grownWidths[shape] = ComposeShapeBlocks(shape, setup, 0, shape.Height).Height +
+                    shape.TextPadding.Top + shape.TextPadding.Bottom;
+            return;
+        }
         if ((shape.GrowsWidthToText || shape.FitsText) && !_grownWidths.ContainsKey(shape))
         {
             double width = 0;
@@ -3434,14 +3447,14 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     private double BoxWidth(DocumentShape shape) => _grownWidths.GetValueOrDefault(shape, Math.Max(0, shape.Width));
 
     private (List<LayoutLine> Lines, List<LayoutCell> Cells, List<CutPiece> Pieces, double Height) ComposeShapeBlocks(
-        DocumentShape shape, DocumentPageBox setup, double left)
+        DocumentShape shape, DocumentPageBox setup, double left, double? boxWidth = null)
     {
         ListNumberer bodyLists = _lists;
         _lists = _linkedStarts.TryGetValue(shape, out ListNumberer? start) ? start.Snapshot() : new ListNumberer();
         try
         {
             RichTextDocument content = RichTextDocument.FromParagraphs(ShapeParagraphs(shape)).WithTables(shape.Tables);
-            double width = Math.Max(1, BoxWidth(shape) - shape.TextPadding.Left - shape.TextPadding.Right);
+            double width = Math.Max(1, (boxWidth ?? BoxWidth(shape)) - shape.TextPadding.Left - shape.TextPadding.Right);
             return ComposeBlocks(content, shape.Tables, 0, content.ParagraphCount, setup, left, width, drawParagraphBorders: true);
         }
         finally
@@ -3454,12 +3467,17 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     {
         if (ShapeParagraphs(shape).Count == 0)
             return ([], []);
+        // Turned text is laid out in the box turned with it, about the same
+        // centre; the painter turns the lines back onto the box.
+        if (shape.TextFlow != ShapeTextFlow.Horizontal)
+            bounds = LayoutShape.TextFrame(bounds, shape.TextFlow);
+        double? turnedWidth = shape.TextFlow == ShapeTextFlow.Horizontal ? null : bounds.Width;
         bounds = new BRect(bounds.Left + shape.TextPadding.Left, bounds.Top + shape.TextPadding.Top,
             Math.Max(0, bounds.Width - shape.TextPadding.Left - shape.TextPadding.Right),
             Math.Max(0, bounds.Height - shape.TextPadding.Top - shape.TextPadding.Bottom));
         if (bounds.Width <= 0 || bounds.Height <= 0)
             return ([], []);
-        var content = ComposeShapeBlocks(shape, setup, bounds.Left);
+        var content = ComposeShapeBlocks(shape, setup, bounds.Left, turnedWidth);
         double spare = Math.Max(0, bounds.Height - content.Height);
         double down = shape.TextVerticalAlignment switch { CellVerticalAlignment.Center => spare / 2, CellVerticalAlignment.Bottom => spare, _ => 0 };
         var lines = new List<LayoutLine>();
