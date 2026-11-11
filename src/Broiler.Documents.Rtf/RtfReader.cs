@@ -254,6 +254,11 @@ public static class RtfReader
 
         private readonly RtfStyleSheet _styleSheet = new();
         private RtfStyle? _currentStyle;
+
+        // The alignment and leader the next \tx gives its stop: RTF states
+        // them in front of the position that closes the stop.
+        private TabAlignment _tabAlignment;
+        private string? _tabLeader;
         private readonly StringBuilder _styleName = new();
         private bool _styleSemicolonSeen;
         private int _stylesheetDepth = -1;
@@ -322,7 +327,11 @@ public static class RtfReader
                                     ? ReadPicture(tokens, ref next)
                                     : ReadPictureWrapper(tokens, ref next);
                                 if (picture is not null)
+                                {
                                     Active.Append(InlineImage.PlaceholderText, _state.Char with { Image = picture });
+                                    if (_state.Field is FieldFrame pictureField)
+                                        pictureField.Characters++;
+                                }
                                 break;
                             }
                         }
@@ -376,6 +385,10 @@ public static class RtfReader
                 {
                     FontFamily = _defaultFont is int font ? _fonts.GetName(font) : null,
                     WidensSpaceRuns = WidensSpaceRuns(),
+                    // RTF states no Word compatibility mode, which LibreOffice
+                    // reads as Word 2010 and earlier: tab stops past the right
+                    // indent are honoured (SettingsTable::ApplyProperties).
+                    TabsOverMargin = true,
                     UndecoratedLinks = true,
                 })
                 .WithRunningContent(BuildRunningContent())
@@ -430,6 +443,15 @@ public static class RtfReader
                     AppendBody(fallback);
                     FlushPending();
                     _state.Dest = closing.Dest;
+                }
+                else if (IsLinkedPicture(field.Instruction.ToString()))
+                {
+                    // The picture lives in a file beside the document, and a
+                    // reader given only the document's bytes never opens another
+                    // file. Word and LibreOffice load it, so the page loses it.
+                    if (!_diagnostics.Any(diagnostic => diagnostic.Code == "rtf.image.external"))
+                        _diagnostics.Add(DocumentDiagnostic.Warning("rtf.image.external",
+                            "An INCLUDEPICTURE field with no saved result links to a picture outside the document, which is not loaded."));
                 }
             }
 
@@ -1247,6 +1269,22 @@ public static class RtfReader
                 // does.
                 case "pagebb": _state.Para = _state.Para with { PageBreakBefore = !(has && p == 0) }; break;
 
+                // A tab stop: its kind and leader come first, and \tx closes it
+                // at a position measured from the left margin. A bar tab (\tb)
+                // draws a rule, not a stop, and is not modelled.
+                case "tqr": case "tqc": case "tqdec": case "tldot": case "tlhyph": case "tlul": case "tlth":
+                case "tlmdot": case "tleq":
+                    ReadTabKind(kw);
+                    break;
+                case "tx":
+                    if (has && TakeTabStop(p) is ParagraphTabStop stop)
+                        _state.Para = _state.Para with
+                        {
+                            TabStops = new ParagraphTabStops([.. _state.Para.TabStops ?? (IEnumerable<ParagraphTabStop>)[], stop]),
+                        };
+                    break;
+                case "tb": TakeTabStop(0); break;
+
                 case "par": EndParagraph(); break;
                 // A row end in the body closes a row of the table. Anywhere else
                 // - a header, a shape's text - there is no table to close, and it
@@ -1779,6 +1817,15 @@ public static class RtfReader
                 case "sl": if (has) _currentStyle.LineSpacing = p; break;
                 case "slmult": if (has) _currentStyle.MultipleLineSpacing = p == 1; break;
                 case "pagebb": _currentStyle.PageBreakBefore = !(has && p == 0); break;
+                case "tqr": case "tqc": case "tqdec": case "tldot": case "tlhyph": case "tlul": case "tlth":
+                case "tlmdot": case "tleq":
+                    ReadTabKind(kw);
+                    break;
+                case "tx":
+                    if (has && TakeTabStop(p) is ParagraphTabStop styleStop)
+                        (_currentStyle.TabStops ??= []).Add(styleStop);
+                    break;
+                case "tb": TakeTabStop(0); break;
                 case "cbpat": if (has) _currentStyle.ParagraphBackgroundIndex = p; break;
 
                 // Character formatting
@@ -2768,6 +2815,14 @@ public static class RtfReader
             _pending.Append(text);
         }
 
+        /// <summary>Whether a field instruction is <c>INCLUDEPICTURE</c>, a picture linked by name.</summary>
+        private static bool IsLinkedPicture(string instruction)
+        {
+            string code = instruction.TrimStart();
+            return code.StartsWith("INCLUDEPICTURE", StringComparison.OrdinalIgnoreCase) &&
+                (code.Length == 14 || char.IsWhiteSpace(code[14]));
+        }
+
         private string? ResolveFieldFallback(string instruction)
         {
             string code = instruction.Trim();
@@ -2958,6 +3013,35 @@ public static class RtfReader
             return null;
         }
 
+
+        /// <summary>Records a tab kind or leader word for the next <c>\tx</c>.</summary>
+        private void ReadTabKind(string word)
+        {
+            switch (word)
+            {
+                case "tqr": _tabAlignment = TabAlignment.Right; break;
+                case "tqc": _tabAlignment = TabAlignment.Center; break;
+                case "tqdec": _tabAlignment = TabAlignment.Decimal; break;
+                case "tldot": _tabLeader = "."; break;
+                case "tlhyph": _tabLeader = "-"; break;
+                case "tlul": case "tlth": _tabLeader = "_"; break;
+                case "tlmdot": _tabLeader = "\u00B7"; break;
+                case "tleq": _tabLeader = null; break; // LibreOffice draws no equals leader.
+            }
+        }
+
+        /// <summary>
+        /// Closes the stop the kind and leader words opened at <paramref name="twips"/>,
+        /// and clears them for the next one. A negative or out-of-range position
+        /// gives no stop.
+        /// </summary>
+        private ParagraphTabStop? TakeTabStop(int twips)
+        {
+            var stop = new ParagraphTabStop(twips / 20d, _tabAlignment, _tabLeader);
+            _tabAlignment = TabAlignment.Left;
+            _tabLeader = null;
+            return twips is > 0 and <= 400000 ? stop : null;
+        }
 
         private static int Clamp(int value) => Math.Clamp(value, 0, 255);
 
