@@ -1055,6 +1055,12 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             }
         }
 
+        // True when shapes text does not wrap around hang from the paragraph,
+        // and none that it does: those can follow the paragraph to a new page.
+        bool CarriesFreeShapes(int index) =>
+            _documentShapes.Any(shape => shape.ParagraphIndex == index && !shape.IsPageAnchored && !shape.OffsetFromPage) &&
+            !_documentShapes.Any(shape => shape.ParagraphIndex == index && (shape.Wraps || shape.IsAsCharacter));
+
         void ReanchorParagraph(int index)
         {
             _paragraphTops[index] = y;
@@ -1637,6 +1643,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                     if (fit == 0 && (ColumnHasContent() || y > pageTop + 0.01))
                     {
                         regionUnbalanced = true;
+                        if (first && CarriesFreeShapes(paragraphIndex))
+                            _paragraphTops.Remove(paragraphIndex);
                         BreakColumn();
                         if (truncated)
                             break;
@@ -1693,6 +1701,15 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 // foot of the page as well as for itself.
                 if (y + line.Height > contentBottom - NotesHeight([line]) && (ColumnHasContent() || y > pageTop + 0.01) && !heldByOwnShapes)
                 {
+                    // A paragraph that moves on whole takes the shapes anchored
+                    // to it along: they are not drawn on the page it left, and
+                    // stand from its top on the page it reaches
+                    // (tdf123351_UnderlineGroupSapeText.docx). Only shapes text
+                    // ignores: a wrapping frame keeps its own page above, and
+                    // moved with its anchor it would push the line on again.
+                    bool carriesShapes = first && CarriesFreeShapes(paragraphIndex);
+                    if (carriesShapes)
+                        _paragraphTops.Remove(paragraphIndex);
                     BreakColumn();
                     if (truncated)
                         break;
@@ -1710,6 +1727,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                         // No line of this paragraph was placed yet. Its new
                         // page can have different margins/paper or exclusions,
                         // so measure it there before placing its first line.
+                        if (carriesShapes)
+                            ReanchorParagraph(paragraphIndex);
                         composed = ComposeParagraph(paragraph, marker, setup, paragraphIndex,
                             columnWidthOverride: columns.Width, wrapTop: y,
                             wrapColumnLeft: columns.Offset(column));
@@ -2283,7 +2302,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
                 (List<LayoutLine> lines, List<LayoutCell> nested, List<CutPiece> pieces, double height) =
                     ComposeBlocks(document, cell.Tables, cell.ParagraphIndex, cell.ParagraphEnd, setup, cellLeft + padding.Left, textWidth,
-                        keepsDefaultLines);
+                        keepsDefaultLines, inTableCell: !keepsDefaultLines);
 
                 // Text that runs past the cell is cut at its edge, as Writer
                 // cuts a text portion; the innermost cell's edge wins for a
@@ -2670,10 +2689,20 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     /// so the default goes there only; that a stated value is off in other
     /// rows is not modelled. <c>fdo68607.docx</c>'s two-line definition moves
     /// its row to the next page whole rather than leave one line behind.
+    /// A paragraph's keep-with-next holds in a text box but not in a table cell
+    /// (<paramref name="inTableCell"/>): Writer ignores the keep attribute of a
+    /// frame inside a cell "for compatibility reasons" (<c>SwFlowFrame::IsKeep</c>
+    /// in <c>flowfrm.cxx</c>), though a table nested there still keeps.
+    /// <c>tdf119054.docx</c> holds a cell of keep-with-next headings longer than
+    /// a page, and its last heading moves to the next page on its own. A
+    /// floating table's cells still keep: <c>tdf170846_2.docx</c>'s frame of kept
+    /// paragraphs is neither split nor moved, and Writer lays a floating table out
+    /// in a fly of its own rather than in the body's flow.
     /// </remarks>
     private (List<LayoutLine> Lines, List<LayoutCell> Cells, List<CutPiece> Pieces, double Height) ComposeBlocks(
         RichTextDocument document, IReadOnlyList<DocumentTable> tables, int from, int to, DocumentPageBox setup,
-        double left, double width, bool keepsDefaultLines = false, bool drawParagraphBorders = false)
+        double left, double width, bool keepsDefaultLines = false, bool drawParagraphBorders = false,
+        bool inTableCell = false)
     {
         var lines = new List<LayoutLine>();
         var cells = new List<LayoutCell>();
@@ -2808,7 +2837,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 paragraphPieces.RemoveAt(0);
             }
             pieces.AddRange(paragraphPieces);
-            keepPrevious = paragraph.Style.KeepWithNext;
+            keepPrevious = paragraph.Style.KeepWithNext && !inTableCell;
 
             y += Math.Max(0, paragraph.Style.SpacingAfter);
             index++;
