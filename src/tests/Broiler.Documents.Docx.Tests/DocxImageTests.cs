@@ -525,6 +525,33 @@ public sealed class DocxImageTests
         Assert.Equal(DocxTestPackage.OnePixelPng, image.Data.ToArray());
     }
 
+    [Fact]
+    public void An_Absolute_Embedded_Object_Preview_Floats_At_Its_Margins()
+    {
+        // tdf133035: an OLE icon whose v:shape is position:absolute is placed
+        // at its margin-left/margin-top, not inline at the paragraph start.
+        string objectXml =
+            "<w:p><w:r>" +
+            "<w:object xmlns:v=\"urn:schemas-microsoft-com:vml\">" +
+            "<v:shape id=\"_x0000_s1026\" style=\"position:absolute;margin-left:186.6pt;margin-top:94.8pt;width:76.2pt;height:49.2pt\">" +
+            "<v:imagedata r:id=\"rId7\"/>" +
+            "</v:shape>" +
+            "</w:object>" +
+            "</w:r></w:p>";
+
+        DocumentReadResult result = DocxTestPackage.ReadWithMedia(
+            objectXml,
+            DocxTestPackage.ImageRelationship("rId7", "media/image1.png"),
+            Media("word/media/image1.png"));
+
+        DocumentShape shape = Assert.Single(result.Document.Shapes);
+        Assert.NotNull(shape.Image);
+        Assert.Equal(186.6, shape.OffsetX, 1);
+        Assert.Equal(94.8, shape.OffsetY, 1);
+        Assert.Equal(76.2, shape.Width, 1);
+        Assert.DoesNotContain(InlineImage.PlaceholderText, Assert.Single(result.Document.Paragraphs).Text);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

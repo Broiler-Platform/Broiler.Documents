@@ -559,6 +559,10 @@ LibreOffice's `DomainMapperTableHandler` does:
   reads as the page background's, approximations reported as
   `docx.shape.fill`; the outline is `strokecolor`, VML's default black, or none
   where `stroked` is off; the text is the `w:txbxContent` in its `v:textbox`.
+- An embedded object's preview (`w:object` > `v:shape` > `v:imagedata`) that
+  is `position:absolute` floats at its CSS box like a `w:pict` picture, so
+  `tdf133035.docx`'s OLE icon sits at its margins instead of at the start of
+  the line. The icon's caption is EMF text and is not drawn.
 - The column any shape frame converts to is that of the text's page: the
   margins of the last section that started a page, which a following
   continuous section keeps as LibreOffice lays it out. `tdf123163-1.docx`

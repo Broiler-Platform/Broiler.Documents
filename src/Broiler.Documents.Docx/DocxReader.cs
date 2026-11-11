@@ -2026,7 +2026,11 @@ internal static class DocxReader
     /// </remarks>
     private static bool ReadVmlShape(XElement picture, DocxReadContext context)
     {
-        if (picture.Name != DocxNamespaces.Wordprocessing + "pict")
+        // An OLE object's preview (w:object > v:shape > v:imagedata) positions
+        // like any other VML picture, so an absolute one floats too.
+        bool isObjectPreview = picture.Name == DocxNamespaces.Wordprocessing + "object" &&
+            picture.Elements(DocxNamespaces.Vml + "shape").Any(shape => shape.Element(DocxNamespaces.Vml + "imagedata") is not null);
+        if (picture.Name != DocxNamespaces.Wordprocessing + "pict" && !isObjectPreview)
             return false;
 
         bool read = false;
