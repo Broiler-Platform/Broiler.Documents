@@ -189,6 +189,7 @@ internal static class OdtReader
         }
         styles.InvertsTextDisplay = OdtMetadata.WrittenByOpenOffice2(metadata.Producer);
         styles.PageFillBounds = OdtMetadata.PageFillBounds(metadata.Producer);
+        styles.LegacyShapeColors = OdtMetadata.LegacyShapeColors(metadata.Producer);
         XElement? master = ResolveMasterPage(content, styles);
         PageGeometry? page = ReadPageGeometry(master, styles, diagnostics);
         RichTextDocument document = ReadContent(content, styles, images, page, options.Limits, diagnostics, master);
@@ -635,7 +636,20 @@ internal static class OdtReader
             double? footerOrigin = page is PageGeometry geometry
                 ? geometry.Height - geometry.MarginBottom + (footerProperties is null ? 0 : Math.Max(0, Length(footerProperties, "margin-top")))
                 : null;
-            var (paragraphs, shapes) = ReadPart(part, styles, images, limits, diagnostics, page, footerOrigin);
+            // A page number that states no format of its own takes the one of the
+            // page it is on (style:num-format on the page layout), as Writer does.
+            ListNumberFormat? outerFormat = styles.PageNumberFormat;
+            styles.PageNumberFormat = PageLayoutNumberFormat(master, styles);
+            IReadOnlyList<RichTextParagraph> paragraphs;
+            IReadOnlyList<DocumentShape> shapes;
+            try
+            {
+                (paragraphs, shapes) = ReadPart(part, styles, images, limits, diagnostics, page, footerOrigin);
+            }
+            finally
+            {
+                styles.PageNumberFormat = outerFormat;
+            }
             if (paragraphs.Count == 0 && shapes.Count == 0)
             {
                 // An empty part is an answer for the two selections that would
@@ -707,6 +721,21 @@ internal static class OdtReader
         {
             "left" => SectionBreakType.EvenPage,
             "right" => SectionBreakType.OddPage,
+            _ => null,
+        };
+
+    /// <summary>
+    /// The <c>style:num-format</c> of <paramref name="master"/>'s page layout,
+    /// or null where it states none or one this does not read.
+    /// </summary>
+    private static ListNumberFormat? PageLayoutNumberFormat(XElement master, OdtStyles styles) =>
+        (string?)PageLayoutProperties(master, styles)?.Attribute(OdtNamespaces.Style + "num-format") switch
+        {
+            "1" => ListNumberFormat.Decimal,
+            "i" => ListNumberFormat.LowerRoman,
+            "I" => ListNumberFormat.UpperRoman,
+            "a" => ListNumberFormat.LowerLetter,
+            "A" => ListNumberFormat.UpperLetter,
             _ => null,
         };
 
@@ -1584,11 +1613,21 @@ internal static class OdtReader
 
         ShapeFill? fill = ReadDrawFill(properties, styles, implicitSolid);
 
+        // A drawing shape from an older producer that states no colours takes
+        // the defaults that producer drew it with (OdtMetadata.LegacyShapeColors).
+        (BColor Fill, BColor Line)? legacy = implicitSolid ? styles.LegacyShapeColors : null;
+        string? fillKind = (string?)properties.Attribute(OdtNamespaces.Draw + "fill");
+        if (legacy is { } fillDefault && fill is null && fillKind is null or "solid" &&
+            properties.Attribute(OdtNamespaces.Draw + "fill-color") is null)
+            fill = ShapeFill.Solid(fillDefault.Fill);
+
         BColor outline = BColor.Empty;
         string? stroke = (string?)properties.Attribute(OdtNamespaces.Draw + "stroke");
         if (!string.Equals(stroke, "none", StringComparison.Ordinal))
             if (!TryColor((string?)properties.Attribute(OdtNamespaces.Svg + "stroke-color"), out outline) && stroke is not null)
                 outline = BColor.Black;
+            else if (stroke is null && legacy is { } lineDefault && properties.Attribute(OdtNamespaces.Svg + "stroke-color") is null)
+                outline = lineDefault.Line;
 
         (ShapeWrap wrap, WrapSide side) = ReadWrap(properties);
         return (fill, outline, BehindText(properties), wrap, side);
@@ -2749,7 +2788,7 @@ internal static class OdtReader
 
             if (name == OdtNamespaces.Text + "page-number" || name == OdtNamespaces.Text + "page-count")
             {
-                ReadPageField(element, builder, style);
+                ReadPageField(element, builder, style, context.Styles.PageNumberFormat);
                 continue;
             }
 
@@ -3190,10 +3229,12 @@ internal static class OdtReader
     /// <remarks>
     /// <c>text:select-page</c> of <c>previous</c> or <c>next</c> shows the
     /// neighbouring page's number, and <c>text:page-adjust</c> moves it further.
-    /// A field with no <c>style:num-format</c> is written in decimal, where
-    /// LibreOffice would take the page style's format.
+    /// A field with no <c>style:num-format</c> takes the format of the page
+    /// layout whose header or footer it is in (<paramref name="pageFormat"/>),
+    /// and is written in decimal in the body, where LibreOffice would take the
+    /// page style's format.
     /// </remarks>
-    private static void ReadPageField(XElement element, OdtDocumentBuilder builder, InlineStyle style)
+    private static void ReadPageField(XElement element, OdtDocumentBuilder builder, InlineStyle style, ListNumberFormat? pageFormat)
     {
         bool count = element.Name.LocalName == "page-count";
         int adjust = 0;
@@ -3212,7 +3253,7 @@ internal static class OdtReader
 
         ListNumberFormat format = (string?)element.Attribute(OdtNamespaces.Style + "num-format") switch
         {
-            null => ListNumberFormat.Decimal,
+            null => pageFormat ?? ListNumberFormat.Decimal,
             "" => ListNumberFormat.None,
             "i" => ListNumberFormat.LowerRoman,
             "I" => ListNumberFormat.UpperRoman,

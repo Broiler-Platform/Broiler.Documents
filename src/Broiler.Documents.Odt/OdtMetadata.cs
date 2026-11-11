@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO.Compression;
 using System.Linq;
 using System.Xml.Linq;
+using Broiler.Graphics.Color;
 
 namespace Broiler.Documents.Odt;
 
@@ -94,6 +95,41 @@ internal static class OdtMetadata
         bool openOffice = upd is >= 640 and <= 645 or 680 or 310 or 320 or 330 or 340 or 400 or 401 or >= 410 ||
             upd == 300 && build <= 9379;
         return openOffice ? OdtPageFillBounds.InsideMargins : OdtPageFillBounds.WholePage;
+    }
+
+    /// <summary>
+    /// The default fill and line colours of a drawing shape in a document
+    /// <paramref name="generator"/> wrote, where they differ from today's.
+    /// </summary>
+    /// <remarks>
+    /// LibreOffice 4.1 changed Writer's shape defaults, and it gives a document
+    /// from before that the colours it was drawn with (fdo#75872,
+    /// XMLGraphicsDefaultStyle::SetDefaults in xmloff): AOO 4 drew light blue
+    /// <c>#CFE7F5</c> with a grey <c>#808080</c> line, and OpenOffice.org before
+    /// 3.4 and LibreOffice before 4.1 drew <c>#99CCFF</c> with a black line.
+    /// Null for every other document - including one that names no producer -
+    /// whose defaults this reader leaves as they are.
+    /// </remarks>
+    public static (BColor Fill, BColor Line)? LegacyShapeColors(string? generator)
+    {
+        if (string.IsNullOrEmpty(generator))
+            return null;
+
+        var old = (BColor.FromArgb(0x99, 0xCC, 0xFF), BColor.FromArgb(0, 0, 0));
+        int slash = generator.IndexOf('/');
+        if (slash >= 0 && generator.Contains("LibreOffice_project/", StringComparison.Ordinal))
+        {
+            string version = generator[(slash + 1)..];
+            return version.Length >= 3 && version[1] == '.' &&
+                (version[0] == '3' || version[0] == '4' && version[2] == '0')
+                ? old
+                : null;
+        }
+
+        (int upd, _) = BuildId(generator);
+        if (upd is 400 or 401 or (>= 410 and < 500))
+            return (BColor.FromArgb(0xCF, 0xE7, 0xF5), BColor.FromArgb(0x80, 0x80, 0x80));
+        return upd is (>= 640 and <= 645) or 680 or 300 or 310 or 320 or 330 ? old : null;
     }
 
     private static OdtPageFillBounds LibreOfficePageFillBounds(string version)

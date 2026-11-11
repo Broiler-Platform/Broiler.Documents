@@ -5,6 +5,7 @@ using System.IO.Compression;
 using System.Linq;
 using System.Xml.Linq;
 using Broiler.Documents.Model;
+using Broiler.Graphics.Color;
 
 namespace Broiler.Documents.Odt;
 
@@ -231,6 +232,19 @@ internal sealed class OdtStyles : IOdtImageDiagnostics
     /// inverted (txtimppr.cxx, <c>CTF_TEXT_DISPLAY</c>), and so does this.
     /// </summary>
     public bool InvertsTextDisplay { get; set; }
+
+    /// <summary>
+    /// The fill and line colours a drawing shape gets when neither it nor the
+    /// default graphic style states one, for a document from an older producer;
+    /// null for a current one. See <see cref="OdtMetadata.LegacyShapeColors"/>.
+    /// </summary>
+    public (BColor Fill, BColor Line)? LegacyShapeColors { get; set; }
+
+    /// <summary>
+    /// The page-number format of the page layout whose header or footer is being
+    /// read, for a <c>text:page-number</c> that states none; null elsewhere.
+    /// </summary>
+    public ListNumberFormat? PageNumberFormat { get; set; }
 
     /// <summary>How much of the page a page layout's own fill covers, by the document's producer.</summary>
     public OdtPageFillBounds PageFillBounds { get; set; }
