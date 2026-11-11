@@ -294,6 +294,9 @@ public sealed class LayoutFloatingTable(
 
 public sealed class LayoutPage : IPaginatedPageArtifact
 {
+    internal CellBorders PageBorders { get; init; }
+    internal TableCellPadding PageBorderInsets { get; init; }
+
     private readonly List<LayoutLine> _lines;
     private readonly List<LayoutShape> _shapes;
     private readonly List<LayoutCell> _cells;

@@ -25,6 +25,21 @@ public sealed class RtfShapeTests
         Encoding.ASCII.GetString(RtfWriter.WriteToArray(document, options));
 
     [Fact]
+    public void Inline_Picture_Reads_Scaled_Dimensions_And_Nested_Binary_Bytes()
+    {
+        byte[] gif = Convert.FromHexString("47494638396101000100800000000000ffffff21f90401000000002c00000000010001000002024401003b");
+        byte[] prefix = Encoding.ASCII.GetBytes(
+            @"{\rtf1{\pict\picwgoal1440\pichgoal720\picscalex50{\bin" + gif.Length + " ");
+        byte[] rtf = [.. prefix, .. gif, .. "}}}"u8.ToArray()];
+
+        RichTextParagraph paragraph = Assert.Single(RtfReader.Read(rtf).Document.Paragraphs);
+        InlineImage picture = Assert.IsType<InlineImage>(Assert.Single(paragraph.Runs).Style.Image);
+        Assert.Equal(gif, picture.Data.ToArray());
+        Assert.Equal(36, picture.Width);
+        Assert.Equal(36, picture.Height);
+    }
+
+    [Fact]
     public void A_Picture_Shape_In_A_First_Page_Header_Stays_In_That_Header()
     {
         const string rtf = @"{\rtf1\titlepg{\headerf{\shp{\*\shpinst\shpleft0\shptop0\shpright200\shpbottom400" +

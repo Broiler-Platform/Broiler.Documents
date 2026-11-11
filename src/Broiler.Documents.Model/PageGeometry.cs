@@ -85,6 +85,15 @@ public sealed record PageGeometry(
     /// <summary>True when the page or section uses vertical writing mode (e.g. tbRl).</summary>
     public bool VerticalWriting { get; init; }
 
+    /// <summary>Borders along the page's margin box.</summary>
+    public CellBorders Borders { get; init; }
+
+    /// <summary>Insets from the physical page edges to the border box, in points.</summary>
+    public TableCellPadding BorderInsets { get; init; }
+
+    /// <summary>Space from each page border to the content area, in points.</summary>
+    public TableCellPadding BorderPadding { get; init; }
+
     /// <summary>True when the text area is divided into more than one column.</summary>
     public bool HasColumns => ColumnCount > 1;
 

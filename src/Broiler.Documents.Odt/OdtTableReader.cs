@@ -377,7 +377,7 @@ internal static class OdtTableReader
     /// and a colour - either once for all four or once per side, with the side
     /// winning where both are stated.
     /// </summary>
-    private static CellBorders ReadCellBorders(XElement? properties)
+    internal static CellBorders ReadCellBorders(XElement? properties)
     {
         if (properties is null)
             return default;

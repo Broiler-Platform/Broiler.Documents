@@ -24,7 +24,7 @@ public static class RtfReader
     public static DocumentReadResult Read(ReadOnlyMemory<byte> content, DocumentReadOptions? options = null)
     {
         DocumentReadOptions effective = options ?? DocumentReadOptions.Default;
-        RtfTokenizeResult tokenized = RtfTokenizer.Tokenize(content, effective.Limits);
+        RtfTokenizeResult tokenized = RtfTokenizer.TokenizeCore(content, effective.Limits, retainBinary: true);
         var diagnostics = tokenized.Diagnostics.ToList();
         var tokens = RtfShapeGroups.Expand(tokenized.Tokens, effective.Limits.MaxGroupDepth, diagnostics);
         return new Worker(effective, diagnostics).Run(tokens);
@@ -289,12 +289,26 @@ public static class RtfReader
                             _styleName.Clear();
                             _styleSemicolonSeen = false;
                         }
-                        if (_state.Dest == RtfDestination.ShapePropertyValue &&
-                            next < tokens.Count && tokens[next].Keyword == "pict" &&
+                        if (next < tokens.Count && tokens[next].Keyword == "pict" &&
+                            _state.Dest == RtfDestination.ShapePropertyValue &&
                             _shapePropertyName.ToString().Trim() == "pib")
                         {
-                            _shapeImage = ReadShapePicture(tokens, ref next);
+                            _shapeImage = ReadPicture(tokens, ref next);
                             break;
+                        }
+                        if (_state.Dest is RtfDestination.Normal or RtfDestination.FieldResult or
+                            RtfDestination.ShapeText or RtfDestination.Note || IsRunning(_state.Dest))
+                        {
+                            if (next < tokens.Count && tokens[next].Keyword == "pict" ||
+                                next + 1 < tokens.Count && tokens[next].Symbol == '*' && tokens[next + 1].Keyword == "shppict")
+                            {
+                                InlineImage? picture = tokens[next].Keyword == "pict"
+                                    ? ReadPicture(tokens, ref next)
+                                    : ReadPictureWrapper(tokens, ref next);
+                                if (picture is not null)
+                                    Active.Append(InlineImage.PlaceholderText, _state.Char with { Image = picture });
+                                break;
+                            }
                         }
                         _stack.Push(_state);
                         break;
@@ -572,8 +586,7 @@ public static class RtfReader
             // result landed in the body beside the footnote mark, and a header
             // inside a stylesheet left the stylesheet to become the page's header.
             // A picture is still reported, because the report is about what the
-            // document lost, and a picture inside a skipped \*\shppict is a
-            // picture this reader did not import.
+            // document lost, including pictures inside skipped destinations.
             if (_state.Dest == RtfDestination.Skip)
             {
                 if (kw is "pict" or "object")
@@ -2102,21 +2115,64 @@ public static class RtfReader
         private static BColor ShapeColor(long value) =>
             new((byte)(value & 0xFF), (byte)((value >> 8) & 0xFF), (byte)((value >> 16) & 0xFF));
 
-        private InlineImage? ReadShapePicture(IReadOnlyList<RtfToken> tokens, ref int next)
+        private InlineImage? ReadPictureWrapper(IReadOnlyList<RtfToken> tokens, ref int next)
+        {
+            int depth = 1;
+            InlineImage? image = null;
+            while (next < tokens.Count)
+            {
+                RtfToken token = tokens[next++];
+                if (token.Type == RtfTokenType.GroupStart)
+                {
+                    if (depth == 1 && image is null && next < tokens.Count && tokens[next].Keyword == "pict")
+                        image = ReadPicture(tokens, ref next);
+                    else
+                        depth++;
+                }
+                else if (token.Type == RtfTokenType.GroupEnd && --depth == 0)
+                    return image;
+            }
+            return null;
+        }
+
+        private InlineImage? ReadPicture(IReadOnlyList<RtfToken> tokens, ref int next)
         {
             using var bytes = new MemoryStream();
             int depth = 1;
             int highNibble = -1;
             bool valid = true;
+            bool nestedBinary = false;
+            int width = 0, height = 0, scaleX = 100, scaleY = 100;
             while (next < tokens.Count)
             {
                 RtfToken token = tokens[next++];
                 if (token.Type == RtfTokenType.GroupStart)
+                {
+                    if (depth == 1)
+                        nestedBinary = next < tokens.Count && tokens[next].Keyword == "bin";
                     depth++;
+                }
                 else if (token.Type == RtfTokenType.GroupEnd && --depth == 0)
                     break;
-                else if (depth == 1 && token.Type == RtfTokenType.ControlWord && token.Keyword == "bin")
-                    valid = false;
+                else if ((depth == 1 || depth == 2 && nestedBinary) && token.Type == RtfTokenType.ControlWord)
+                {
+                    switch (token.Keyword)
+                    {
+                        case "bin":
+                            if (highNibble >= 0 || next >= tokens.Count || tokens[next].Type != RtfTokenType.Binary ||
+                                token.Parameter > _maxBinBytes - bytes.Length)
+                            {
+                                valid = false;
+                                break;
+                            }
+                            bytes.Write(tokens[next++].BinaryData.Span);
+                            break;
+                        case "picwgoal" when depth == 1: width = token.Parameter; break;
+                        case "pichgoal" when depth == 1: height = token.Parameter; break;
+                        case "picscalex" when depth == 1: scaleX = token.Parameter; break;
+                        case "picscaley" when depth == 1: scaleY = token.Parameter; break;
+                    }
+                }
                 else if (valid && depth == 1 && token.Type == RtfTokenType.Text)
                 {
                     foreach (char character in token.Text)
@@ -2165,7 +2221,9 @@ public static class RtfReader
                 return null;
             }
 
-            return new InlineImage(resource, id);
+            return new InlineImage(resource, id).WithSize(
+                width > 0 && scaleX > 0 ? width * (double)scaleX / 2000 : null,
+                height > 0 && scaleY > 0 ? height * (double)scaleY / 2000 : null);
         }
 
         /// <summary>Turns the walked group into a shape, when it described one.</summary>

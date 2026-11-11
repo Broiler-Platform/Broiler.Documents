@@ -1909,6 +1909,22 @@ public static class OdtWriter
             new XAttribute(OdtNamespaces.Fo + "margin-left", OdtUnits.FormatPoints(page.MarginLeft)),
             new XAttribute(OdtNamespaces.Fo + "margin-right", OdtUnits.FormatPoints(page.MarginRight)));
 
+        if (page.Borders != default || page.BorderPadding != default)
+        {
+            AddPageEdge("left", page.BorderInsets.Left, page.BorderPadding.Left, page.Borders.Left);
+            AddPageEdge("right", page.BorderInsets.Right, page.BorderPadding.Right, page.Borders.Right);
+            AddPageEdge("top", page.BorderInsets.Top, page.BorderPadding.Top, page.Borders.Top);
+            AddPageEdge("bottom", page.BorderInsets.Bottom, page.BorderPadding.Bottom, page.Borders.Bottom);
+        }
+
+        void AddPageEdge(string side, double inset, double padding, TableBorder border)
+        {
+            properties.SetAttributeValue(OdtNamespaces.Fo + "margin-" + side, OdtUnits.FormatPoints(inset));
+            if (padding > 0)
+                properties.Add(new XAttribute(OdtNamespaces.Fo + "padding-" + side, OdtUnits.FormatPoints(padding)));
+            OdtWriteContext.AddBorder(properties, "border-" + side, border);
+        }
+
         // Equal columns need nothing but the count and the gap; listing each
         // column is for widths that differ, which the model does not hold.
         if (page.HasColumns)
@@ -2060,7 +2076,8 @@ public static class OdtWriter
             part.Name == OdtNamespaces.Style + "header-first"))
         {
             double distance = double.IsFinite(geometry.HeaderDistance) ? Math.Max(0, geometry.HeaderDistance) : 0;
-            pageProperties.SetAttributeValue(OdtNamespaces.Fo + "margin-top", OdtUnits.FormatPoints(distance));
+            if (geometry.Borders == default && geometry.BorderPadding == default)
+                pageProperties.SetAttributeValue(OdtNamespaces.Fo + "margin-top", OdtUnits.FormatPoints(distance));
             headerStyle = new XElement(OdtNamespaces.Style + "header-style",
                 new XElement(OdtNamespaces.Style + "header-footer-properties",
                     new XAttribute(OdtNamespaces.Fo + "min-height", OdtUnits.FormatPoints(Math.Max(0, geometry.MarginTop - distance))),
@@ -2073,7 +2090,8 @@ public static class OdtWriter
             part.Name == OdtNamespaces.Style + "footer-first"))
         {
             double distance = double.IsFinite(geometry.FooterDistance) ? Math.Max(0, geometry.FooterDistance) : 0;
-            pageProperties.SetAttributeValue(OdtNamespaces.Fo + "margin-bottom", OdtUnits.FormatPoints(distance));
+            if (geometry.Borders == default && geometry.BorderPadding == default)
+                pageProperties.SetAttributeValue(OdtNamespaces.Fo + "margin-bottom", OdtUnits.FormatPoints(distance));
             footerStyle = new XElement(OdtNamespaces.Style + "footer-style",
                 new XElement(OdtNamespaces.Style + "header-footer-properties",
                     new XAttribute(OdtNamespaces.Fo + "min-height", OdtUnits.FormatPoints(Math.Max(0, geometry.MarginBottom - distance))),
@@ -2693,7 +2711,7 @@ public static class OdtWriter
         /// style, and a colour. An edge that draws nothing is written as
         /// <c>none</c>, so a cell that turns a border off keeps it off.
         /// </summary>
-        private static void AddBorder(XElement properties, string attribute, TableBorder border)
+        internal static void AddBorder(XElement properties, string attribute, TableBorder border)
         {
             if (!border.IsVisible)
                 return;

@@ -154,10 +154,8 @@ public sealed class ImageAndDiffTests : IDisposable
     }
 
     [Fact]
-    public void Roundtrip_Through_Rtf_Finds_The_Lost_Image()
+    public void Roundtrip_Through_Rtf_Preserves_The_Inline_Image()
     {
-        // RTF is a real finding rather than a contrived one: the writer emits the
-        // picture, and what comes back has lost the placeholder character.
         string image = WriteCheckerboard("dot.png", 32);
         string document = _cli.Path("pic.docx");
         CliHarness.RunExpecting(
@@ -170,9 +168,9 @@ public sealed class ImageAndDiffTests : IDisposable
             .Json();
 
         JsonObject comparison = json["results"]![0]!["comparison"]!.AsObject();
-        Assert.False(comparison["plainTextEqual"]!.GetValue<bool>());
+        Assert.True(comparison["plainTextEqual"]!.GetValue<bool>());
         Assert.Equal(1, comparison["left"]!["images"]!.GetValue<int>());
-        Assert.Equal(0, comparison["right"]!["images"]!.GetValue<int>());
+        Assert.Equal(1, comparison["right"]!["images"]!.GetValue<int>());
     }
 
     private int RenderHeight(string document, string name)

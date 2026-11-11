@@ -18,7 +18,10 @@ namespace Broiler.Documents.Rtf;
 /// </summary>
 public static class RtfTokenizer
 {
-    public static RtfTokenizeResult Tokenize(ReadOnlyMemory<byte> content, DocumentLimits? limits = null)
+    public static RtfTokenizeResult Tokenize(ReadOnlyMemory<byte> content, DocumentLimits? limits = null) =>
+        TokenizeCore(content, limits, retainBinary: false);
+
+    internal static RtfTokenizeResult TokenizeCore(ReadOnlyMemory<byte> content, DocumentLimits? limits, bool retainBinary)
     {
         DocumentLimits effective = limits ?? DocumentLimits.Default;
         ReadOnlySpan<byte> span = content.Span;
@@ -79,7 +82,7 @@ public static class RtfTokenizer
 
                 case (byte)'\\':
                     FlushText();
-                    i = ReadEscape(span, length, i, effective.MaxBinBytes, tokens, diagnostics);
+                    i = ReadEscape(content, length, i, effective.MaxBinBytes, retainBinary, tokens, diagnostics);
                     break;
 
                 case (byte)'\r':
@@ -103,13 +106,15 @@ public static class RtfTokenizer
 
     /// <summary>Reads one escape sequence starting at the backslash at <paramref name="at"/>; returns the next index.</summary>
     private static int ReadEscape(
-        ReadOnlySpan<byte> span,
+        ReadOnlyMemory<byte> content,
         int length,
         int at,
         long maxBinBytes,
+        bool retainBinary,
         List<RtfToken> tokens,
         List<DocumentDiagnostic> diagnostics)
     {
+        ReadOnlySpan<byte> span = content.Span;
         int i = at + 1;
         if (i >= length)
         {
@@ -157,14 +162,16 @@ public static class RtfTokenizer
 
             tokens.Add(RtfToken.ControlWord(keyword, hasParameter, parameter));
 
-            // \binN: the next N bytes are raw binary, not RTF — skip them so binary
-            // content cannot corrupt the token stream (bounded by the remaining input).
+            // \binN bytes are opaque to the RTF lexer. The document reader can
+            // consume a bounded slice when the enclosing destination is a picture.
             if (hasParameter && parameter > 0 && keyword == "bin")
             {
                 int skip = (int)Math.Min((long)parameter, length - i);
                 if (parameter > maxBinBytes)
                     diagnostics.Add(DocumentDiagnostic.Warning(
                         "rtf.bin", "A \\bin length exceeded MaxBinBytes; the binary data was skipped."));
+                else if (retainBinary && skip == parameter)
+                    tokens.Add(RtfToken.Binary(content.Slice(i, skip)));
                 i += skip;
             }
 

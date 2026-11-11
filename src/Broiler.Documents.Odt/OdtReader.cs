@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Text;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
@@ -193,7 +194,12 @@ internal static class OdtReader
         RichTextDocument document = ReadContent(content, styles, images, page, options.Limits, diagnostics, master);
         document = document.WithRunningContent(
             ReadRunningContent(master, styles, images, options.Limits, diagnostics));
-        document = document.WithPageGeometry(page ?? document.PageGeometry);
+        // A layout-free form uses Writer's default A4 content area for the
+        // control coordinates. Preserve the caller's page fallback for other
+        // layout-free documents.
+        PageGeometry? formPage = master is null && content.Descendants(OdtNamespaces.Draw + "control").Any()
+            ? new PageGeometry(595.3, 841.89, 56.69, 56.69, 56.69, 56.69) : null;
+        document = document.WithPageGeometry(page ?? document.PageGeometry ?? formPage);
         document = document.WithStyleDefaults(ReadStyleDefaults(styles) with
         {
             ShrinksJustifiedLines = OdtRevisions.ConfigFlag(settings, "JustifyLinesWithShrinking"),
@@ -745,17 +751,31 @@ internal static class OdtReader
         XElement? footer = properties.Parent?.Element(OdtNamespaces.Style + "footer-style")
             ?.Element(OdtNamespaces.Style + "header-footer-properties");
         double footerHeight = hasFooter && footer is not null ? BandHeight(footer, "margin-top") : 0;
+        CellBorders borders = OdtTableReader.ReadCellBorders(properties);
+        TableCellPadding padding = ReadShapePadding(properties);
+        double left = Margin("margin-left");
+        double right = Margin("margin-right");
+        double leftInset = padding.Left + borders.Left.Width;
+        double rightInset = padding.Right + borders.Right.Width;
+        double topInset = padding.Top + borders.Top.Width;
+        double bottomInset = padding.Bottom + borders.Bottom.Width;
         var geometry = new PageGeometry(
             width,
             height,
-            Margin("margin-left"),
-            Margin("margin-right"),
-            outerTop + Math.Max(0, headerHeight),
-            outerBottom + Math.Max(0, footerHeight),
-            HeaderDistance: hasHeader ? Math.Max(0, outerTop) : 0,
-            FooterDistance: hasFooter ? Math.Max(0, outerBottom) : 0,
+            left + leftInset,
+            right + rightInset,
+            outerTop + topInset + Math.Max(0, headerHeight),
+            outerBottom + bottomInset + Math.Max(0, footerHeight),
+            HeaderDistance: hasHeader ? Math.Max(0, outerTop + topInset) : 0,
+            FooterDistance: hasFooter ? Math.Max(0, outerBottom + bottomInset) : 0,
             FixedHeaderHeight: hasHeader && header is not null && IsFixedBand(header),
-            FixedFooterHeight: hasFooter && footer is not null && IsFixedBand(footer));
+            FixedFooterHeight: hasFooter && footer is not null && IsFixedBand(footer))
+        {
+            Borders = borders,
+            BorderInsets = borders != default || padding != default
+                ? new TableCellPadding(left, outerTop, right, outerBottom) : default,
+            BorderPadding = padding,
+        };
 
         if (geometry.IsUsable)
             return ReadColumns(properties, geometry, diagnostics);
@@ -1177,14 +1197,21 @@ internal static class OdtReader
             (control.Name != OdtNamespaces.Form + "fixed-text" &&
              control.Name != OdtNamespaces.Form + "date" &&
              control.Name != OdtNamespaces.Form + "date-field" &&
+             control.Name != OdtNamespaces.Form + "time" &&
+             control.Name != OdtNamespaces.Form + "image" &&
              control.Name != OdtNamespaces.Form + "button"))
             return;
 
         bool isButton = control.Name == OdtNamespaces.Form + "button";
+        bool isTime = control.Name == OdtNamespaces.Form + "time";
+        bool isImage = control.Name == OdtNamespaces.Form + "image";
+        string? styleName = (string?)drawing.Attribute(OdtNamespaces.Draw + "style-name");
         string label = (string?)control.Attribute(OdtNamespaces.Form + "label")
             ?? (string?)control.Attribute(OdtNamespaces.Form + "current-value")
             ?? (string?)control.Attribute(OdtNamespaces.Form + "value")
             ?? "";
+        if (isTime)
+            label = FormatControlTime(label, context.Styles.DataFormatFor("graphic", styleName));
         if (!OdtUnits.TryParseLength((string?)drawing.Attribute(OdtNamespaces.Svg + "width"), out double width) ||
             !OdtUnits.TryParseLength((string?)drawing.Attribute(OdtNamespaces.Svg + "height"), out double height) ||
             width <= 0 || height <= 0)
@@ -1196,7 +1223,6 @@ internal static class OdtReader
                 label));
         RichTextDocument content = ReadShapeParagraphs(textBox, context, depth: 0);
 
-        string? styleName = (string?)drawing.Attribute(OdtNamespaces.Draw + "style-name");
         XElement? graphic = context.Styles.GraphicPropertiesFor(styleName);
         (ShapeFill? fill, BColor outline, bool behindText, ShapeWrap wrap, WrapSide wrapSide) = ReadShapeStyle(styleName, context.Styles);
         if (isButton)
@@ -1207,6 +1233,8 @@ internal static class OdtReader
                 outline = new BColor(160, 160, 160);
             }
         }
+        if ((isTime || isImage) && outline.IsEmpty)
+            outline = BColor.Black;
         double x = OdtUnits.TryParseLength((string?)drawing.Attribute(OdtNamespaces.Svg + "x"), out double left) ? left : 0;
         double y = OdtUnits.TryParseLength((string?)drawing.Attribute(OdtNamespaces.Svg + "y"), out double top) ? top : 0;
         (int anchorPage, x, y, bool fromPage) = PlaceOnPage(drawing, styleName, x, y, width, height, context);
@@ -1230,19 +1258,49 @@ internal static class OdtReader
             {
                 "middle" => CellVerticalAlignment.Center,
                 "bottom" => CellVerticalAlignment.Bottom,
-                _ => isButton ? CellVerticalAlignment.Center : CellVerticalAlignment.Top,
+                _ => isButton || isTime ? CellVerticalAlignment.Center : CellVerticalAlignment.Top,
             },
             // A label is drawn whole about its alignment even where its box is
             // shorter than its line, as a control sized to the text's cap height
             // is, and on one line unless it says it may take more.
             textOverflow: true,
-            growsWidthToText: !isButton && (string?)control.Attribute(OdtNamespaces.Form + "multi-line") != "true",
+            growsWidthToText: !isButton && !isTime && !isImage && (string?)control.Attribute(OdtNamespaces.Form + "multi-line") != "true",
+            outlineWidth: isTime || isImage ? 0.75 : 1,
+            textPadding: isTime ? new TableCellPadding(2, 0, 2, 0) : default,
             offsetXFromCell: context.TableDepth > 0 &&
                 ((string?)graphic?.Attribute(OdtNamespaces.Style + "horizontal-rel") is null or "paragraph" or "paragraph-content"),
             printable: (string?)control.Attribute(OdtNamespaces.Form + "printable") != "false")
         {
             IsAsCharacter = (string?)drawing.Attribute(OdtNamespaces.Text + "anchor-type") == "as-char",
         });
+    }
+
+    private static string FormatControlTime(string value, XElement? format)
+    {
+        if (!int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out int encoded))
+            return value;
+        int hours = encoded / 1000000, minutes = encoded / 10000 % 100, seconds = encoded / 100 % 100;
+        if (hours >= 24 || minutes >= 60 || seconds >= 60)
+            return value;
+        if (format?.Name != OdtNamespaces.Number + "time-style")
+            return FormattableString.Invariant($"{hours:00}:{minutes:00}");
+
+        bool twelveHour = format.Element(OdtNamespaces.Number + "am-pm") is not null;
+        var label = new StringBuilder();
+        foreach (XElement part in format.Elements())
+        {
+            string digits = (string?)part.Attribute(OdtNamespaces.Number + "style") == "long" ? "00" : "0";
+            label.Append(part.Name.LocalName switch
+            {
+                "hours" => (twelveHour ? (hours + 11) % 12 + 1 : hours).ToString(digits, CultureInfo.InvariantCulture),
+                "minutes" => minutes.ToString(digits, CultureInfo.InvariantCulture),
+                "seconds" => seconds.ToString(digits, CultureInfo.InvariantCulture),
+                "am-pm" => hours < 12 ? "AM" : "PM",
+                "text" => part.Value,
+                _ => "",
+            });
+        }
+        return label.ToString();
     }
 
     private static bool ReadShapeLine(

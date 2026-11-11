@@ -186,7 +186,7 @@ internal static class DocxReader
         };
         var context = new DocxReadContext(relationships, numbering, styles, images, builder, page, Sections: sections, Notes: notes, Frames: new DocxFrameAccumulator(), DropCaps: new DocxDropCapTracker());
         ReadBlockContent(body.Elements(), context, depth: 0);
-        context.Frames?.Finish(context);
+        context.Frames?.Finish(context, builder.HasPendingPageBreak ? null : Math.Max(0, builder.CurrentParagraphIndex - 1));
         if (builder.HasPendingPageBreak && builder.HasShapeAnchoredAt(builder.CurrentParagraphIndex))
         {
             builder.StartParagraph(ParagraphStyle.Default);
@@ -2153,6 +2153,9 @@ internal static class DocxReader
         if (marginTop < -1000)
             wrap = ShapeWrap.None;
 
+        double rotation = DocxVmlShapeWalker.Rotation(style.GetValueOrDefault("rotation"));
+        offsetX += (width * (1 - Math.Cos(rotation)) + height * Math.Sin(rotation)) / 2;
+        offsetY += (height * (1 - Math.Cos(rotation)) - width * Math.Sin(rotation)) / 2;
         context.Builder.AddShape(new DocumentShape(
             context.Builder.CurrentParagraphIndex,
             offsetX,
@@ -2185,7 +2188,10 @@ internal static class DocxReader
             textOverflow: style.GetValueOrDefault("overflow") == "visible",
             geometry: geometry,
             outlineWidth: outlineWidth,
-            offsetXFromCell: segment && context.Builder.InTableCell && style.GetValueOrDefault("mso-position-horizontal-relative") == "text"));
+            offsetXFromCell: segment && context.Builder.InTableCell && style.GetValueOrDefault("mso-position-horizontal-relative") == "text")
+        {
+            RotationRadians = rotation,
+        });
         return true;
     }
 

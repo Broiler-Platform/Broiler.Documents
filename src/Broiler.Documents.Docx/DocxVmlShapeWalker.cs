@@ -11,7 +11,21 @@ namespace Broiler.Documents.Docx;
 internal static class DocxVmlShapeWalker
 {
     private sealed record Frame(double X, double Y, double ScaleX, double ScaleY, double OriginX, double OriginY,
-        Dictionary<string, string> Style);
+        double Angle, Dictionary<string, string> Style)
+    {
+        public (double X, double Y) Map(double x, double y)
+        {
+            (double dx, double dy) = Rotate((x - OriginX) * ScaleX, (y - OriginY) * ScaleY, Angle);
+            return (X + dx, Y + dy);
+        }
+    }
+
+    private static (double X, double Y) Rotate(double x, double y, double angle) =>
+        (x * Math.Cos(angle) - y * Math.Sin(angle), x * Math.Sin(angle) + y * Math.Cos(angle));
+
+    internal static double Rotation(string? degrees) =>
+        double.TryParse(degrees, NumberStyles.Float, CultureInfo.InvariantCulture, out double value) && double.IsFinite(value)
+            ? (value % 360) * Math.PI / 180 : 0;
 
     public static IEnumerable<XElement> Shapes(XElement picture, PageGeometry? page, int maxDepth, Action<string, string> report)
     {
@@ -36,7 +50,9 @@ internal static class DocxVmlShapeWalker
                 var style = DocxVml.ReadStyle((string?)shape.Attribute("style"));
                 if (shape.Name.LocalName == "group")
                 {
-                    if (style.ContainsKey("rotation") || style.ContainsKey("flip"))
+                    double ownAngle = Rotation(style.GetValueOrDefault("rotation"));
+                    if (style.ContainsKey("flip") ||
+                        (frame is not null && Math.Abs(frame.ScaleX - frame.ScaleY) > 0.000001 && ownAngle != 0))
                     {
                         report("docx.shape.group", "A rotated or mirrored VML group was skipped; its transform cannot be represented.");
                         continue;
@@ -54,8 +70,7 @@ internal static class DocxVmlShapeWalker
                     }
                     Length(style, "left", out double left); Length(style, "margin-left", out double ml);
                     Length(style, "top", out double top); Length(style, "margin-top", out double mt);
-                    double x = frame is null ? left + ml : frame.X + (left + ml - frame.OriginX) * frame.ScaleX;
-                    double y = frame is null ? top + mt : frame.Y + (top + mt - frame.OriginY) * frame.ScaleY;
+                    (double x, double y) = frame?.Map(left + ml, top + mt) ?? (left + ml, top + mt);
                     if (frame is null && page is not null)
                     {
                         // Apply group alignment once, against the group's full
@@ -71,7 +86,14 @@ internal static class DocxVmlShapeWalker
 
                     var inherited = frame is null ? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) : new(frame.Style, StringComparer.OrdinalIgnoreCase);
                     foreach (var pair in style) inherited[pair.Key] = pair.Value;
-                    var next = new Frame(x, y, width * (frame?.ScaleX ?? 1) / cx, height * (frame?.ScaleY ?? 1) / cy, ox, oy, inherited);
+                    double physicalWidth = width * (frame?.ScaleX ?? 1);
+                    double physicalHeight = height * (frame?.ScaleY ?? 1);
+                    double parentAngle = frame?.Angle ?? 0;
+                    double angle = parentAngle + ownAngle;
+                    (double centerX, double centerY) = Rotate(physicalWidth / 2, physicalHeight / 2, parentAngle);
+                    (double cornerX, double cornerY) = Rotate(physicalWidth / 2, physicalHeight / 2, angle);
+                    var next = new Frame(x + centerX - cornerX, y + centerY - cornerY,
+                        physicalWidth / cx, physicalHeight / cy, ox, oy, angle, inherited);
                     foreach (XElement child in Walk(shape.Elements(), next, depth + 1)) yield return child;
                     continue;
                 }
@@ -89,9 +111,13 @@ internal static class DocxVmlShapeWalker
                     Length(style, "left", out double left); Length(style, "top", out double top);
                     Length(style, "margin-left", out double ml); Length(style, "margin-top", out double mt);
                     Length(style, "width", out double width); Length(style, "height", out double height);
-                    style["left"] = Pt(frame.X + (left + ml - frame.OriginX) * frame.ScaleX);
-                    style["top"] = Pt(frame.Y + (top + mt - frame.OriginY) * frame.ScaleY);
+                    (double x, double y) = frame.Map(left + ml + width / 2, top + mt + height / 2);
+                    style["left"] = Pt(x - width * frame.ScaleX / 2);
+                    style["top"] = Pt(y - height * frame.ScaleY / 2);
                     style["width"] = Pt(width * frame.ScaleX); style["height"] = Pt(height * frame.ScaleY);
+                    double angle = frame.Angle + Rotation(style.GetValueOrDefault("rotation"));
+                    if (angle != 0 || style.ContainsKey("rotation"))
+                        style["rotation"] = (angle * 180 / Math.PI).ToString(CultureInfo.InvariantCulture);
                     style.Remove("margin-left"); style.Remove("margin-top");
                     foreach (string key in new[] { "mso-position-horizontal-relative", "mso-position-vertical-relative", "z-index" })
                         if (!style.ContainsKey(key) && frame.Style.TryGetValue(key, out string? value)) style[key] = value;

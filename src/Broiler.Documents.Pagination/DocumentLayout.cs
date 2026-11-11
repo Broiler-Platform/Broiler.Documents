@@ -80,6 +80,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     private IReadOnlyList<DocumentSection> _sections = [];
     private DocumentPageBox _setup = DocumentPageBox.Default;
     private PageGeometry? _documentPageGeometry;
+    private PageGeometry? _currentPageGeometry;
     private bool _verticalWriting;
     private double? _headerDistance;
     private double? _footerDistance;
@@ -212,6 +213,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         _sections = document.Sections;
         _setup = setup;
         _documentPageGeometry = document.PageGeometry;
+        _currentPageGeometry = document.PageGeometry;
         _verticalWriting = document.PageGeometry?.VerticalWriting == true;
         bool IsHidden(int index) => DocumentSection.Containing(document.Sections, index)?.Hidden == true;
         _documentShapes = document.Shapes.Where(shape => !IsHidden(shape.ParagraphIndex)).ToArray();
@@ -284,6 +286,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             if (setup.Continuous)
                 return (setup.ContentTopPoints, setup.ContentTopPoints + columnHeight);
 
+            _currentPageGeometry = selectedPage ?? document.PageGeometry;
             if (!sectionPages || selectedPage is not PageGeometry page)
             {
                 _frame = FrameFor(
@@ -1953,6 +1956,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             inlineCells: allInlineCells)
         {
             VerticalWriting = _verticalWriting,
+            PageBorders = setup.Continuous ? default : _currentPageGeometry?.Borders ?? default,
+            PageBorderInsets = _currentPageGeometry?.BorderInsets ?? default,
         };
     }
 

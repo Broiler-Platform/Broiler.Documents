@@ -1,3 +1,5 @@
+using System;
+
 namespace Broiler.Documents.Rtf;
 
 /// <summary>
@@ -35,6 +37,8 @@ public readonly struct RtfToken
     /// <summary>The literal characters for a <see cref="RtfTokenType.Text"/> token, or the empty string.</summary>
     public string Text { get; }
 
+    internal ReadOnlyMemory<byte> BinaryData { get; private init; }
+
     public static RtfToken GroupStart { get; } =
         new(RtfTokenType.GroupStart, string.Empty, false, 0, '\0', string.Empty);
 
@@ -52,6 +56,9 @@ public readonly struct RtfToken
 
     public static RtfToken TextRun(string text) =>
         new(RtfTokenType.Text, string.Empty, false, 0, '\0', text);
+
+    internal static RtfToken Binary(ReadOnlyMemory<byte> bytes) =>
+        new(RtfTokenType.Binary, string.Empty, false, 0, '\0', string.Empty) { BinaryData = bytes };
 
     public override string ToString() => Type switch
     {

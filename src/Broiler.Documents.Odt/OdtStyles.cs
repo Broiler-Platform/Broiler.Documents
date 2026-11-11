@@ -324,7 +324,8 @@ internal sealed class OdtStyles : IOdtImageDiagnostics
                 .GroupBy(element => (string)element.Attribute(OdtNamespaces.Draw + "name")!, StringComparer.Ordinal)
                 .ToDictionary(group => group.Key, group => group.Last(), StringComparer.Ordinal),
             NumberFormats = new[] { stylesRoot, contentRoot }.Where(root => root is not null)
-                .SelectMany(root => root!.Descendants(OdtNamespaces.Number + "number-style"))
+                .SelectMany(root => root!.Descendants().Where(element =>
+                    element.Name == OdtNamespaces.Number + "number-style" || element.Name == OdtNamespaces.Number + "time-style"))
                 .Where(element => element.Attribute(OdtNamespaces.Style + "name") is not null)
                 .GroupBy(element => (string)element.Attribute(OdtNamespaces.Style + "name")!, StringComparer.Ordinal)
                 .ToDictionary(group => group.Key, group => group.Last(), StringComparer.Ordinal),
@@ -800,14 +801,20 @@ internal sealed class OdtStyles : IOdtImageDiagnostics
 
     public bool HasGeneralNumberFormat(string? styleName)
     {
-        string? name = null;
-        foreach (StyleDefinition style in Chain("table-cell", styleName))
-            if (style.DataStyleName is not null) name = style.DataStyleName;
-        if (name is null || !NumberFormats.TryGetValue(name, out XElement? format)) return false;
+        XElement? format = DataFormatFor("table-cell", styleName);
+        if (format is null) return false;
         XElement? number = format.Elements().FirstOrDefault(element => element.Name == OdtNamespaces.Number + "number");
         return number is not null && format.Elements().Count() == 1 &&
             !format.Attributes().Any(attribute => attribute.Name == OdtNamespaces.Number + "language" || attribute.Name == OdtNamespaces.Number + "country") &&
             number.Attributes().All(attribute => attribute.Name == OdtNamespaces.Number + "min-integer-digits" && attribute.Value == "1");
+    }
+
+    public XElement? DataFormatFor(string family, string? styleName)
+    {
+        string? name = null;
+        foreach (StyleDefinition style in Chain(family, styleName))
+            if (style.DataStyleName is not null) name = style.DataStyleName;
+        return name is null ? null : NumberFormats.GetValueOrDefault(name);
     }
 
     private sealed record StyleDefinition(

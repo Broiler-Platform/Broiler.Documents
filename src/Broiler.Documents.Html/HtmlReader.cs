@@ -72,7 +72,7 @@ internal static class HtmlReader
                 "HTML input exceeded MaxDocumentBytes and was truncated before parsing."));
         }
 
-        string html = DecodeUtf8(bytes);
+        string html = DecodeHtml(bytes);
         HtmlDocumentParseResult parse;
         try
         {
@@ -1133,11 +1133,15 @@ internal static class HtmlReader
         return text?.ToString();
     }
 
-    private static string DecodeUtf8(byte[] bytes)
+    private static string DecodeHtml(byte[] bytes)
     {
-        string text = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: false)
-            .GetString(bytes);
-        return text.Length > 0 && text[0] == '\uFEFF' ? text[1..] : text;
+        if (bytes.AsSpan().StartsWith(Encoding.BigEndianUnicode.Preamble))
+            return Encoding.BigEndianUnicode.GetString(bytes.AsSpan(2));
+        if (bytes.AsSpan().StartsWith(Encoding.Unicode.Preamble))
+            return Encoding.Unicode.GetString(bytes.AsSpan(2));
+        if (bytes.AsSpan().StartsWith(Encoding.UTF8.Preamble))
+            return Encoding.UTF8.GetString(bytes.AsSpan(3));
+        return Encoding.UTF8.GetString(bytes);
     }
 
 

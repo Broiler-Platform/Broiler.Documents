@@ -28,6 +28,12 @@ internal static class DocxVmlPath
 
     public static byte[]? Render(XElement shape, string path, double width, double height, BColor fill, BColor stroke, double strokeWidth)
     {
+        // The built-in isosceles triangle's first guide is its adjustable apex.
+        if (path == "m@0,l,21600r21600,xe" &&
+            Coordinate((string?)shape.Attribute("adj") ?? "10800", out double apex))
+        {
+            path = FormattableString.Invariant($"m{Math.Clamp(apex, 0, 21600)},0 l0,21600,21600,21600 xe");
+        }
         if (path.Length > 65536 || !Pair((string?)shape.Attribute("coordsize"), out double spaceX, out double spaceY) ||
             spaceX <= 0 || spaceY <= 0)
             return null;

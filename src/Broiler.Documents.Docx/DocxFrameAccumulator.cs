@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using System.Xml.Linq;
 using Broiler.Documents.Model;
 
@@ -195,20 +196,21 @@ internal sealed class DocxFrameAccumulator
         if (fromPage)
             x -= marginLeft;
 
-        bool fromParagraph = frame.VerticalAnchor == "text" || frame.VerticalAlign == "inline";
-        double y = frame.VerticalAlign switch
+        string verticalAnchor = frame.VerticalAnchor ?? "margin";
+        bool fromParagraph = verticalAnchor == "text" || frame.VerticalAlign == "inline";
+        double y = frame.Y is int explicitY ? explicitY / 20d : frame.VerticalAlign switch
         {
             "top" => 0,
             "center" when height > 0 && !fromParagraph =>
-                (((frame.VerticalAnchor == "page" ? (page?.Height ?? PageGeometry.A4.Height) :
+                (((verticalAnchor == "page" ? (page?.Height ?? PageGeometry.A4.Height) :
                    ((page?.Height ?? PageGeometry.A4.Height) - marginTop - (page?.MarginBottom ?? PageGeometry.A4.MarginBottom))) - height) / 2),
             "bottom" when height > 0 && !fromParagraph =>
-                ((frame.VerticalAnchor == "page" ? (page?.Height ?? PageGeometry.A4.Height) :
+                ((verticalAnchor == "page" ? (page?.Height ?? PageGeometry.A4.Height) :
                   ((page?.Height ?? PageGeometry.A4.Height) - marginTop - (page?.MarginBottom ?? PageGeometry.A4.MarginBottom))) - height),
-            _ => (frame.Y ?? 0) / 20d,
+            _ => 0,
         };
 
-        if (!fromParagraph && frame.VerticalAnchor == "margin")
+        if (!fromParagraph && verticalAnchor == "margin")
             y += marginTop;
 
         (ShapeWrap wrap, double distance) = frame.Wrap switch
@@ -235,7 +237,11 @@ internal sealed class DocxFrameAccumulator
             width,
             height,
             outline: outline.Color,
-            paragraphs: paragraphs,
+            paragraphs: outline.IsVisible
+                ? [.. paragraphs.Select(paragraph => paragraph.Style.Border == border
+                    ? paragraph.WithParagraphStyle(paragraph.Style with { Border = null })
+                    : paragraph)]
+                : paragraphs,
             behindText: false,
             wrap: wrap,
             wrapDistance: distance,

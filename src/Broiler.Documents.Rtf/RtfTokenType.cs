@@ -20,4 +20,7 @@ public enum RtfTokenType
 
     /// <summary>A run of literal characters (line breaks in the RTF stream are dropped).</summary>
     Text,
+
+    /// <summary>A bounded raw binary payload following a binary control word.</summary>
+    Binary,
 }

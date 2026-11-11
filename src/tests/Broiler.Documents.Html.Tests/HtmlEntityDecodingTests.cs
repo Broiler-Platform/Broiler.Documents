@@ -5,6 +5,17 @@ namespace Broiler.Documents.Html.Tests;
 public sealed class HtmlEntityDecodingTests
 {
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Reads_Utf16_Html_With_A_Byte_Order_Mark(bool bigEndian)
+    {
+        Encoding encoding = bigEndian ? Encoding.BigEndianUnicode : Encoding.Unicode;
+        using var stream = new MemoryStream([.. encoding.GetPreamble(), .. encoding.GetBytes("<p>Text 🌾</p>")]);
+
+        Assert.Equal("Text 🌾", new HtmlDocumentCodec().Read(stream).Document.PlainText);
+    }
+
+    [Theory]
     [InlineData("<p>&amp;lt;tag&amp;gt;</p>", "&lt;tag&gt;")]
     [InlineData("<pre>&amp;nbsp; text</pre>", "&nbsp; text")]
     [InlineData("<p>&#38;copy;</p>", "&copy;")]

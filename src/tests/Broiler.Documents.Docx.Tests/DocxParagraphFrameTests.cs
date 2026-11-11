@@ -20,6 +20,20 @@ public sealed class DocxParagraphFrameTests
 
     private const double MarginLeftPoints = 1417 / 20d;
 
+    [Theory]
+    [InlineData("", 657.65)]
+    [InlineData(" w:y='0'", 70.85)]
+    public void Trailing_Frame_Uses_The_Last_Body_Paragraph_And_Resolves_Vertical_Placement(string offset, double y)
+    {
+        string body = DocxTestPackage.Paragraph("Body") +
+            "<w:p><w:pPr><w:framePr w:h='2268' w:hRule='exact' w:yAlign='bottom'" + offset +
+            "/></w:pPr><w:r><w:t>Frame</w:t></w:r></w:p>" + A4Section;
+
+        DocumentShape frame = Assert.Single(DocxTestPackage.ReadBody(body).Document.Shapes);
+        Assert.Equal(0, frame.ParagraphIndex);
+        Assert.Equal(y, frame.OffsetY, 2);
+    }
+
     [Fact]
     public void Frame_Before_A_Removed_Section_Mark_Stays_In_The_Closing_Section()
     {

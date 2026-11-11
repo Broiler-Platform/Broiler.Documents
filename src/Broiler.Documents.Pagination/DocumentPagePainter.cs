@@ -93,6 +93,15 @@ public sealed class DocumentPagePainter
         if (page.Background is ShapeFill background)
             DrawFill(list, page.BackgroundBounds, background, resolveImage);
 
+        if (page.PageBorders != default)
+        {
+            TableCellPadding inset = page.PageBorderInsets;
+            double width = page.WidthPoints - inset.Left - inset.Right;
+            double height = page.HeightPoints - inset.Top - inset.Bottom;
+            if (width > 0 && height > 0)
+                DrawCells(list, [new LayoutCell(new BRect(inset.Left, inset.Top, width, height), BColor.Empty, page.PageBorders)]);
+        }
+
         if (_settings.ShowContentBox)
         {
             list.StrokeRect(new BRect(box.ContentLeftPoints, box.ContentTopPoints, box.ContentWidthPoints, box.ContentHeightPoints),
