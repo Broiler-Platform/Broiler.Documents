@@ -74,7 +74,10 @@ public sealed class ExclusionBandQueryEngine
             obstacle.SidePolicy,
             obstacle.ZOrder,
             seq,
-            obstacle.Tag));
+            obstacle.Tag)
+        {
+            MinimumSideRoom = obstacle.MinimumSideRoom,
+        });
     }
 
     /// <summary>Clears all obstacles from the engine.</summary>
@@ -242,6 +245,11 @@ public sealed class ExclusionBandQueryEngine
             double roomLeft = blockedLeft - bandLeft;
             double roomRight = bandRight - blockedRight;
             var policy = obs.SidePolicy == ObstacleSidePolicy.Largest ? defaultSidePolicy : obs.SidePolicy;
+            if (obs.SidePolicy == ObstacleSidePolicy.Largest && obs.MinimumSideRoom > 0 &&
+                Math.Max(roomLeft, roomRight) < obs.MinimumSideRoom)
+            {
+                return new LineBandInterval(bandLeft, 0.0);
+            }
 
             bool keepLeft = policy switch
             {

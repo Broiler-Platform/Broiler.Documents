@@ -37,7 +37,10 @@ toolkit behind it.
 
 - Paragraphs (`text:p`) and headings (`text:h`). A heading is an ordinary
   paragraph carrying whatever its named style resolves to; the model has no
-  heading rank. ODF has no paragraph mark of its own, so
+  heading rank. A `text:h` naming no style is drawn in `Heading N` for its
+  outline level, as Writer imports it; a document that does not define it gets
+  Writer's built-in one (a bold child of `Heading` at 130/115/101/95/85%, 12,
+  10, 7 then 6 pt above, 6 pt below). ODF has no paragraph mark of its own, so
   `RichTextParagraph.MarkStyle` is the paragraph style's text properties (what
   an empty paragraph is as tall as). It is not written back: an empty paragraph
   written here takes its height from the document's defaults.
@@ -323,6 +326,11 @@ toolkit behind it.
   read backwards are read as ODF means them: `run-through` is text through the
   shape, `none` is no text beside it. A wrapped line keeps one span down
   whichever side has more room, so `parallel` gets the larger side.
+  Writer keeps text out of a gap under 2 cm (`TEXT_MIN`) beside a `parallel`,
+  `dynamic` or `biggest` frame: with less room on both sides the line goes
+  below it (`DocumentShape.MinimumWrapRoom`;
+  `ToC-in-linked-frame-on-first-page-style.fodt`, whose two side-by-side frames
+  leave a 0.9 cm strip).
 - `style:run-through` is the shape against the text and `draw:z-index` the shape
   against other shapes; both are read and written, and a drawing with no index
   reads as zero, keeping read order. A style that states no run-through is read
