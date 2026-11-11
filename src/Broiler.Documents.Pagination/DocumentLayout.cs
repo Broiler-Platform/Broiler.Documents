@@ -744,6 +744,20 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                         break;
                     }
 
+                    // tdf170846_2.docx: a first row whose lines would fit but whose
+                    // keep-with-next and keep-lines paragraphs fuse into one piece
+                    // that does not. LibreOffice cannot split the frame there and
+                    // does not move it either: the frame stays at its anchor and is
+                    // cut off at the foot of the body.
+                    if (!placed && canSplitRow && rowTop > pageTop + 0.01 &&
+                        row.Lines.Count > 0 && row.Lines.Min(line => line.Top + line.Height) <= contentBottom - rowTop)
+                    {
+                        row.Clipped(contentBottom - rowTop).PlaceAt(rowTop, 0, floatLines, floatCells, _paragraphTops);
+                        rowTop = contentBottom;
+                        placed = true;
+                        break;
+                    }
+
                     if (placed || (row.Height <= contentBottom - pageTop && rowTop > pageTop + 0.01))
                     {
                         floatCarry.Enqueue(new FloatCarry(rows.GetRange(i, rows.Count - i), left, width, table, headerStart, rowOffset + i));
@@ -3121,6 +3135,20 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         /// Moves the row to <paramref name="top"/>, and <paramref name="shift"/>
         /// points across into the text column it lands in, and hands it to the page.
         /// </summary>
+        /// <summary>
+        /// The row cut off at <paramref name="room"/> with nothing carried on:
+        /// the lines and nested boxes that start above the cut, in boxes that
+        /// end at it, as LibreOffice clips a frame that runs past the body.
+        /// </summary>
+        public RowBox Clipped(double room)
+        {
+            var clipped = new RowBox { Height = room, MinimumHeight = room, CanSplit = false };
+            clipped.Boxes.AddRange(Boxes);
+            clipped.Lines.AddRange(Lines.Where(line => line.Top < room));
+            clipped.Cells.AddRange(Cells.Where(cell => cell.Bounds.Top < room));
+            return clipped;
+        }
+
         public void PlaceAt(double top, double shift, List<LayoutLine> lines, List<LayoutCell> cells, Dictionary<int, double> paragraphTops)
         {
             foreach (CellLines content in Contents)

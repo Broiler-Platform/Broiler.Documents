@@ -766,6 +766,16 @@ cell margin of 32768 twips or more as a legacy 16-bit overflow and uses zero, so
 the table sits at the margin. Broiler pushed it 45 inches off the page and drew
 a blank one; `DocxValueReader.LimitTwips` now applies the same limit.
 
+## Floating table rows fused by keeps at the page foot
+
+`tdf170846_2.docx` anchors a floating table near the foot of page 1 whose first
+row's paragraphs all keep with the next and keep their lines, so the row is one
+unsplittable piece taller than the room left. Broiler carried the whole table
+to page 2 and left page 1 blank. LibreOffice neither splits nor moves the frame:
+it stays at its anchor and is cut off at the foot of the body. A first floating
+row whose first line fits but whose fused piece does not is now placed clipped
+(`RowBox.Clipped`) in the same way; a row that does not fit at all still moves.
+
 ## Standards and rights
 
 DOCX is ECMA-376, republished as ISO/IEC 29500. Its rights position (the
