@@ -337,10 +337,14 @@ internal sealed class OdtImageLoader(
             OdtImageFormats.ContentTypeForMediaType(_manifest.MediaTypeFor(path)) ??
             DocumentImageFormats.ContentTypeForExtension(Path.GetExtension(path)) ??
             DocumentImageFormats.ContentTypeForSignature(data);
+        if (contentType is null && RasterizeMetafile(data) is byte[] png)
+            (data, contentType) = (png, "image/png");
+
         if (contentType is null)
         {
-            // SVG, EMF, and WMF land here, as does anything stored under an
-            // extension this codec does not decode.
+            // SVG and WMF land here, as do metafiles that draw nothing the
+            // rasterizers understand and anything stored under an extension this
+            // codec does not decode.
             diagnostics.AddDiagnosticOnce(
                 "odt.image.format",
                 "An ODT picture used an image format this codec does not carry and was skipped.");
@@ -350,6 +354,22 @@ internal sealed class OdtImageLoader(
 
         result = LoadResult.Success;
         return new PicturePart(data, contentType, Path.GetFileNameWithoutExtension(path));
+    }
+
+    /// <summary>
+    /// Rasterizes the replacement picture LibreOffice stores for a chart or OLE
+    /// object (an <c>ObjectReplacements/</c> entry, which has no extension and a
+    /// GDI-metafile media type): its own StarView metafile, or an EMF for a
+    /// Windows OLE object. Null for anything else, or a metafile that draws
+    /// nothing the rasterizers understand.
+    /// </summary>
+    internal static byte[]? RasterizeMetafile(byte[] data)
+    {
+        if (SvmRasterizer.IsSvm(data))
+            return SvmRasterizer.RenderPng(data);
+        if (EmfRasterizer.IsEmf(data))
+            return EmfRasterizer.RenderPng(data);
+        return null;
     }
 
     /// <summary>
@@ -405,6 +425,9 @@ internal sealed class OdtImageLoader(
         }
 
         string? contentType = DocumentImageFormats.ContentTypeForSignature(data);
+        if (contentType is null && RasterizeMetafile(data) is byte[] png)
+            (data, contentType) = (png, "image/png");
+
         if (contentType is null)
         {
             diagnostics.AddDiagnosticOnce(
