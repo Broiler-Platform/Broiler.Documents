@@ -166,6 +166,14 @@ public sealed class DocumentShape(
     /// <summary>True when this shape's box shrinks/fits to its text content centered in the declared bounds.</summary>
     public bool FitsText { get; init; }
 
+    /// <summary>
+    /// True when <see cref="Width"/> is the most the box may take and it
+    /// narrows to its widest unwrapped line: a Word frame of one paragraph
+    /// that states no width, which Writer imports at the minimum width and
+    /// fits to its text (tdf135035.docx).
+    /// </summary>
+    public bool ShrinksWidthToText { get; init; }
+
     /// <summary>Clockwise rotation in radians around the shape's top-left corner.</summary>
     public double RotationRadians { get; init; }
 
@@ -327,6 +335,7 @@ public sealed class DocumentShape(
             IsAsCharacter = IsAsCharacter,
             IsCustomShape = IsCustomShape,
             FitsText = FitsText,
+            ShrinksWidthToText = ShrinksWidthToText,
             RotationRadians = RotationRadians,
             WrapMargins = WrapMargins,
             WrapPolygon = WrapPolygon,

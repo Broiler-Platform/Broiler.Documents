@@ -140,6 +140,15 @@ public readonly record struct ParagraphStyle
     /// <summary>True when the page break itself belongs to a tracked deletion.</summary>
     public bool PageBreakBeforeInDeletion { get; init; }
 
+    /// <summary>
+    /// True when the page <see cref="PageBreakBefore"/> opens keeps the
+    /// paragraph's space above: a break the paragraph's own properties or the
+    /// section it starts ask for, which Writer counts as the page's break
+    /// (<c>SwFlowFrame::HasParaSpaceAtPages</c>), as against one written in the
+    /// text, whose page starts the paragraph at its top.
+    /// </summary>
+    public bool PageBreakKeepsSpaceAbove { get; init; }
+
     /// <summary>Keep this paragraph on the same page or column as the next, when the group fits.</summary>
     public bool KeepWithNext { get; init; }
 

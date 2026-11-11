@@ -119,6 +119,7 @@ internal static class DocxReader
                 PreserveOpeningParagraphSpacing = true,
                 WidowOrphanLines = styles.HasParagraphDefaults ? 2 : 0,
                 KeepWithNextOpeningLines = true,
+                CollapsesParagraphSpacing = !HasCompatFlag(settings.Root, "doNotUseHTMLParagraphAutoSpacing"),
             });
             document = document.WithNoteNumbering(notes.Numbering with { RaisedLabels = notes.LabelsRaised ?? false });
             document = document.WithShowsRevisions(DocxRevisions.Shown(settings.Root));
@@ -634,6 +635,12 @@ internal static class DocxReader
         settings?.Element(DocxNamespaces.Wordprocessing + "compat")
             ?.Element(DocxNamespaces.Wordprocessing + "splitPgBreakAndParaMark") is XElement split &&
         ReadOnOff(split);
+
+    /// <summary>Whether the settings' <c>w:compat</c> turns <paramref name="name"/> on.</summary>
+    private static bool HasCompatFlag(XElement? settings, string name) =>
+        settings?.Element(DocxNamespaces.Wordprocessing + "compat")
+            ?.Element(DocxNamespaces.Wordprocessing + name) is XElement flag &&
+        ReadOnOff(flag);
 
     /// <summary>
     /// The Word version whose layout the document asks for: the highest
@@ -1259,7 +1266,10 @@ internal static class DocxReader
                 {
                     // w:customMarkFollows: the text after the reference is the
                     // note's own label, not body text.
-                    var marked = new DocumentNote(awaitingMark.Kind, awaitingMark.Paragraphs, DocxValueReader.RunText(child).Trim());
+                    var marked = new DocumentNote(awaitingMark.Kind, awaitingMark.Paragraphs, DocxValueReader.RunText(child).Trim())
+                    {
+                        Tables = awaitingMark.Tables,
+                    };
                     builder.AppendText(DocumentNote.PlaceholderText, awaitingStyle with { Note = marked });
                     awaitingMark = null;
                     continue;
@@ -1323,6 +1333,19 @@ internal static class DocxReader
             if (child.Name == DocxNamespaces.Wordprocessing + "tab")
             {
                 builder.AppendText("\t", style);
+                continue;
+            }
+
+            // A positional tab is read as a tab, which the paragraph's own
+            // tab stops place, as writerfilter reads it; one aligned left after
+            // text on the line is a line break (DomainMapper_Impl::HandlePTab).
+            // tdf164905.docx's header spreads three placeholders over the
+            // header style's centre and right stops this way.
+            if (child.Name == DocxNamespaces.Wordprocessing + "ptab")
+            {
+                bool lineBreak = (string?)child.Attribute(DocxNamespaces.Wordprocessing + "alignment") == "left" &&
+                    builder.HasTextInParagraph;
+                builder.AppendText(lineBreak ? ((char)0x2028).ToString() : "\t", style);
                 continue;
             }
 
@@ -1513,18 +1536,21 @@ internal static class DocxReader
         ReadBlockContent(note.Elements(), nested, depth: 0);
 
         RichTextDocument built = builder.Build();
-        if (built.Tables.Count > 0 || built.Shapes.Count > 0)
+        if (built.Shapes.Count > 0)
         {
             context.Builder.AddDiagnosticOnce(
                 "docx.note.content",
-                "A table or shape in a DOCX note was read as its text; a note holds paragraphs only.");
+                "A shape in a DOCX note was read as its text; a note holds paragraphs and tables only.");
         }
 
         IReadOnlyList<RichTextParagraph> paragraphs = built.Paragraphs;
         if (skipping && paragraphs.Count > 0)
             paragraphs = [TrimLeadingSpace(paragraphs[0]), .. paragraphs.Skip(1)];
 
-        return new DocumentNote(kind, paragraphs);
+        // A table in a note keeps its cells' paragraphs among the note's, so
+        // its text reads as before, and the footnote area lays it out as a
+        // table (tdf136778.docx's 4 x 2 grid).
+        return new DocumentNote(kind, paragraphs) { Tables = built.Tables };
     }
 
     /// <summary>
@@ -3311,7 +3337,10 @@ internal static class DocxReader
         // heading would open a page of its own.
         XElement? pageBreakBefore = pPr.Element(DocxNamespaces.Wordprocessing + "pageBreakBefore");
         if (pageBreakBefore is not null)
-            style = style with { PageBreakBefore = ReadOnOff(pageBreakBefore) };
+        {
+            bool on = ReadOnOff(pageBreakBefore);
+            style = style with { PageBreakBefore = on, PageBreakKeepsSpaceAbove = on };
+        }
 
         // Paragraph shading (ECMA-376 §17.3.1.31). The fill is the colour behind
         // the pattern, and a "clear" pattern - nearly every one Word writes -

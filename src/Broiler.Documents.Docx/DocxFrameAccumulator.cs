@@ -66,7 +66,8 @@ internal sealed class DocxFrameAccumulator
         if (frameDoc.ParagraphCount == 0 && (props.Height ?? 0) == 0)
             return;
 
-        DocumentShape shape = CreateFrameShape(props, frameDoc.Paragraphs, anchorIndex, context.PlacementPage);
+        DocumentShape shape = CreateFrameShape(props, frameDoc.Paragraphs, anchorIndex, context.PlacementPage,
+            context.Sections?.CurrentColumns);
         context.Builder.AddShape(shape);
 
         // Drawings read inside the frame's paragraphs (a VML group in a framed
@@ -91,6 +92,7 @@ internal sealed class DocxFrameAccumulator
             IsAsCharacter = inner.IsAsCharacter,
             IsCustomShape = inner.IsCustomShape,
             FitsText = inner.FitsText,
+            ShrinksWidthToText = inner.ShrinksWidthToText,
             RotationRadians = inner.RotationRadians,
             WrapMargins = inner.WrapMargins,
             WrapPolygon = inner.WrapPolygon,
@@ -235,7 +237,8 @@ internal sealed class DocxFrameAccumulator
         DocxFrameProperties frame,
         IReadOnlyList<RichTextParagraph> paragraphs,
         int anchorParagraphIndex,
-        PageGeometry? page)
+        PageGeometry? page,
+        DocxColumns? columns = null)
     {
         double pageWidth = page?.Width ?? PageGeometry.A4.Width;
         double marginLeft = page?.MarginLeft ?? PageGeometry.A4.MarginLeft;
@@ -245,7 +248,18 @@ internal sealed class DocxFrameAccumulator
 
         bool fromPage = frame.HorizontalAnchor == "page";
         double referenceWidth = fromPage ? pageWidth : textWidth;
-        double width = frame.Width is > 0 ? frame.Width.Value / 20d : textWidth;
+        // A frame that states no width is as wide as the column it stands in,
+        // and one of a single paragraph placed by its offset narrows to its
+        // text: writerfilter imports it at Writer's minimum width, and Writer
+        // fits only a lone paragraph's frame to its content
+        // (tdf135035.docx, three frames in a three-column section).
+        bool autoWidth = frame.Width is not > 0;
+        DocxColumns sectionColumns = columns ?? DocxColumns.Single;
+        double columnWidth = sectionColumns.Count > 1 && !sectionColumns.Unequal
+            ? Math.Max(0, (textWidth - sectionColumns.Gap * (sectionColumns.Count - 1)) / sectionColumns.Count)
+            : textWidth;
+        double width = autoWidth ? columnWidth : frame.Width!.Value / 20d;
+        bool shrinksToText = autoWidth && paragraphs.Count == 1 && frame.HorizontalAlign is null or "left";
         double height = frame.Height.HasValue ? Math.Abs((double)frame.Height.Value) / 20d : 0d;
 
         double x = frame.HorizontalAlign switch
@@ -310,6 +324,9 @@ internal sealed class DocxFrameAccumulator
             offsetFromPage: !fromParagraph,
             growsToText: frame.HeightRule != "exact",
             textPadding: padding,
-            outlineWidth: outline.IsVisible ? outline.Width : 1);
+            outlineWidth: outline.IsVisible ? outline.Width : 1)
+        {
+            ShrinksWidthToText = shrinksToText,
+        };
     }
 }

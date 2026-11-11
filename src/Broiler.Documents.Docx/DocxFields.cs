@@ -171,8 +171,9 @@ internal sealed class DocxFields
     /// <summary>
     /// The page field an instruction spells: <c>PAGE</c> or <c>NUMPAGES</c>,
     /// optionally with a <c>\*</c> switch that writes the number in roman
-    /// numerals or letters. Null for any other field and for a switch this
-    /// does not work out, which keeps the saved result.
+    /// numerals or letters; a format name it has no numbering for is drawn in
+    /// numerals. Null for any other field and for any other switch, which
+    /// keeps the saved result.
     /// </summary>
     public static PageField? Page(string instruction)
     {
@@ -211,7 +212,12 @@ internal sealed class DocxFields
                     format = name.StartsWith("AL", StringComparison.Ordinal) ? ListNumberFormat.UpperLetter : ListNumberFormat.LowerLetter;
                     break;
                 default:
-                    return null;
+                    // A format LibreOffice has no numbering for, such as
+                    // ArabicDash or CardText, leaves the field on the page
+                    // style's numbering (lcl_ParseNumberingType's
+                    // PAGE_DESCRIPTOR), so the number is drawn in numerals
+                    // rather than as Word saved it (tdf170003_bottomSpacing.docx).
+                    break;
             }
         }
 

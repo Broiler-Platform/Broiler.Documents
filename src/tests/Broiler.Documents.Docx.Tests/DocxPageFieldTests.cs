@@ -57,8 +57,19 @@ public sealed class DocxPageFieldTests
     }
 
     [Theory]
+    [InlineData(" PAGE  \\* ArabicDash  \\* MERGEFORMAT ")]
+    [InlineData(" PAGE \\* CardText ")]
+    public void A_Format_LibreOffice_Has_No_Numbering_For_Is_Drawn_In_Numerals(string instruction)
+    {
+        // LibreOffice leaves such a field on the page style's numbering, so
+        // tdf170003_bottomSpacing.docx's "- 2 -" is drawn as 2.
+        RichTextParagraph paragraph = Read(ComplexField(instruction, "- 2 -"));
+
+        Assert.Equal(new PageField(PageFieldKind.PageNumber, ListNumberFormat.Decimal), StyleOf(paragraph, "- 2 -").PageField);
+    }
+
+    [Theory]
     [InlineData(" PAGE \\# \"00\" ")]
-    [InlineData(" PAGE \\* ArabicDash ")]
     [InlineData(" SECTIONPAGES ")]
     public void A_Field_This_Does_Not_Work_Out_Keeps_Its_Saved_Result(string instruction)
     {
