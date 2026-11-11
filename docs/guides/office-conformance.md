@@ -915,7 +915,11 @@ bash eng/run-office-conformance.sh --incremental
 ```
 
 In GitHub Actions, activate the **incremental** workflow input on dispatch.
-The runner reads `tests/office/failed-documents.txt` (or a custom list via `--failed-documents <path>`), evaluates only those documents, and updates the tracked list upon completion (pruning documents that now pass, while keeping any remaining failures). Full corpus runs automatically refresh the tracked failed documents list.
+The runner reads `tests/office/failed-documents.txt` (or a custom list via
+`--failed-documents <path>`) and updates it after rechecking those documents.
+Completed full and unfiltered incremental runs on the default branch commit the
+updated list when they use the pinned corpus, both comparison axes, and the
+standard 80% threshold. The updated list is also available in the run artifact.
 
 ### Recovering a .NET download failure
 

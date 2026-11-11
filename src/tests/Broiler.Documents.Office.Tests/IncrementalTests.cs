@@ -141,7 +141,6 @@ public sealed class IncrementalTests : IDisposable
         Assert.True(File.Exists(path), "tests/office/failed-documents.txt should exist in the repository.");
 
         var tracked = FailedDocuments.Load(path);
-        Assert.NotEmpty(tracked);
         Assert.All(tracked, id =>
         {
             Assert.False(id.StartsWith('/'));

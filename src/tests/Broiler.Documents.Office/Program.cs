@@ -386,20 +386,14 @@ internal static class Program
             {
                 previouslyTracked = FailedDocuments.Load(failedDocsPath);
                 if (previouslyTracked.Count == 0)
-                {
                     Console.WriteLine("incremental no failed documents tracked in " + failedDocsPath + "; nothing to recheck.");
-                    return 0;
-                }
 
                 sampleIds = previouslyTracked;
-                if (options.Only is not null)
+                if (options.Only is not null && sampleIds.Count > 0)
                 {
                     sampleIds = sampleIds.Where(id => id.Contains(options.Only, StringComparison.OrdinalIgnoreCase)).ToHashSet(StringComparer.Ordinal);
                     if (sampleIds.Count == 0)
-                    {
                         Console.WriteLine("incremental no tracked failed documents match --only '" + options.Only + "'.");
-                        return 0;
-                    }
                 }
 
                 Console.WriteLine("incremental rechecking " + sampleIds.Count.ToString(CultureInfo.InvariantCulture) + " tracked failed document(s)");
@@ -409,10 +403,10 @@ internal static class Program
                 sampleIds = ExtrasSelection.Resolve(options.SampleList, options.SingleSample);
             }
 
-            IReadOnlyList<ExtrasSample> samples = await ExtrasConformance
-                .AcquireSamplesAsync(workspace, options.ExtrasUrl, options.ExtrasDirectory, options.Incremental ? null : options.Only, options.MaxFiles,
-                    sampleIds)
-                .ConfigureAwait(false);
+            IReadOnlyList<ExtrasSample> samples = sampleIds is { Count: 0 }
+                ? []
+                : await ExtrasConformance.AcquireSamplesAsync(workspace, options.ExtrasUrl, options.ExtrasDirectory,
+                    options.Incremental ? null : options.Only, options.MaxFiles, sampleIds).ConfigureAwait(false);
 
             OfficeReferences? references = null;
             if (options.ReferencesDirectory is not null || options.PrepareReferences is not null)
@@ -617,36 +611,16 @@ internal static class Program
 
             int failed = results.Count(result => result.Outcome == CheckOutcome.Failed);
 
-            if (options.Incremental)
+            if ((options.Incremental && samples.Count > 0) ||
+                (!options.Incremental && options.SampleList is null && options.SingleSample is null &&
+                 options.Only is null && options.MaxFiles is null))
             {
                 var evaluatedIds = samples.Select(s => s.Id);
                 var failedIds = differences.Where(d => d.HasDifference).Select(d => d.Sample.Id);
-                var updated = FailedDocuments.UpdateTracked(previouslyTracked, evaluatedIds, failedIds);
-                try
-                {
-                    FailedDocuments.Save(failedDocsPath, updated);
-                    Console.WriteLine("tracked     " + updated.Count.ToString(CultureInfo.InvariantCulture) + " failed document(s) in " + failedDocsPath);
-                }
-                catch (Exception ex)
-                {
-                    Console.Error.WriteLine("warning: could not update tracked failed documents in " + failedDocsPath + ": " + ex.Message);
-                }
-            }
-            else if (options.SampleList is null && options.SingleSample is null && options.Only is null && options.MaxFiles is null)
-            {
-                var evaluatedIds = samples.Select(s => s.Id);
-                var failedIds = differences.Where(d => d.HasDifference).Select(d => d.Sample.Id);
-                var prior = File.Exists(failedDocsPath) ? FailedDocuments.Load(failedDocsPath) : (IReadOnlySet<string>)new SortedSet<string>(StringComparer.Ordinal);
+                var prior = options.Incremental ? previouslyTracked : FailedDocuments.Load(failedDocsPath);
                 var updated = FailedDocuments.UpdateTracked(prior, evaluatedIds, failedIds);
-                try
-                {
-                    FailedDocuments.Save(failedDocsPath, updated);
-                    Console.WriteLine("tracked     " + updated.Count.ToString(CultureInfo.InvariantCulture) + " failed document(s) in " + failedDocsPath);
-                }
-                catch (Exception ex)
-                {
-                    Console.Error.WriteLine("warning: could not update tracked failed documents in " + failedDocsPath + ": " + ex.Message);
-                }
+                FailedDocuments.Save(failedDocsPath, updated);
+                Console.WriteLine("tracked     " + updated.Count.ToString(CultureInfo.InvariantCulture) + " failed document(s) in " + failedDocsPath);
             }
 
             return OfficeExitCodes.ForFailures(failed);
