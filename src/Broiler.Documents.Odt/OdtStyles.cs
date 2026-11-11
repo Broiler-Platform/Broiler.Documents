@@ -37,6 +37,12 @@ internal sealed class OdtStyles : IOdtImageDiagnostics
     /// <summary>The two style families this codec resolves.</summary>
     public const string ParagraphFamily = "paragraph";
 
+    /// <summary>The paragraph style a <c>text:p</c> naming none takes.</summary>
+    private const string DefaultParagraphStyleName = "Standard";
+
+    /// <summary>True when the document defines a <paramref name="family"/> style named <paramref name="name"/>.</summary>
+    public bool Defines(string family, string name) => _styles.ContainsKey(new StyleKey(family, name));
+
     public const string TextFamily = "text";
 
     /// <summary>
@@ -240,6 +246,13 @@ internal sealed class OdtStyles : IOdtImageDiagnostics
     /// which the reader does not fetch (ADR 0004).
     /// </summary>
     public Func<string, bool>? LinksOutsidePackage { get; set; }
+
+    /// <summary>
+    /// True when some <c>text:a</c> of the document names a character style,
+    /// so the document's links look as their styles say rather than as the
+    /// layout's default link decoration.
+    /// </summary>
+    public bool StyledLinks { get; set; }
     public void AddDiagnosticOnce(string code, string message) => Report(code, code, message);
 
     /// <summary>
@@ -787,6 +800,19 @@ internal sealed class OdtStyles : IOdtImageDiagnostics
     private List<StyleDefinition> Chain(string family, string? styleName)
     {
         var chain = new List<StyleDefinition>();
+
+        // A paragraph that names no style is not unstyled: every paragraph a
+        // word processor holds has one, and LibreOffice gives an unnamed
+        // text:p its "Standard" (Default Paragraph Style) on import. So its
+        // margins, line height and fonts apply - tdf163285.fodt's bare list
+        // items and empty spacer paragraphs each keep Standard's 8pt below.
+        if (string.IsNullOrEmpty(styleName) &&
+            string.Equals(family, ParagraphFamily, StringComparison.Ordinal) &&
+            _styles.ContainsKey(new StyleKey(family, DefaultParagraphStyleName)))
+        {
+            styleName = DefaultParagraphStyleName;
+        }
+
         if (string.IsNullOrEmpty(styleName))
             return chain;
 

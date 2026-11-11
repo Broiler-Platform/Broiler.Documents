@@ -179,6 +179,9 @@ internal static class OdtReader
             new XElement(OdtNamespaces.Draw + "image", definition.Attributes().Where(attribute => attribute.Name.Namespace == OdtNamespaces.XLink),
                 definition.Elements(OdtNamespaces.Office + "binary-data"))), styles);
         styles.LinksOutsidePackage = images.LinksOutsidePackage;
+        styles.StyledLinks = content.Descendants(OdtNamespaces.Text + "a")
+            .Concat(styles.MasterStyles?.Descendants(OdtNamespaces.Text + "a") ?? [])
+            .Any(anchor => !string.IsNullOrEmpty((string?)anchor.Attribute(OdtNamespaces.Text + "style-name")));
         // The producer is needed before the content: OpenOffice.org 2.x wrote
         // text:display inverted, and the text's visibility depends on it.
         DocumentMetadata metadata = OdtMetadata.Read(meta, diagnostics);
@@ -204,6 +207,7 @@ internal static class OdtReader
         {
             ShrinksJustifiedLines = OdtRevisions.ConfigFlag(settings, "JustifyLinesWithShrinking"),
             TabsOverMargin = OdtRevisions.ConfigFlag(settings, "TabOverMargin"),
+            UndecoratedLinks = styles.StyledLinks,
             PreserveOpeningParagraphSpacing = true,
         });
         document = document.WithPageBackground(
@@ -635,7 +639,7 @@ internal static class OdtReader
             double? footerOrigin = page is PageGeometry geometry
                 ? geometry.Height - geometry.MarginBottom + (footerProperties is null ? 0 : Math.Max(0, Length(footerProperties, "margin-top")))
                 : null;
-            var (paragraphs, shapes) = ReadPart(part, styles, images, limits, diagnostics, page, footerOrigin);
+            var (paragraphs, shapes, tables) = ReadPart(part, styles, images, limits, diagnostics, page, footerOrigin);
             if (paragraphs.Count == 0 && shapes.Count == 0)
             {
                 // An empty part is an answer for the two selections that would
@@ -657,8 +661,8 @@ internal static class OdtReader
                 : selection;
 
             content = isHeader
-                ? content.WithHeader(target, paragraphs, shapes)
-                : content.WithFooter(target, paragraphs, shapes);
+                ? content.WithHeader(target, paragraphs, shapes, tables)
+                : content.WithFooter(target, paragraphs, shapes, tables);
         }
 
         return content;
@@ -1987,7 +1991,7 @@ internal static class OdtReader
     /// <c>svg:y</c> is read from the top of the page - the same reading the DOCX
     /// side gives a header's own band.
     /// </remarks>
-    private static (IReadOnlyList<RichTextParagraph> Paragraphs, IReadOnlyList<DocumentShape> Shapes) ReadPart(
+    private static (IReadOnlyList<RichTextParagraph> Paragraphs, IReadOnlyList<DocumentShape> Shapes, IReadOnlyList<DocumentTable> Tables) ReadPart(
         XElement part,
         OdtStyles styles,
         OdtImageLoader images,
@@ -2005,6 +2009,10 @@ internal static class OdtReader
         IReadOnlyList<RichTextParagraph> paragraphs = built.Paragraphs;
         IReadOnlyList<DocumentShape> shapes = built.Shapes;
 
+        // A table in a header or footer keeps its cells' borders: the band is
+        // laid out with its tables, as a frame's content is.
+        IReadOnlyList<DocumentTable> tables = built.Tables;
+
         // Running content carries no sections, so a hidden one in a header or
         // footer is left out here or not at all. A template keeps its file-name
         // footer in one (text:display="none") that LibreOffice never shows.
@@ -2013,13 +2021,23 @@ internal static class OdtReader
         {
             bool IsHidden(int index) => hidden.Any(section => section.Contains(index));
             paragraphs = [.. paragraphs.Where((_, index) => !IsHidden(index))];
+
+            // The tables index the paragraphs as read; with some left out they
+            // no longer line up, so the band falls back to flattened text.
+            tables = [];
             shapes = [.. shapes.Where(shape => !IsHidden(shape.ParagraphIndex))];
         }
 
-        if ((paragraphs.Count == 0 || (paragraphs.Count == 1 && paragraphs[0].Length == 0)) && shapes.Count == 0)
+        // A lone empty paragraph is no header, unless it draws something: an
+        // empty footer paragraph with a top border is the rule above every
+        // page number of tdf135056.odt.
+        if ((paragraphs.Count == 0 ||
+             (paragraphs.Count == 1 && paragraphs[0].Length == 0 &&
+              paragraphs[0].Style.Border is null && (paragraphs[0].Style.Background.IsEmpty || paragraphs[0].Style.Background.A == 0))) &&
+            shapes.Count == 0)
             paragraphs = [];
 
-        return (paragraphs, shapes);
+        return (paragraphs, shapes, paragraphs.Count == 0 ? [] : tables);
     }
 
     /// <summary>
@@ -3491,9 +3509,31 @@ internal static class OdtReader
     /// Resolves a <c>text:a</c> into a link style: the anchor's own character
     /// style, then its target under the shared URI policy.
     /// </summary>
+    private const string InternetLinkStyleName = "Internet_20_link";
+
+    /// <summary>Writer's built-in "Internet Link" colour, navy.</summary>
+    private static readonly BColor InternetLinkColor = BColor.FromArgb(0x00, 0x00, 0x80);
+
     private static InlineStyle ApplyAnchorStyle(XElement anchor, OdtReadContext context, InlineStyle style)
     {
+        // A link looks the way its character style says and no other way. In
+        // a document whose links name styles, the links are undecorated
+        // (StyleDefaults.UndecoratedLinks), so a table of contents whose
+        // entries name the empty "Index Link" style (tdf135056.odt) is not
+        // drawn blue and underlined, and a link there naming no style gets
+        // Writer's "Internet Link" character style
+        // (SwTextINetFormat::GetCharFormat, RES_POOLCHR_INET_NORMAL), navy and
+        // underlined where the document does not define it. A document none
+        // of whose links names a style keeps the layout's link decoration.
         string? styleName = (string?)anchor.Attribute(OdtNamespaces.Text + "style-name");
+        if (string.IsNullOrEmpty(styleName) && context.Styles.StyledLinks)
+        {
+            if (context.Styles.Defines(OdtStyles.TextFamily, InternetLinkStyleName))
+                styleName = InternetLinkStyleName;
+            else if (anchor.Name == OdtNamespaces.Text + "a")
+                style = style with { Underline = true, Foreground = style.Foreground.IsEmpty ? InternetLinkColor : style.Foreground };
+        }
+
         foreach (XElement properties in context.Styles.TextPropertiesForSpan(styleName))
             style = ApplyTextProperties(properties, style, context.Styles, context.Builder);
 

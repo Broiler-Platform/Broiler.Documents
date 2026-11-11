@@ -197,6 +197,14 @@ public sealed class TextWrapExclusions
     /// The span a line starting at <paramref name="top"/> has, after moving it
     /// down past anything that leaves it no room to be written in.
     /// </summary>
+    /// <remarks>
+    /// A blocked line steps down to the nearest foot of what it meets, not past
+    /// the deepest: where one of two frames side by side ends first, the line
+    /// is written beside the other from there, as Writer writes it. Jumping
+    /// past both sent tdf135056.odt's empty paragraph below a page-high table
+    /// of contents frame and onto a page of its own, where LibreOffice sets it
+    /// under the short frame beside it.
+    /// </remarks>
     public TextBand Resolve(ref double top, double height, double columnWidth, out double skip, double columnLeft = 0.0)
     {
         var band = _kernel.ResolveLine(
@@ -205,8 +213,8 @@ public sealed class TextWrapExclusions
             columnLeft,
             columnWidth,
             out skip,
-            maxAttempts: 8,
-            descentStep: ClearanceDescentStep.Deepest,
+            maxAttempts: 32,
+            descentStep: ClearanceDescentStep.Shallowest,
             fallback: BlockedBandFallback.FullColumnAtCurrentY,
             minUsableWidth: 1.0e-9,
             defaultSidePolicy: ObstacleSidePolicy.Largest);

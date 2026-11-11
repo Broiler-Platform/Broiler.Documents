@@ -153,7 +153,7 @@ public sealed class LayoutLine : IPaginatedLineArtifact
     public double Baseline { get; }
 
     /// <summary>Which model paragraph this line came from. Carried through for diagnostics.</summary>
-    public int ParagraphIndex { get; }
+    public int ParagraphIndex { get; internal set; }
 
     /// <summary>The column/cell text area's origin, before paragraph indent.</summary>
     internal double TextAreaLeft { get; set; }

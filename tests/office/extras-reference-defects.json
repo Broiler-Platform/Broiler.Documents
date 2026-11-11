@@ -353,6 +353,21 @@
       "samples": ["rtfimport/data/tdf167710.rtf"],
       "evidence": "The pinned 24.2 reference exports Unknown; into the body. The upstream test asserts an empty paragraph because revision-table entries are metadata.",
       "reference": "docs/notes/office-issue-224.md"
+    },
+    {
+      "id": "tdf163285-keep-together-row-split",
+      "bug": "tdf#163285",
+      "fixedIn": "25.2",
+      "fixCommits": [
+        "229964ac9321530991639812050d0065c1d532ec"
+      ],
+      "upstreamTests": [
+        "sw/qa/extras/layout/layout4.cxx TestTdf163285"
+      ],
+      "axes": ["pixel"],
+      "samples": ["layout/data/tdf163285.fodt"],
+      "evidence": "The pinned 24.2 PDF has two pages: the keep-together first row splits once and the rest of its text, from the line after pg_2 through pg_3, is never drawn, so page 2 holds only the second row. The upstream test asserts three pages whose first rows start with pg_1, pg_2 and pg_3; the text export still holds every line.",
+      "reference": "docs/notes/office-issue-232-tdf163285.md"
     }
   ]
 }

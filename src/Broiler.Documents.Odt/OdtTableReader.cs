@@ -81,7 +81,7 @@ internal static class OdtTableReader
                     context.TableDepth++;
                     try
                     {
-                        readBlocks(DisplayCellContent(cell, context.Styles), depth + 1);
+                        readBlocks(WithoutClosingParagraphAfterTable(DisplayCellContent(cell, context.Styles)), depth + 1);
                     }
                     finally
                     {
@@ -178,6 +178,31 @@ internal static class OdtTableReader
     private static double? TableLength(XElement table, OdtStyles styles, XName attribute) =>
         OdtUnits.TryParseLength((string?)TableProperties(table, styles)?.Attribute(attribute), out double points)
             ? points : null;
+
+    /// <summary>
+    /// A cell's blocks without the empty paragraph that closes it after a
+    /// nested table.
+    /// </summary>
+    /// <remarks>
+    /// Writer cannot end a cell on a table, so it saves a cell holding one with
+    /// an empty paragraph after it, and lays that paragraph out with no height:
+    /// LibreOffice 24.2 draws nestedTableInFooter.odt's outer row exactly as
+    /// tall as the nested table and the cell padding. Read as a line, it made
+    /// the row a line taller.
+    /// </remarks>
+    private static IEnumerable<XElement> WithoutClosingParagraphAfterTable(IEnumerable<XElement> blocks)
+    {
+        List<XElement> list = [.. blocks];
+        if (list.Count >= 2 &&
+            list[^1].Name == OdtNamespaces.Text + "p" &&
+            !list[^1].Nodes().Any() &&
+            list[^2].Name == OdtNamespaces.Table + "table")
+        {
+            list.RemoveAt(list.Count - 1);
+        }
+
+        return list;
+    }
 
     private static IEnumerable<XElement> DisplayCellContent(XElement cell, OdtStyles styles)
     {
