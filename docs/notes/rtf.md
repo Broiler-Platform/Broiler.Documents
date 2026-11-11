@@ -585,7 +585,7 @@ caller asked for that this codec does not do.
 | `rtf.fill.extended` | Warning | Write | Bitmap and hatch fills, centred gradients, gradient borders or page-fill bounds were approximated. |
 | `rtf.frame.position` | Info | Read | A frame aligned to the centre or foot of its reference was set at its top, its height not being known until layout. Once per read. |
 | `rtf.embedded` | Info | Read | Pictures and objects were skipped. Once per read, and replaced by `document.capability.not-composed` when decoding was asked for. |
-| `rtf.page.geometry` | Warning | Read | The section properties described a page with no room to write on, so the page was not read. |
+| `rtf.page.geometry` | Warning | Read | The section properties described a page with no room to write on, so the page was not read. A negative `\margt`/`\margb` is not that: it is Word's "exact" margin, read as its magnitude with a header or footer band that does not grow (`tdf107413.rtf`). |
 | `rtf.columns.geometry` | Warning | Read | `\cols` and `\colsx` left no room to write in a column; the page was kept and read as one column. |
 | `rtf.pagebreak.empty` | Info | Read | A page break with no paragraph after it asks for a blank page, which this model cannot hold; the break was dropped. Once per read. |
 | `rtf.trailing` | Info | Read | Content followed the root group's closing brace; it is not part of the document and was not read. Once per read. |
