@@ -127,6 +127,19 @@ public sealed class DocxShapeTests
     }
 
     [Fact]
+    public void A_Body_Shape_Belongs_To_Its_Page_And_A_Cell_Shape_To_The_Text_Flow()
+    {
+        // tdf123243.docx: Writer's DOCX import lets no drawing follow the text
+        // flow outside a table, so a text box low on a page stays on it.
+        Assert.True(Assert.Single(Read(TextBoxShape).Shapes).BoundedByPage);
+
+        RichTextDocument inCell = DocxTestPackage.ReadBody(
+            "<w:tbl><w:tblGrid><w:gridCol w:w=\"4000\"/></w:tblGrid><w:tr><w:tc>" +
+            "<w:p>" + TextBoxShape + "</w:p></w:tc></w:tr></w:tbl><w:p/>").Document;
+        Assert.False(Assert.Single(inCell.Shapes).BoundedByPage);
+    }
+
+    [Fact]
     public void Keeps_A_Shape_Out_Of_The_Body_Flow()
     {
         // The words in a logo box belong to the box, not to the letter.

@@ -102,7 +102,7 @@
         "e6783f42ae706da76fd347790c15ac3397ce4530"
       ],
       "upstreamTests": [],
-      "untested": "The fix is part of a refactoring series (\"writerfilter: move even more members to SubstreamContext\") that moved the importer's per-paragraph state into each substream's own; it added no test. What pins the fixed rendering: LibreOffice 26.2.6.3 draws the sample with the heading whole, \"1.3 Status Filter-StrÃ¶mungstest\" on page 5 and chapter 2 \"Beschreibung der RÃ¤ume\" on page 7, and the table of contents Word saved in the document, with its PAGEREF results, numbers and places the chapters the same way.",
+      "untested": "The fix is part of a refactoring series (\"writerfilter: move even more members to SubstreamContext\") that moved the importer's per-paragraph state into each substream's own; it added no test. What pins the fixed rendering: LibreOffice 26.2.6.3 draws the sample with the heading whole, \"1.3 Status Filter-Strömungstest\" on page 5 and chapter 2 \"Beschreibung der Räume\" on page 7, and the table of contents Word saved in the document, with its PAGEREF results, numbers and places the chapters the same way.",
       "axes": [
         "pixel",
         "text"
@@ -110,7 +110,7 @@
       "samples": [
         "ooxmlexport/data/wDateValueFormat.docx"
       ],
-      "evidence": "A page break run followed by a comment reference and then text splits the paragraph in LibreOffice 24.2. The DOCX importer splits a paragraph at a deferred page break when the text arrives after the paragraph's first run (DomainMapper::lcl_utext, IsFirstRun), and in 24.2 that flag was one member shared by every stream: the comment's own paragraphs, read where its w:commentReference stands, clear it. The text after the reference then starts a paragraph of its own in the default paragraph style, which keeps the heading's list at level 0 because the split erases the list id and level but not the NumberingStyleName finishParagraph copied from the heading style. Since February 2024 the flag lives in each substream's state, so a comment no longer touches the paragraph it is anchored in; libreoffice-24-8 has it, libreoffice-24-2 does not. The office-references-v3 PDF and text, made by LibreOffice 24.2.7.2, show the defect: heading \"1.3\" alone at the foot of page 4, \"2 Status Filter-StrÃ¶mungstest\" in 10 point body text atop page 5, and every later chapter numbered one higher (127 lines of the text projection). LibreOffice 26.2.6.3 keeps the heading whole, as Word's saved table of contents does.",
+      "evidence": "A page break run followed by a comment reference and then text splits the paragraph in LibreOffice 24.2. The DOCX importer splits a paragraph at a deferred page break when the text arrives after the paragraph's first run (DomainMapper::lcl_utext, IsFirstRun), and in 24.2 that flag was one member shared by every stream: the comment's own paragraphs, read where its w:commentReference stands, clear it. The text after the reference then starts a paragraph of its own in the default paragraph style, which keeps the heading's list at level 0 because the split erases the list id and level but not the NumberingStyleName finishParagraph copied from the heading style. Since February 2024 the flag lives in each substream's state, so a comment no longer touches the paragraph it is anchored in; libreoffice-24-8 has it, libreoffice-24-2 does not. The office-references-v3 PDF and text, made by LibreOffice 24.2.7.2, show the defect: heading \"1.3\" alone at the foot of page 4, \"2 Status Filter-Strömungstest\" in 10 point body text atop page 5, and every later chapter numbered one higher (127 lines of the text projection). LibreOffice 26.2.6.3 keeps the heading whole, as Word's saved table of contents does.",
       "reference": "docs/notes/office-issue-180.md"
     },
     {
@@ -395,6 +395,60 @@
       "samples": ["rtfimport/data/tblrepeat.rtf"],
       "evidence": "The table's first three rows carry \\trhdr. LibreOffice 24.2's RTF import ignored \\trhdr, so the pinned PDF draws the three header rows on page one only and leaves page two, which holds the table's empty rows, blank. The fix, committed to master on 2025-02-18 and first released in 25.8, came with this sample and a test asserting HeaderRowCount 3. Local LibreOffice 26.2 repeats the rows on page two, as broilerdoc does. The text export lists the header text once either way, so only the pixel check is affected.",
       "reference": "docs/notes/office-issue-234-rtf.md"
+    },
+    {
+      "id": "tdf165089-word-grid-centred",
+      "bug": "tdf#165089",
+      "fixedIn": "25.8",
+      "fixCommits": ["fd7717f81b18faab0e400c9fa3e87c4579f254d1"],
+      "upstreamTests": ["sw/qa/extras/layout/layout5.cxx testTdf165089"],
+      "axes": ["pixel"],
+      "samples": ["layout/data/tdf165089.fodt"],
+      "evidence": "The page has a printed line text grid of four lines and the document sets the MsWordCompGridMetrics compatibility flag. LibreOffice 24.2 centres the grid on the page, so the pinned PDF draws the paragraph and the grid lines about 4.4 in down the page. The fix, committed to master on 2025-02-18 and first released in 25.8, turns the centring off under Word grid metrics; its test pins the paragraph to the top of the page, as the sample's own text says it should be. Local LibreOffice 26.2.6.3 draws the paragraph at the top of the body, where broilerdoc draws it. The text export is the same either way.",
+      "reference": "docs/notes/office-issue-236-odt-layout.md"
+    },
+    {
+      "id": "tdf170119-section-below-spacing-after-page-break",
+      "bug": "tdf#170119",
+      "fixedIn": "25.8",
+      "fixCommits": [
+        "582c032aaa4524abf5b5a630400cf7ecdc2acf8a",
+        "ed5aaa03906807c93fe6847f66f847007777174d",
+        "5fe1c8aa84506a9fa530d50034fc997c2a042357"
+      ],
+      "upstreamTests": ["sw/qa/extras/ooxmlexport/ooxmlexport25.cxx testTdf170119_bottomSpacing"],
+      "axes": ["pixel"],
+      "samples": ["ooxmlexport/data/tdf170119_bottomSpacing.docx"],
+      "evidence": "A page break ends page one, and the next paragraph is an empty continuous-section mark with 200 pt of space below. The pinned 24.2 PDF starts page two with a 150 pt gap, clips the first line of the last paragraph at the page foot and puts its second line alone on a third page. The fix ('cont-sectPr w/ pgbrk == emulate bottomSpacing', master 2025-12-25, cherry-picked to libreoffice-26-2 and libreoffice-25-8) came with this sample and a test asserting two pages ('Without the fix, page 2 started with a 150pt gap, pushing content to the third page'). Local LibreOffice 26.2.6.3 exports two pages with the last paragraph at the top of page two, as broilerdoc draws it. The text export holds every line.",
+      "reference": "docs/notes/office-issue-236-docx-pagination.md"
+    },
+    {
+      "id": "tdf160984-docx-endnotes-on-own-page",
+      "bug": "tdf#160984",
+      "fixedIn": "24.8",
+      "fixCommits": [
+        "6885dcd7ec7b82a946d8344bfc27a3e88eecc44a",
+        "1ae5ea3f78cca11ba18f2dd1a06f875263336a3b"
+      ],
+      "upstreamTests": [
+        "sw/qa/writerfilter/cppunittests/filter/WriterFilter.cxx testInlineEndnoteAndFootnoteDOCX"
+      ],
+      "axes": ["pixel"],
+      "samples": [
+        "ooxmlexport/data/fdo79062.docx",
+        "ooxmlexport/data/tdf109310_endnoteStyleForMSO.docx",
+        "ooxmlexport/data/tdf121784.docx",
+        "ooxmlexport/data/tdf141172.docx",
+        "ooxmlexport/data/tdf141231_arabicHebrewNumbering.docx",
+        "ooxmlexport/data/tdf141548.docx",
+        "ooxmlexport/data/tdf143399.docx",
+        "ooxmlexport/data/tdf171002.docx",
+        "ooxmlexport/data/tdf82173_endnoteStyle.docx",
+        "ooxmlexport/data/tdf87460.docx",
+        "ooxmlexport/data/testGlossary.docx"
+      ],
+      "evidence": "LibreOffice 24.2 imports DOCX endnotes without its ContinuousEndnotes setting, so it collects them on a page of their own in its Endnote page style: a default-size page with no header or footer, after the last page of the body. Word sets them right after the body text. The fix reimplemented continuous endnotes as an endnote section after the body (commit 6885dcd7, 2024-05-14) and enabled it for DOCX import (commit 1ae5ea3f, 2024-05-21); both are in libreoffice-24.8.0.1 and not in 24.2.7.2. Each listed sample has a two-page 24.2 reference whose second page holds only endnotes; local LibreOffice 26.2.6.3 sets the endnotes after the body, on one page for ten of them, and on the body's own page size with its header for tdf141231_arabicHebrewNumbering.docx. broilerdoc draws the same page count as 26.2 for each. The text export holds the endnote text either way, so only the pixel check is affected.",
+      "reference": "docs/notes/office-issue-236-docx-layout.md"
     }
   ]
 }

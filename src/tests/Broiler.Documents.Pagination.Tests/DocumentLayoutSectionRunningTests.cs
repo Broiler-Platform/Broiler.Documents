@@ -93,7 +93,7 @@ public sealed class DocumentLayoutSectionRunningTests
             .WithSections(
             [
                 new DocumentSection(0, 1, 1, 0, runningContent: RunningContent.Empty),
-                new DocumentSection(1, paragraphs.Count - 1, 1, 0),
+                new DocumentSection(1, paragraphs.Count - 1, 1, 0, breakType: SectionBreakType.NextPage),
             ]);
 
         LayoutResult result = Layout(document);
@@ -153,6 +153,32 @@ public sealed class DocumentLayoutSectionRunningTests
         Assert.True(Holds(result.Pages[0], "the report header"));
         Assert.True(Holds(result.Pages[1], "the annex header"));
         Assert.False(Holds(result.Pages[1], "an annex first page"));
+    }
+
+    [Fact]
+    public void A_Continuous_Section_Its_First_Paragraph_Breaks_A_Page_For_Shares_Its_First_Page()
+    {
+        // tdf131963.docx: a continuous section whose first paragraph opens with a
+        // page break, a footer with the page number, and an empty first-page one.
+        // The section starts on the page its break is on, so the page the break
+        // opens is not its first, and LibreOffice draws the number there.
+        RunningContent numbered = Header("the numbered header")
+            .WithDifferentFirstPage(true)
+            .WithHeader(PageSelection.First, [RichTextParagraph.Plain("a first page")]);
+        RichTextDocument document = RichTextDocument
+            .FromParagraphs([Body("report"), Body("annex", pageBreakBefore: true)])
+            .WithRunningContent(Header("the report header"))
+            .WithSections(
+            [
+                new DocumentSection(0, 1, 1, 0),
+                new DocumentSection(1, 1, 1, 0, runningContent: numbered, breakType: SectionBreakType.Continuous),
+            ]);
+
+        LayoutResult result = Layout(document);
+
+        Assert.Equal(2, result.Pages.Count);
+        Assert.True(Holds(result.Pages[1], "the numbered header"));
+        Assert.False(Holds(result.Pages[1], "a first page"));
     }
 
     [Fact]

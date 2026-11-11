@@ -19,6 +19,65 @@ public sealed class DocumentLayoutWrappingFrameTests
         Assert.Equal(70, pages[1].Lines[^1].Top, 3);
     }
 
+    [Theory]
+    [InlineData(60)]
+    [InlineData(200)]
+    public void A_Frame_Bounded_By_Its_Page_Keeps_Its_Anchor_On_The_Page_It_Runs_Past(double height)
+    {
+        // tdf123243.docx: a text box that runs into the bottom margin, or off
+        // the page, stays with its paragraph on page one.
+        var document = RichTextDocument.FromParagraphs([Paragraph("one\u2028two\u2028three"), Paragraph("after")])
+            .WithShapes([new DocumentShape(1, 0, 0, 40, height, wrap: ShapeWrap.Square) { BoundedByPage = true }]);
+        using var images = new ImageStore();
+        var pages = new DocumentLayout(new LayoutSettings(), images).Layout(document,
+            new DocumentPageBox(200, 100, 10, 10, 10, 10)).Pages;
+        Assert.Single(pages[0].Shapes);
+        Assert.Equal(40, pages[0].Shapes[0].Bounds.Y, 3);
+        Assert.Contains(pages[0].Lines, line => line.Pieces.Any(piece => piece.Text == "after"));
+    }
+
+    [Fact]
+    public void A_Top_And_Bottom_Frame_Bounded_By_Its_Page_Still_Moves_With_Its_Anchor()
+    {
+        var document = RichTextDocument.FromParagraphs([Paragraph("one\u2028two\u2028three"), Paragraph("after")])
+            .WithShapes([new DocumentShape(1, 0, 0, 100, 60, wrap: ShapeWrap.TopAndBottom) { BoundedByPage = true }]);
+        using var images = new ImageStore();
+        var pages = new DocumentLayout(new LayoutSettings(), images).Layout(document,
+            new DocumentPageBox(200, 100, 10, 10, 10, 10)).Pages;
+        Assert.Equal(2, pages.Count);
+        Assert.Empty(pages[0].Shapes);
+        Assert.Single(pages[1].Shapes);
+    }
+
+    [Fact]
+    public void A_Paragraph_Whose_Space_Above_Passes_The_Foot_Takes_Its_Shapes_To_The_Next_Page()
+    {
+        // tdf115719.docx: the space above is as tall as the shapes hanging from it.
+        RichTextParagraph spaced = RichTextParagraph.Create("", InlineStyle.Default,
+            ParagraphStyle.Default with { LineHeightRule = LineHeightRule.Exact, LineHeight = 10, SpacingBefore = 70 });
+        var document = RichTextDocument.FromParagraphs([Paragraph("one"), spaced])
+            .WithShapes([new DocumentShape(1, 0, 0, 40, 30, wrap: ShapeWrap.Square) { BoundedByPage = true }]);
+        using var images = new ImageStore();
+        var pages = new DocumentLayout(new LayoutSettings(), images).Layout(document,
+            new DocumentPageBox(200, 100, 10, 10, 10, 10)).Pages;
+        Assert.Equal(2, pages.Count);
+        Assert.Empty(pages[0].Shapes);
+        Assert.Equal(10, Assert.Single(pages[1].Shapes).Bounds.Y, 3);
+    }
+
+    [Fact]
+    public void A_Frame_Bounded_By_Its_Page_Anchored_Below_It_Moves_With_Its_Anchor()
+    {
+        var document = RichTextDocument.FromParagraphs([Paragraph("one\u2028two\u2028three"), Paragraph("after")])
+            .WithShapes([new DocumentShape(1, 0, 70, 40, 10, wrap: ShapeWrap.Square) { BoundedByPage = true }]);
+        using var images = new ImageStore();
+        var pages = new DocumentLayout(new LayoutSettings(), images).Layout(document,
+            new DocumentPageBox(200, 100, 10, 10, 10, 10)).Pages;
+        Assert.Equal(2, pages.Count);
+        Assert.Empty(pages[0].Shapes);
+        Assert.Single(pages[1].Shapes);
+    }
+
     [Fact]
     public void An_Oversized_Frame_Keeps_Its_Page_And_The_Anchor_Text_Continues()
     {

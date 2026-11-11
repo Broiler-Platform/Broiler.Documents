@@ -1031,6 +1031,12 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 // - starts the page this section owns.
                 pendingOwner = next;
                 hasPendingOwner = true;
+                // A continuous section starts on the page its break is on, so the page
+                // its first paragraph's hard break opens is its second, not its first:
+                // as for a break further in (OwnBreak), that page shares the others'
+                // parts. tdf131963.docx's fourth section opens with a page break and
+                // has a first-page footer of nothing; LibreOffice numbers that page.
+                pendingSharesFirst = next?.BreakType == SectionBreakType.Continuous;
             }
 
             columns = ColumnsOf(next, owner);
@@ -1437,12 +1443,24 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
             // Move a wrapping frame and its anchor together when it cannot fit
             // below preceding content. An oversized frame is allowed once on a
-            // fresh page rather than repeatedly making empty pages.
+            // fresh page rather than repeatedly making empty pages. A shape
+            // bounded by its page that text may run beside stays unless it
+            // starts below the page (tdf123243.docx); one that keeps text above
+            // and below it still moves.
             if (!setup.Continuous && ColumnHasContent() && _documentShapes.Any(shape =>
                 (shape.Wraps || shape.IsAsCharacter) && !shape.IsPageAnchored && shape.ParagraphIndex == paragraphIndex &&
                 (shape.OffsetFromPage
                     ? y > shape.OffsetY + BoxHeight(shape) && y + BoxHeight(shape) > contentBottom
-                    : ResolvedShapeTop(shape, y, setup) + BoxHeight(shape) > contentBottom)))
+                    : shape.BoundedByPage && shape.Wrap != ShapeWrap.TopAndBottom
+                        ? ResolvedShapeTop(shape, y, setup) >= setup.HeightPoints
+                        : ResolvedShapeTop(shape, y, setup) + BoxHeight(shape) > contentBottom)) ||
+                // A paragraph whose space above alone runs past the column's
+                // foot starts the next column, and its shapes go with it rather
+                // than standing from where it would have started
+                // (tdf115719.docx, whose spacing the DOCX reader raised to the
+                // height of the objects anchored to it, as Word lays it out).
+                !setup.Continuous && ColumnHasContent() && y + Math.Max(0, style.SpacingBefore) >= contentBottom &&
+                _documentShapes.Any(shape => !shape.IsPageAnchored && shape.ParagraphIndex == paragraphIndex))
             {
                 BreakColumn();
                 if (truncated)
@@ -3883,9 +3901,13 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         LayoutPiece? markerPiece = null;
         double hang = 0;
 
+        // A paragraph continued from the page before has left its drop cap there.
+        DropCap? dropCap = continuation ? null : style.DropCap is { Length: > 0 } stated ? stated : null;
+
         if (marker is not null)
         {
-            InlineStyle markerStyle = (paragraph.Runs.Count > 0 ? paragraph.Runs[0].Style : paragraph.MarkStyle) with { Revision = null };
+            // A drop cap does not size the number: the text after it does.
+            InlineStyle markerStyle = RunStyleAt(paragraph, dropCap?.Length ?? 0) with { Revision = null };
             markerPiece = MakeTextPiece(marker, markerStyle, decorateLink: false);
             hang = Math.Min(columnWidth * 0.5, markerPiece.Width + _settings.ListMarkerGapPoints);
         }
@@ -3902,13 +3924,27 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             ? Math.Max(0, style.FirstLineIndentIn + markerPiece!.Width + _settings.ListMarkerGapPoints)
             : style.FirstLineIndentIn;
 
+        // A drop cap is set apart from the text it opens, which wraps beside it
+        // for the lines it spans.
+        List<LayoutPiece>? dropPieces = null;
+        double dropIndent = 0;
+        if (dropCap is DropCap drop)
+        {
+            dropPieces = [.. Tokenize(paragraph, 0, drop.Length).SelectMany(token => token.Pieces).Where(piece => !piece.IsTab)];
+            if (dropPieces.Count == 0)
+                dropPieces = null;
+            else if (!drop.InMargin)
+                dropIndent = dropPieces.Sum(piece => piece.Width) + drop.DistanceIn;
+        }
+        int dropLines = dropPieces is null ? 0 : dropCap!.Value.SpannedLines;
+
         TextBand IndentedBand(TextBand band, int index)
         {
-            double offset = index == 0 && !continuation ? firstIndent : 0;
+            double offset = (index == 0 && !continuation ? firstIndent : 0) + (index < dropLines ? dropIndent : 0);
             return new TextBand(band.Left + offset, Math.Max(1, band.Width - offset));
         }
 
-        List<LayoutToken> tokens = Tokenize(paragraph);
+        List<LayoutToken> tokens = dropPieces is null ? Tokenize(paragraph) : Tokenize(paragraph, dropCap!.Value.Length);
         bool shrinks = _styleDefaults.ShrinksJustifiedLines && style.Alignment == TextAlignment.Justify;
         var bands = new List<TextBand>();
         var skips = new List<double>();
@@ -3958,7 +3994,9 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             bool showMarker = i == 0 && !continuation && markerPiece is not null;
             if (i == 0 && !continuation && markerPiece is not null)
             {
-                markerPiece.X = columnLeft + band.Left + (exactList ? style.FirstLineIndentIn - firstIndent : 0);
+                // The number comes before a drop cap, which opens the text.
+                markerPiece.X = columnLeft + band.Left - (dropLines > 0 ? dropIndent : 0) +
+                    (exactList ? style.FirstLineIndentIn - firstIndent : 0);
                 pieces.Insert(0, markerPiece);
             }
 
@@ -3997,7 +4035,71 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             lines.Add(line);
         }
 
+        if (dropPieces is not null && lines.Count > 0)
+            PlaceDropCap(dropPieces, dropCap!.Value, dropLines, dropIndent, lines,
+                textLeft + (bands.Count > 0 ? bands[0].Left : firstIndent + dropIndent));
+
         return new ParagraphLines(lines);
+    }
+
+    /// <summary>
+    /// Puts a drop cap's pieces on the first line of its paragraph, left of
+    /// where that line's text starts and lowered to the baseline of the last
+    /// line the drop spans, as LibreOffice and Word set one.
+    /// </summary>
+    /// <remarks>
+    /// The pieces join the first line after it has been measured, so the drop
+    /// makes no line taller; the lines beside it were already narrowed by
+    /// <paramref name="indent"/>. A paragraph with fewer lines than the drop
+    /// spans is made as tall as the lines it would have had, so the drop does
+    /// not run into the paragraph below.
+    /// </remarks>
+    /// <summary>The style of the run holding <paramref name="offset"/>, or the paragraph mark's past the text.</summary>
+    private static InlineStyle RunStyleAt(RichTextParagraph paragraph, int offset)
+    {
+        if (offset <= 0)
+            return paragraph.Runs.Count > 0 ? paragraph.Runs[0].Style : paragraph.MarkStyle;
+
+        int start = 0;
+        foreach (StyleRun run in paragraph.Runs)
+        {
+            if (offset < start + run.Length)
+                return run.Style;
+            start += run.Length;
+        }
+
+        return paragraph.MarkStyle;
+    }
+
+    private static void PlaceDropCap(List<LayoutPiece> pieces, DropCap dropCap, int spanned, double indent, List<LayoutLine> lines,
+        double firstTextLeft)
+    {
+        int last = Math.Min(spanned, lines.Count) - 1;
+        double drop = lines[last].Baseline - lines[0].Baseline;
+        for (int i = 0; i < last; i++)
+            drop += lines[i].Height + lines[i + 1].LeadingSkip;
+
+        if (lines.Count < spanned)
+        {
+            double extra = (spanned - lines.Count) * lines[^1].Height;
+            lines[^1].Height += extra;
+            drop += extra;
+        }
+
+        double x = dropCap.InMargin
+            ? firstTextLeft - pieces.Sum(piece => piece.Width) - dropCap.DistanceIn
+            : firstTextLeft - indent;
+        var target = (List<LayoutPiece>)lines[0].Pieces;
+        int at = 0;
+        while (at < target.Count && target[at].SourceOffset < 0)
+            at++;
+        foreach (LayoutPiece piece in pieces)
+        {
+            piece.X = x;
+            piece.Rise -= drop;
+            x += piece.Width;
+            target.Insert(at++, piece);
+        }
     }
 
     /// <summary>
@@ -4160,7 +4262,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     /// in one and "**bold**" in the next - stays one token, because a break
     /// between them would be a break in the middle of a word.
     /// </summary>
-    private List<LayoutToken> Tokenize(RichTextParagraph paragraph)
+    private List<LayoutToken> Tokenize(RichTextParagraph paragraph, int start = 0, int end = int.MaxValue)
     {
         var tokens = new List<LayoutToken>();
         LayoutToken? word = null;
@@ -4168,15 +4270,19 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
         foreach (StyleRun run in paragraph.Runs)
         {
-            int length = Math.Min(run.Length, Math.Max(0, paragraph.Length - offset));
+            // Only the text from start to end: a drop cap's characters are
+            // tokens of their own, and the rest of the paragraph is wrapped
+            // without them.
+            int from = Math.Max(offset, start);
+            int length = Math.Min(Math.Min(run.Length, Math.Max(0, paragraph.Length - offset)), end - offset) - (from - offset);
             if (length <= 0)
             {
                 offset += run.Length;
                 continue;
             }
 
-            string text = paragraph.Text.Substring(offset, length);
-            int runStart = offset;
+            string text = paragraph.Text.Substring(from, length);
+            int runStart = from;
             offset += run.Length;
             if (run.Style.Hidden)
                 continue;
