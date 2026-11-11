@@ -29,6 +29,12 @@ internal sealed record OdtReadContext(
     public double? FrameTextWidth { get; init; }
     /// <summary>True while reading the text of a text box or custom shape, whose own shapes would be lost.</summary>
     public bool InShapeText { get; init; }
+    /// <summary>
+    /// Within a shape's text: the shapes read there whose x is measured from
+    /// the page (<c>style:horizontal-rel</c> of page or page-content) rather
+    /// than from their paragraph, which keep it when they are lifted out.
+    /// </summary>
+    public HashSet<DocumentShape>? PageRelativeShapes { get; init; }
     public double? BandOrigin { get; init; }
     public Func<string, string?, int, bool>? SelectPageStyle { get; init; }
     public bool UsesSoftPageBreaks { get; init; }

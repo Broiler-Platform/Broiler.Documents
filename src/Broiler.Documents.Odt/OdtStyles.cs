@@ -77,6 +77,33 @@ internal sealed class OdtStyles : IOdtImageDiagnostics
         _diagnostics = diagnostics;
     }
 
+    /// <summary>
+    /// Whether graphic style <paramref name="name"/> is a Writer text frame's:
+    /// it is, or comes down from, the <c>Frame</c> style. A drawing shape's
+    /// style (a text box drawn as a shape) has no such parent.
+    /// <paramref name="builtIn"/> says the document does not define
+    /// <c>Frame</c>: Writer then gives the style its built-in Frame
+    /// (DocumentStylePoolManager), which draws a black hairline border.
+    /// </summary>
+    public bool DescendsFromFrameStyle(string? name, out bool builtIn)
+    {
+        builtIn = false;
+        var visited = new HashSet<string>(StringComparer.Ordinal);
+        string? current = name;
+        while (!string.IsNullOrEmpty(current) && visited.Count <= _maxChainDepth && visited.Add(current))
+        {
+            if (current == "Frame")
+            {
+                builtIn = !_styles.ContainsKey(new StyleKey("graphic", current));
+                return true;
+            }
+            if (!_styles.TryGetValue(new StyleKey("graphic", current), out StyleDefinition? definition))
+                return false;
+            current = definition.ParentStyleName;
+        }
+        return false;
+    }
+
     /// <summary>The number of paragraph and text styles that were loaded.</summary>
     public int Count => _styles.Count - _builtInHeadings;
 
