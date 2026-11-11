@@ -332,7 +332,12 @@ not pass `--continuous`: pagination is part of the measurement, so a difference
 in where a page ends has to be visible rather than smoothed away. And it does not
 pass `--page-size` or `--margin`, so both sides take the document's own page box
 and a disagreement about the page becomes a finding instead of being hidden by a
-flag. When `geometry` comes back `off`, the other four numbers were measured over
+flag. The one exception is a page nobody states: HTML without `@page`. LibreOffice
+lays that out on its `HTML` page style (2 cm at the sides, 1 cm at the top and
+bottom) in its default serif, so an HTML sample is rendered with
+`--default-margin 1cm,2cm --font serif` (`ExtrasConformance.HtmlPageArguments`).
+`--default-margin` only replaces the fallback, so a document's own `@page` still
+wins on both sides. When `geometry` comes back `off`, the other four numbers were measured over
 pages of different sizes and the failure message says so.
 
 `broilerdoc compare --mode image` is used exactly once, to draw the heat diff on

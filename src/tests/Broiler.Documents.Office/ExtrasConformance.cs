@@ -1065,10 +1065,34 @@ internal static class ExtrasConformance
         LibreOfficeTool.InputFilterFor(sample.Extension) is null ? [] : ["--from", sample.Format];
 
     /// <summary>
+    /// The page and face LibreOffice gives an HTML document that states neither,
+    /// asked of <c>broilerdoc</c> too.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// LibreOffice lays imported HTML out on its <c>HTML</c> page style: 2 cm at
+    /// the sides and 1 cm at the top and bottom
+    /// (<c>RES_POOLPAGE_HTML</c> in <c>DocumentStylePoolManager.cxx</c>), and
+    /// sets text that names no family in its default serif, Liberation Serif
+    /// here. HTML states neither, so <c>broilerdoc</c> used its own: a 1 inch
+    /// margin and <c>sans-serif</c>. Every line of every unstyled HTML sample
+    /// then started about 20 px further right and 58 px lower, in a wider face,
+    /// and most HTML samples failed the pixel check on that alone.
+    /// </para>
+    /// <para>
+    /// <c>--default-margin</c> rather than <c>--margin</c>, because a document
+    /// that states its page with <c>@page</c> keeps it, in LibreOffice and in
+    /// <c>broilerdoc</c>. The face is a <c>--font</c>, as the font pinning is: it
+    /// is the comparison's choice, not something the reader should invent.
+    /// </para>
+    /// </remarks>
+    internal static readonly string[] HtmlPageArguments = ["--default-margin", "1cm,2cm", "--font", "serif"];
+
+    /// <summary>
     /// The <c>render</c> invocation both paths use, so a crash-regression input
     /// is rendered exactly as a document would have been.
     /// </summary>
-    private static List<string> RenderArguments(
+    internal static List<string> RenderArguments(
         ExtrasSample sample,
         string outputDirectory,
         int dpi,
@@ -1079,7 +1103,10 @@ internal static class ExtrasConformance
         var arguments = new List<string> { "render", sample.LocalPath };
         arguments.AddRange(FormatArguments(sample));
         if (sample.Format == "html")
+        {
             arguments.Add("--allow-local-images");
+            arguments.AddRange(HtmlPageArguments);
+        }
         arguments.AddRange(
         [
             "--out", Path.Combine(outputDirectory, "page-{page}.bmp"),

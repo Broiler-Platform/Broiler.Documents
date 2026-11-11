@@ -333,7 +333,10 @@ identifiable as such.
 written for — DOCX, ODT, RTF and PDF all do, and the reader brings size, margins and
 header and footer distances across — and a render that was given no page of its
 own adopts it rather than inventing one. Ask for a page and the caller's wins
-outright: `--page-size`, `--landscape`, `--margin`. `--dpi` is always the
+outright: `--page-size`, `--landscape`, `--margin`. `--default-margin` is the
+one page option that does not: it replaces the 1 inch fallback for a document that
+states no page (HTML without `@page`, Markdown, plain text) and leaves a stated page
+alone. `--dpi` is always the
 caller's, since resolution is a property of the render and not of the document.
 So a comparison is pinned either by giving both sides the same flags or by both
 reading a document that states the same page — and because the two paths look
