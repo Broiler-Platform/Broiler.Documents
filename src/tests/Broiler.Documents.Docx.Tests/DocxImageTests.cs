@@ -525,6 +525,33 @@ public sealed class DocxImageTests
         Assert.Equal(DocxTestPackage.OnePixelPng, image.Data.ToArray());
     }
 
+    [Fact]
+    public void An_Absolute_Embedded_Object_Preview_Floats_At_Its_Margins()
+    {
+        // tdf133035: an OLE icon whose v:shape is position:absolute is placed
+        // at its margin-left/margin-top, not inline at the paragraph start.
+        string objectXml =
+            "<w:p><w:r>" +
+            "<w:object xmlns:v=\"urn:schemas-microsoft-com:vml\">" +
+            "<v:shape id=\"_x0000_s1026\" style=\"position:absolute;margin-left:186.6pt;margin-top:94.8pt;width:76.2pt;height:49.2pt\">" +
+            "<v:imagedata r:id=\"rId7\"/>" +
+            "</v:shape>" +
+            "</w:object>" +
+            "</w:r></w:p>";
+
+        DocumentReadResult result = DocxTestPackage.ReadWithMedia(
+            objectXml,
+            DocxTestPackage.ImageRelationship("rId7", "media/image1.png"),
+            Media("word/media/image1.png"));
+
+        DocumentShape shape = Assert.Single(result.Document.Shapes);
+        Assert.NotNull(shape.Image);
+        Assert.Equal(186.6, shape.OffsetX, 1);
+        Assert.Equal(94.8, shape.OffsetY, 1);
+        Assert.Equal(76.2, shape.Width, 1);
+        Assert.DoesNotContain(InlineImage.PlaceholderText, Assert.Single(result.Document.Paragraphs).Text);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -570,5 +597,64 @@ public sealed class DocxImageTests
         Assert.Contains(result.Diagnostics, d => d.Code == (hasCache ? "docx.chart.preview" : "docx.image.shape"));
         if (hasCache)
             Assert.Equal("image/png", image.ContentType);
+    }
+
+    [Fact]
+    public void An_Emf_Media_Part_Is_Rasterized_With_Its_Bitmap()
+    {
+        // n779834: a header watermark stored as an EMF whose logo is a
+        // STRETCHDIBITS bitmap. A two-pixel red/blue DIB fills the frame.
+        var emf = new List<byte>();
+        void Int(int value) => emf.AddRange(BitConverter.GetBytes(value));
+        void Short(short value) => emf.AddRange(BitConverter.GetBytes(value));
+        // Header: one device unit per millimetre, a one-inch frame.
+        Int(1); Int(88); Int(0); Int(0); Int(25); Int(25); Int(0); Int(0); Int(2540); Int(2540);
+        Int(0x464D4520); Int(0x10000); Int(0); Int(4); Int(1); Int(0); Int(0); Int(0);
+        Int(100); Int(100); Int(100); Int(100);
+        // STRETCHDIBITS: 80-byte record, 40-byte BITMAPINFOHEADER, one 8-byte row.
+        Int(81); Int(128); Int(0); Int(0); Int(25); Int(25);
+        Int(0); Int(0); Int(0); Int(0); Int(2); Int(1);       // xDest, yDest, xSrc, ySrc, cxSrc, cySrc
+        Int(80); Int(40); Int(120); Int(8); Int(0); Int(0x00CC0020); Int(25); Int(25);
+        Int(40); Int(2); Int(1); Short(1); Short(24); Int(0); Int(8); Int(0); Int(0); Int(0); Int(0);
+        emf.AddRange(new byte[] { 0x00, 0x00, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00 }); // red, blue (BGR), padding
+        Int(14); Int(20); Int(0); Int(0); Int(20);             // EOF
+
+        DocumentReadResult result = DocxTestPackage.ReadWithMedia(
+            "<w:p>" + DocxTestPackage.VmlPictureRun("rId7", "width:72pt;height:72pt") + "</w:p>",
+            DocxTestPackage.ImageRelationship("rId7", "media/image1.emf"),
+            Media("word/media/image1.emf", [.. emf]));
+
+        InlineImage image = SingleImage(result.Document);
+        Assert.Equal("image/png", image.ContentType);
+        Assert.DoesNotContain(result.Diagnostics, d => d.Code == "docx.image.format");
+        (int width, int height, byte[] rgba) = DecodeRasterizedPng(image.Data.ToArray());
+        int row = height / 2 * width * 4;
+        Assert.Equal((byte)255, rgba[row + width / 4 * 4]);          // left half red
+        Assert.Equal((byte)255, rgba[row + width * 3 / 4 * 4 + 2]);  // right half blue
+        Assert.Equal((byte)0, rgba[row + width * 3 / 4 * 4]);
+    }
+
+    /// <summary>Decodes the unfiltered RGBA PNG the EMF rasterizer writes.</summary>
+    private static (int Width, int Height, byte[] Rgba) DecodeRasterizedPng(byte[] png)
+    {
+        int width = System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(png.AsSpan(16));
+        int height = System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(png.AsSpan(20));
+        using var idat = new MemoryStream();
+        for (int at = 8; at + 8 <= png.Length;)
+        {
+            int length = System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(png.AsSpan(at));
+            if (png.AsSpan(at + 4, 4).SequenceEqual("IDAT"u8))
+                idat.Write(png, at + 8, length);
+            at += 12 + length;
+        }
+        idat.Position = 0;
+        using var inflate = new ZLibStream(idat, CompressionMode.Decompress);
+        using var raw = new MemoryStream();
+        inflate.CopyTo(raw);
+        byte[] rows = raw.ToArray();
+        var rgba = new byte[width * height * 4];
+        for (int y = 0; y < height; y++)
+            Array.Copy(rows, y * (width * 4 + 1) + 1, rgba, y * width * 4, width * 4);
+        return (width, height, rgba);
     }
 }

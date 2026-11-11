@@ -2217,7 +2217,7 @@ public static class RtfReader
                 contentType = DocumentImageFormats.ContentTypeForSignature(data);
                 if (contentType is not null)
                     encoded = bytes.ToArray();
-                else if (RtfEmf.IsEmf(data) && RtfEmf.RenderPng(data) is byte[] png)
+                else if (EmfRasterizer.IsEmf(data) && EmfRasterizer.RenderPng(data) is byte[] png)
                     (encoded, contentType) = (png, "image/png");
             }
             if (encoded is null || contentType is null)

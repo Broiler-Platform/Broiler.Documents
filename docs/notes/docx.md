@@ -501,9 +501,13 @@ LibreOffice's `DomainMapperTableHandler` does:
   ICO.
 - A missing, external or unsupported-format picture is kept as an
   `InlineImage` placeholder with its stated size and alternative text
-  (`docx.image.missing`, `docx.image.external`, `docx.image.format`). EMF/WMF
-  metafiles — Word's charts, SmartArt and shape fallbacks — cannot be decoded
-  to pixels here and report `docx.image.format` rather than drawing as
+  (`docx.image.missing`, `docx.image.external`, `docx.image.format`). An EMF
+  is rasterized to PNG by the shared `EmfRasterizer` (the one RTF's
+  `\emfblip` uses): polygons, polylines, Bezier paths, rectangles, ellipses
+  and DIB blits (`STRETCHDIBITS`, `BITBLT`, `STRETCHBLT`, `ALPHABLEND`), so
+  `n779834.docx`'s header watermark logo draws. Text records are not drawn
+  and clip paths are ignored. A WMF, or an EMF drawing nothing in that
+  subset, still reports `docx.image.format` rather than drawing as
   nothing. An `r:link` image is not fetched, as that would be a network or
   file request driven by document content (ADR 0004).
 - A write stores each distinct image once under `word/media`, with its
@@ -555,6 +559,16 @@ LibreOffice's `DomainMapperTableHandler` does:
   reads as the page background's, approximations reported as
   `docx.shape.fill`; the outline is `strokecolor`, VML's default black, or none
   where `stroked` is off; the text is the `w:txbxContent` in its `v:textbox`.
+- An embedded object's preview (`w:object` > `v:shape` > `v:imagedata`) that
+  is `position:absolute` floats at its CSS box like a `w:pict` picture, so
+  `tdf133035.docx`'s OLE icon sits at its margins instead of at the start of
+  the line. The icon's caption is EMF text and is not drawn.
+- An ActiveX Forms 2.0 check box or option button (`w:object` > `w:control`,
+  no preview picture) reads as text: a ballot box or circle glyph, set when
+  its `Value` is `1`, drawn in DejaVu Sans as LibreOffice's fallback, then its
+  caption. The caption lives only in the control's compound-file `contents`
+  stream (MS-OFORMS `MorphDataControl`), which `DocxActiveX` reads
+  (`tdf118169.docx`). Other control classes are still skipped.
 - The column any shape frame converts to is that of the text's page: the
   margins of the last section that started a page, which a following
   continuous section keeps as LibreOffice lays it out. `tdf123163-1.docx`
@@ -716,7 +730,7 @@ told apart from one that *is* blank:
 | `docx.image.missing` | Warning | A picture referenced a media part the package does not contain. |
 | `docx.image.relationship` | Warning | A picture named an undefined relationship. |
 | `docx.image.external` | Warning | A picture linked to an image outside the package, which is not fetched. |
-| `docx.image.format` | Warning | A picture used a format this codec does not carry (EMF/WMF and the like). |
+| `docx.image.format` | Warning | A picture used a format this codec does not carry (WMF, or an EMF the rasterizer draws nothing of). |
 | `docx.image.limit` | Warning | An image part exceeded `MaxBinBytes` and was skipped. |
 | `docx.image.shape` | Warning | A drawing held no embedded picture. |
 | `docx.image.anchored` | Warning | A floating picture was anchored to its paragraph. |
