@@ -788,7 +788,8 @@ public sealed class DocumentPagePainter
     {
         if (resolveImage(image) is not BImageHandle decoded)
         {
-            DrawMissingImage(list, destination);
+            if (image.MarksMissingPayload || !image.IsMissingPayload)
+                DrawMissingImage(list, destination);
             return;
         }
 
@@ -1069,8 +1070,10 @@ public sealed class DocumentPagePainter
         {
             // The image did not decode. Draw the box it would have occupied with
             // a cross through it: the page then shows where content is missing
-            // instead of quietly closing up around the hole.
-            DrawMissingImage(list, destination);
+            // instead of quietly closing up around the hole - unless the source
+            // prints nothing there (InlineImage.MarksMissingPayload).
+            if (piece.Image!.MarksMissingPayload || !piece.Image.IsMissingPayload)
+                DrawMissingImage(list, destination);
             return;
         }
 

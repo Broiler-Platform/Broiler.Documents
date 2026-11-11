@@ -3578,6 +3578,13 @@ internal static class OdtReader
                 OdtUnits.TryParsePercentage((string?)frame.Attribute(OdtNamespaces.Style + "rel-height"), out double relativeHeight) && relativeHeight > 0)
                 height = Math.Min(OdtUnits.MaxLengthPoints, page.Height * relativeHeight);
         }
+        // A Writer picture frame's edge is its fo:border; it has no line of its
+        // own. The draw:stroke and svg:stroke-color it may inherit from the
+        // default graphic style (svg:stroke-color="#000000" in most files) are
+        // for drawing shapes, and LibreOffice draws no outline from them. A
+        // picture inside a draw:g is a drawing object and keeps its line.
+        if (frame.Parent?.Name != OdtNamespaces.Draw + "g")
+            outline = BColor.Empty;
         double outlineWidth = OdtUnits.TryParseLength((string?)graphic?.Attribute(OdtNamespaces.Svg + "stroke-width"), out double lineWidth) ? lineWidth : 0.75;
         if (graphic?.Attribute(OdtNamespaces.Fo + "border") is not null)
         {
