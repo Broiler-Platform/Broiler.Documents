@@ -27,6 +27,56 @@ public sealed class DocxVmlShapeTests
         "<v:textbox><w:txbxContent><w:p><w:r><w:t>" + text + "</w:t></w:r></w:p></w:txbxContent></v:textbox>";
 
     [Fact]
+    public void Every_Sibling_Shape_In_A_Group_Is_Read()
+    {
+        // FDO78590.docx: a logo of ninety-odd v:shape siblings drew only the last.
+        string Shape(int left) =>
+            $"<v:shape coordsize=\"10,10\" style=\"position:absolute;left:{left};top:0;width:10;height:10\" " +
+            "fillcolor=\"red\" stroked=\"f\" path=\"m,l10,,10,10xe\"/>";
+        var document = Read("<v:group coordsize=\"30,10\" style=\"width:30pt;height:10pt\">" +
+            Shape(0) + Shape(10) + Shape(20) + "</v:group>").Document;
+
+        Assert.Equal(3, document.Shapes.Count);
+    }
+
+    [Fact]
+    public void A_Shape_In_A_Framed_Paragraph_Is_Kept_And_Placed_From_The_Frame()
+    {
+        var document = DocxTestPackage.ReadBody(
+            "<w:p><w:pPr><w:framePr w:w=\"2000\" w:h=\"1000\" w:hRule=\"exact\" w:hAnchor=\"page\" " +
+            "w:vAnchor=\"page\" w:x=\"2000\" w:y=\"1000\"/></w:pPr><w:r><w:pict " + Vml + ">" +
+            "<v:rect style=\"width:20pt;height:10pt\" fillcolor=\"red\"/></w:pict></w:r></w:p>" + Section).Document;
+
+        Assert.Equal(2, document.Shapes.Count);
+        DocumentShape inner = document.Shapes[1];
+        Assert.Equal(20, inner.Width, 3);
+        Assert.Equal(document.Shapes[0].OffsetX, inner.OffsetX, 3);
+        Assert.Equal(50, inner.OffsetY, 3);
+        Assert.True(inner.OffsetFromPage);
+    }
+
+    [Fact]
+    public void An_Inline_Group_Keeps_Every_Child_And_Starts_At_Their_Bounds()
+    {
+        // fdo46361: a drawing canvas of three rectangles. Same-named children
+        // replaced each other, and the canvas's empty lead space was kept where
+        // LibreOffice draws the group shrunk to its children.
+        var shapes = Read("""
+            <v:group style="width:450pt;height:657pt;mso-position-horizontal-relative:char" coordsize="57150,83439">
+              <v:rect style="position:absolute;left:43434;top:43434;width:11430;height:16002" fillcolor="#396"/>
+              <v:rect style="position:absolute;left:44577;top:45720;width:9144;height:5715"/>
+              <v:rect style="position:absolute;left:44577;top:52578;width:9144;height:5715"/>
+            </v:group>
+            """).Document.Shapes;
+
+        Assert.Equal(3, shapes.Count);
+        Assert.Equal(0, shapes[0].OffsetX, 3);
+        Assert.Equal(0, shapes[0].OffsetY, 3);
+        Assert.Equal(90, shapes[0].Width, 3);
+        Assert.Equal(9, shapes[1].OffsetX, 3);
+    }
+
+    [Fact]
     public void A_Grouped_Polygon_Preserves_Transparent_Space_And_Group_Alignment()
     {
         var shape = Assert.Single(Read("""
@@ -194,5 +244,18 @@ public sealed class DocxVmlShapeTests
 
         DocumentShape shape = Assert.Single(result.Document.Shapes);
         Assert.Equal(ShapeWrap.None, shape.Wrap);
+    }
+
+    [Fact]
+    public void An_Inline_WordArt_Shape_Draws_Its_String()
+    {
+        DocumentReadResult result = Read(
+            "<v:shapetype id='t172'><v:textpath on='t'/></v:shapetype>" +
+            "<v:shape type='#t172' style='width:60pt;height:91.5pt' fillcolor='black'>" +
+            "<v:textpath style='font-family:\"Arial Narrow\";font-size:12pt' string='Watch LIVE&#xA;ask'/></v:shape>");
+
+        RichTextParagraph paragraph = Assert.Single(result.Document.Paragraphs);
+        Assert.StartsWith("Watch LIVE\u2028ask", paragraph.Text);
+        Assert.Contains(result.Diagnostics, d => d.Code == "docx.shape.wordart");
     }
 }

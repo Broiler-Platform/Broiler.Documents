@@ -291,6 +291,19 @@ internal static class OdtReader
             return new PageStyleSequence(sequence, sequence.Count - 1);
         }
         starts.Add((0, page, ReadRunningContent(initialMaster, styles, images, limits, diagnostics), SequenceFor(initialMaster), null));
+        // A page layout used only for left (or right) pages starts on an even
+        // (or odd) page: LibreOffice inserts a blank page before it otherwise,
+        // the first page included, and counts that page in at-page anchors.
+        var parity = new Dictionary<int, SectionBreakType>();
+        void NoteParity(int index, XElement? master)
+        {
+            SectionBreakType? type = PageUsageBreak(master, styles);
+            if (type is SectionBreakType t)
+                parity[index] = t;
+            else
+                parity.Remove(index);
+        }
+        NoteParity(0, initialMaster);
         OdtReadContext? context = null;
         context = new OdtReadContext(styles, images, builder, page)
         {
@@ -338,6 +351,7 @@ internal static class OdtReader
                 if (starts[^1].Index == index)
                     starts.RemoveAt(starts.Count - 1);
                 starts.Add((index, selected, ReadRunningContent(master, styles, images, limits, diagnostics), SequenceFor(master), number));
+                NoteParity(index, master);
                 return true;
             },
         };
@@ -354,7 +368,8 @@ internal static class OdtReader
             styles.ListStyleCount,
             images.ImageCount);
         RichTextDocument built = builder.Build();
-        if (starts.Count == 1 && (starts[0].Sequence is null || starts[0].Sequence!.Styles.Count == 1) && starts[0].Number is null)
+        if (starts.Count == 1 && (starts[0].Sequence is null || starts[0].Sequence!.Styles.Count == 1) && starts[0].Number is null &&
+            parity.Count == 0)
             return built;
         int[] edges = [.. starts.Select(start => start.Index)
             .Concat(built.Sections.SelectMany(section => new[] { section.ParagraphIndex, section.ParagraphEnd }))
@@ -371,7 +386,7 @@ internal static class OdtReader
             // document of many sections under one page style. Breaking there put
             // every section of a form-like template on a page of its own.
             SectionBreakType breakType = selected.Index == index
-                ? SectionBreakType.NextPage
+                ? parity.GetValueOrDefault(index, SectionBreakType.NextPage)
                 : textSection?.BreakType ?? SectionBreakType.Continuous;
             PageGeometry? sectionGeometry = textSection?.Page ?? selected.Page;
             sections.Add(new DocumentSection(index, edges[i + 1] - index,
@@ -687,6 +702,14 @@ internal static class OdtReader
     /// <paramref name="master"/> names, or null when it names none the document
     /// defines.
     /// </summary>
+    private static SectionBreakType? PageUsageBreak(XElement? master, OdtStyles styles) =>
+        (string?)PageLayoutProperties(master, styles)?.Parent?.Attribute(OdtNamespaces.Style + "page-usage") switch
+        {
+            "left" => SectionBreakType.EvenPage,
+            "right" => SectionBreakType.OddPage,
+            _ => null,
+        };
+
     private static XElement? PageLayoutProperties(XElement? master, OdtStyles styles)
     {
         string? layoutName = (string?)master?.Attribute(OdtNamespaces.Style + "page-layout-name");
@@ -1894,6 +1917,7 @@ internal static class OdtReader
         {
             Variables = context.Variables,
             FrameTextWidth = frameTextWidth,
+            InShapeText = true,
         };
         // A custom shape holds its geometry alongside its text. The geometry is
         // the shape's form, not content, and walking it as a block reports an
@@ -3288,7 +3312,9 @@ internal static class OdtReader
 
     private static void ReadPicture(XElement frame, OdtReadContext context, InlineStyle style)
     {
-        if (!IsAnchoredInText(frame))
+        // A shape's text keeps only paragraphs and tables, so a picture floating
+        // in a text box (tdf132420) would vanish; draw it in the text instead.
+        if (!IsAnchoredInText(frame) && !context.InShapeText)
         {
             context.Builder.AddDiagnosticOnce(
                 "odt.image.anchored",

@@ -620,6 +620,36 @@ LibreOffice's `DomainMapperTableHandler` does:
   two-colour pattern or picture as `w:color`, these three reported as
   `docx.background.fill`. A write puts `w:color` (a gradient's middle colour)
   on `w:background`, a `v:background` for a gradient, and turns the switch on.
+- A styles part that marks no paragraph style `w:default` still has a default
+  one: the style whose id is `Normal`, as in Word and LibreOffice
+  (`ooxmlexport/data/noDefault.docx`, whose magenta 24 pt `Normal` outranks the
+  table style's run properties).
+- Every child of a VML group is read. Resolving a shape against its
+  `v:shapetype` let a child replace its same-named predecessor, so a group of
+  `v:shape` siblings kept only the last (`FDO78590.docx`, a logo of 95
+  freeforms). Drawings inside a `w:framePr` paragraph are moved out of the
+  frame's own document beside the frame shape, offset by its box; before, they
+  were dropped with it. WordArt (`v:textpath`) still falls back to its box.
+
+### Oversized auto line spacing and VML WordArt
+
+`test_line_spacing.docx` sets `w:line="31680" w:lineRule="auto"` (13200%,
+Word's maximum). LibreOffice's writerfilter handles `w:line` before
+`w:lineRule`, so it first stores the value as a fixed height in 1/100 mm in a
+16-bit field: 55880 wraps to -9656, and the auto rule then turns the negative
+height into an exact line of 9656 1/100 mm (273.7pt). The reader reproduces
+that wrap for auto lines above 32767 1/100 mm (a positive wrap becomes a
+percentage of 423, i.e. 12pt), so the sample keeps both paragraphs on one
+page as LibreOffice does instead of a 1773pt line that pushes "World" to
+page 2.
+
+An inline VML WordArt shape (`v:shape` whose `v:textpath`, or the
+`v:shapetype` it names, is `on`; `testWordArtWithinDraingtool.docx`) was read
+as an unrenderable freeform path and drew nothing. It is now read as its
+`string`, line by line, in the text path's font and the shape's fill colour,
+sized so the longest line fits the shape's width. Glyphs are not stretched to
+the path (`docx.shape.wordart`). The sample's centred footer frame
+(`w:framePr w:xAlign="center"` in a footer) is still drawn at the left margin.
 
 ## Intentional Limits
 
@@ -717,6 +747,16 @@ DOCX probing is conservative because DOCX is a ZIP-based OPC package:
 - A visible `word/document.xml` local ZIP entry is high confidence.
 - Generic ZIP files are not claimed without a DOCX hint or WordprocessingML
   package evidence.
+
+## VML groups: sibling children and inline canvases
+
+`fdo46361.docx` is a drawing canvas (`v:group`, inline, no position) of three
+`v:rect`s. Resolving shape types copied a shape's children by name, replacing
+an earlier child of the same name, so a group kept only its last rectangle.
+Only a child inherited from a `v:shapetype` is replaced now. LibreOffice also
+draws an inline group shrunk to its children's bounds at the anchor, not with
+the canvas's empty lead space, so a top-level group stating no position starts
+its coordinate space at its children's least left and top.
 
 ## Standards and rights
 

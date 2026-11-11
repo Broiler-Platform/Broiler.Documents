@@ -40,6 +40,35 @@ public sealed class RtfShapeTests
     }
 
     [Fact]
+    public void An_Emf_Picture_Is_Rasterized_Instead_Of_Skipped()
+    {
+        var emf = new List<byte>();
+        void Int(int value) => emf.AddRange(BitConverter.GetBytes(value));
+        void Short(short value) => emf.AddRange(BitConverter.GetBytes(value));
+        // Header: one device unit per millimetre, a one-inch frame.
+        Int(1); Int(88); Int(0); Int(0); Int(25); Int(25); Int(0); Int(0); Int(2540); Int(2540);
+        Int(0x464D4520); Int(0x10000); Int(0); Int(5); Int(2); Int(0); Int(0); Int(0);
+        Int(100); Int(100); Int(100); Int(100);
+        Int(39); Int(24); Int(1); Int(0); Int(0x0000FF); Int(0); // CREATEBRUSHINDIRECT red
+        Int(37); Int(12); Int(1);                                  // SELECTOBJECT brush
+        Int(37); Int(12); unchecked { Int((int)0x80000008); }      // SELECTOBJECT NULL_PEN
+        Int(86); Int(44); Int(0); Int(0); Int(25); Int(25); Int(4); // POLYGON16
+        Short(0); Short(0); Short(25); Short(0); Short(25); Short(25); Short(0); Short(25);
+        Int(14); Int(20); Int(0); Int(0); Int(20);                  // EOF
+        byte[] prefix = Encoding.ASCII.GetBytes(
+            @"{\rtf1{\*\shppict{\pict\emfblip\picwgoal1440\pichgoal1440\bin" + emf.Count);
+        byte[] rtf = [.. prefix, .. emf, .. "}}}"u8.ToArray()];
+
+        DocumentReadResult result = RtfReader.Read(rtf);
+
+        RichTextParagraph paragraph = Assert.Single(result.Document.Paragraphs);
+        InlineImage picture = Assert.IsType<InlineImage>(Assert.Single(paragraph.Runs).Style.Image);
+        Assert.Equal("image/png", picture.ContentType);
+        Assert.Equal(72, picture.Width);
+        Assert.DoesNotContain(result.Diagnostics, diagnostic => diagnostic.Code == "rtf.embedded");
+    }
+
+    [Fact]
     public void A_Picture_Shape_In_A_First_Page_Header_Stays_In_That_Header()
     {
         const string rtf = @"{\rtf1\titlepg{\headerf{\shp{\*\shpinst\shpleft0\shptop0\shpright200\shpbottom400" +

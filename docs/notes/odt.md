@@ -348,7 +348,13 @@ toolkit behind it.
   `text:anchor-page-number`) is `DocumentShape.AnchorPage`: it stands on that
   page, and the layout makes the pages needed, as LibreOffice does
   (`tdf146955.odt`, a book whose three hundred boxes stand on the pages they
-  name). Its position comes from the area the graphic style names
+  name). The page number is physical: a master page whose layout has
+  `style:page-usage="left"` (or `"right"`) opens its section on an even (or
+  odd) page, the first page included, so LibreOffice puts a blank page before
+  it and the anchor counts that page. Its PDF export then leaves the blank page
+  out (`stable-at-page-anchored-fly-position.odt`: frames anchored to pages 3
+  and 4 export on pages 2 and 3 of 3); the layout marks it `IsParityBlank`.
+  Its position comes from the area the graphic style names
   (`style:horizontal-rel`/`style:vertical-rel` of `page` or `page-content`,
   `page` when unstated) and from `style:horizontal-pos` and
   `style:vertical-pos`, turned into the model's terms: across from the text
@@ -589,6 +595,7 @@ problem document lost.
 | `odt.image.limit` | Warning | A picture exceeded `MaxBinBytes` and was skipped. |
 | `odt.image.binary` | Warning | An inline picture payload was not valid base64. |
 | `odt.image.shape` | Warning | A frame held no embedded picture. |
+| `odt.image.object` | Warning | An OLE object (`draw:object`/`draw:object-ole` with an `xlink:href`) had no replacement picture and is shown with a static puzzle-piece icon, as LibreOffice shows one it cannot load (`linked_ole.fodt`). |
 | `odt.media.audio` | Warning | An audio frame is shown with a static icon. |
 | `odt.image.anchored` | Warning | A floating picture was anchored to its paragraph. |
 | `odt.image.denied` | Warning | The caller's resource policy did not permit reading a picture; the message names the denial. |
@@ -651,6 +658,19 @@ ODF was designed to be identifiable from its first bytes, so probing is cheap:
   first or the attribute is absent) it is medium, or high with an `.odt` or
   `.fodt` hint. LibreOffice writes the attribute after its namespace
   declarations, at about byte 2,150, so the default 4,096-byte prefix sees it.
+
+## Pictures in text boxes and frames in text columns
+
+`tdf132420.odt` holds six as-character text frames, one per paragraph of a
+three-column section, each with a paragraph-anchored picture inside. A shape's
+text keeps only paragraphs and tables, so the picture went down the floating
+path into a builder nobody read and vanished; inside a shape's text it is now
+placed in the text. The frames were drawn at the content's left edge whatever
+column their line was in; an as-character frame now takes its line's column.
+The columns did not balance either: the section ended the body, and only a
+following paragraph triggers balancing, so the reader now ends such a body on
+an empty paragraph, as LibreOffice does. Widow and orphan settings no longer
+stop balancing for a paragraph of one line, which they cannot split.
 
 ## Standards and rights
 

@@ -81,6 +81,21 @@ asked rather than a note about the document. Also skipped: `\info`
 `{\*\shpinst …}`). `\stylesheet` is read, not skipped. `\binN` binary data is
 skipped at the tokenizer (reported as `rtf.bin` when it exceeds `MaxBinBytes`).
 
+A `\pict` whose bytes are a recognised raster image becomes an inline picture.
+An `\emfblip` Enhanced Metafile (`fdo39053.rtf`, a diagram with no PNG
+fallback) is rasterized to PNG by `RtfEmf`: filled and stroked `POLYGON`/
+`POLYLINE` records (16- and 32-bit) under the window/viewport mapping, world
+transform, `SAVEDC`/`RESTOREDC`, and created or stock pens and brushes. Text,
+bitmaps and path records are not drawn; a metafile drawing nothing in that
+subset is still skipped as `rtf.embedded`.
+
+`tdf49073.rtf` (ruby `EQ \o` fields) is read correctly - the base text and the
+text between the fields reach the model. Its blank render is font coverage, not
+the reader: the document names only Latin faces (Century, Liberation Serif), and
+the renderer has no per-glyph fallback, so its CJK text draws only when a
+CJK-covering face is mapped (e.g. `--font-file Century=<msgothic.ttc>`). The
+ruby annotation itself is still dropped (`rtf.field.ruby`).
+
 A skipped destination is skipped with every group inside it. A destination the
 reader understands - a field, a header or footer, a font or colour table, a
 shape - has no effect inside one it skips: a header inside a stylesheet does

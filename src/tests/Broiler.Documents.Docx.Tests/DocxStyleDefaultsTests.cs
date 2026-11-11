@@ -35,6 +35,20 @@ public sealed class DocxStyleDefaultsTests
     }
 
     [Fact]
+    public void A_Normal_Style_Not_Marked_Default_Still_Styles_Unstyled_Paragraphs()
+    {
+        // ooxmlexport noDefault.docx: "Normal" carries no w:default, and Word and
+        // LibreOffice still give it to every paragraph that names no style.
+        DocumentReadResult result = DocxTestPackage.ReadStyled(
+            "<w:p><w:r><w:t>body</w:t></w:r></w:p>",
+            "<w:docDefaults><w:rPrDefault><w:rPr><w:sz w:val=\"20\"/></w:rPr></w:rPrDefault></w:docDefaults>" +
+            "<w:style w:type=\"paragraph\" w:styleId=\"Normal\">" +
+            "<w:rPr><w:sz w:val=\"48\"/></w:rPr></w:style>");
+
+        Assert.Equal(24f, result.Document.StyleDefaults.FontSizePoints);
+    }
+
+    [Fact]
     public void A_Package_Without_Run_Defaults_Falls_Back_To_Word_2007s()
     {
         // LibreOffice (tdf#108350): no w:rPrDefault means Calibri 11.

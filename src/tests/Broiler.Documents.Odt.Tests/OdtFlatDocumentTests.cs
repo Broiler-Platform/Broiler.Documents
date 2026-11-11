@@ -168,6 +168,23 @@ public sealed class OdtFlatDocumentTests
     }
 
     [Fact]
+    public void A_Linked_Ole_Object_Without_A_Picture_Keeps_Its_Box_With_An_Icon()
+    {
+        // linked_ole.fodt: LibreOffice draws its replacement graphic, not nothing.
+        string frame =
+            "<draw:frame svg:width=\"1in\" svg:height=\"0.5in\" text:anchor-type=\"as-char\">" +
+            "<draw:object xlink:href=\"other.odt\"/></draw:frame>";
+
+        DocumentReadResult result = Read(Flat("<text:p>a" + frame + "b</text:p>"));
+
+        Assert.Contains(result.Diagnostics, d => d.Code == "odt.image.object");
+        InlineImage image = Assert.IsType<InlineImage>(result.Document.Paragraphs[0].StyleAt(1).Image);
+        Assert.False(image.IsMissingPayload);
+        Assert.Equal(72, image.Width);
+        Assert.Equal(36, image.Height);
+    }
+
+    [Fact]
     public void A_Flat_Spreadsheet_Is_Refused_By_Its_Media_Type()
     {
         DocumentReadResult result = Read(Flat(
