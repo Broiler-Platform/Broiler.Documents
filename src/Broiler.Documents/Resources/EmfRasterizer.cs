@@ -602,7 +602,7 @@ internal static class EmfRasterizer
         return crc;
     }
 
-    private static byte[] EncodePng(BBitmap bitmap)
+    internal static byte[] EncodePng(BBitmap bitmap)
     {
         using var png = new MemoryStream();
         png.Write([137, 80, 78, 71, 13, 10, 26, 10]);
