@@ -54,11 +54,14 @@ internal sealed record OdtReadContext(
     /// <summary>
     /// A <c>text:change-start</c>: the text from here to its
     /// <c>text:change-end</c> is the insertion or change of formatting its
-    /// region records.
+    /// region records. A deletion whose region keeps no content of its own is
+    /// one LibreOffice 7.6+ writes in place (a deleted table, say): the body
+    /// between the marks is the deleted content.
     /// </summary>
     public void OpenChange(string? id)
     {
-        if (id is null || !Regions.TryGetValue(id, out OdtChangedRegion? region) || region.Revision.IsDeletion)
+        if (id is null || !Regions.TryGetValue(id, out OdtChangedRegion? region) ||
+            (region.Revision.IsDeletion && region.Deleted.Count > 0))
             return;
 
         _openChanges.Add((id, region.Revision));
