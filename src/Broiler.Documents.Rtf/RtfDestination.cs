@@ -87,4 +87,10 @@ internal enum RtfDestination
 
     /// <summary>The <c>\subject</c> destination inside <c>\info</c>.</summary>
     InfoSubject,
+
+    /// <summary>
+    /// An <c>\object</c> group: its OLE data is skipped, and only its
+    /// <c>\result</c> - the picture the producer saved for it - is read.
+    /// </summary>
+    Object,
 }

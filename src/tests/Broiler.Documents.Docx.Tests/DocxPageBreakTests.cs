@@ -31,6 +31,22 @@ public sealed class DocxPageBreakTests
         Assert.All(table.Rows, row => Assert.True(row.IsHeader));
     }
 
+    [Theory]
+    [InlineData("<w:keepNext/>", "<w:keepNext/>", true)]
+    [InlineData("<w:keepNext/>", "", false)]
+    public void A_Table_Whose_Every_Paragraph_Keeps_With_The_Next_Keeps_With_The_Next(string first, string second, bool expected)
+    {
+        // tdf119054.docx: every cell paragraph is a keepNext heading, and Word
+        // starts the table on a new page rather than splitting it where it is.
+        var document = DocxTestPackage.ReadBody(
+            DocxTestPackage.Paragraph("Before") +
+            "<w:tbl><w:tr><w:tc><w:p><w:pPr>" + first + "</w:pPr><w:r><w:t>A</w:t></w:r></w:p>" +
+            "<w:p><w:pPr>" + second + "</w:pPr><w:r><w:t>B</w:t></w:r></w:p></w:tc></w:tr></w:tbl>" +
+            DocxTestPackage.Paragraph("After")).Document;
+
+        Assert.Equal(expected, Assert.Single(document.Tables).KeepWithNext);
+    }
+
     [Fact]
     public void Internal_Boundaries_Retain_Run_Formatting_And_Only_Outer_Paragraph_Spacing()
     {

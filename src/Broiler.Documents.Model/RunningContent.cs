@@ -35,23 +35,31 @@ public sealed class RunningContent
 {
     private static readonly RichTextParagraph[] None = [];
     private static readonly DocumentShape[] NoShapes = [];
+    private static readonly DocumentTable[] NoTables = [];
+    private static readonly DocumentTable[][] NoBandTables = [NoTables, NoTables, NoTables];
 
     private readonly RichTextParagraph[][] _headers;
     private readonly RichTextParagraph[][] _footers;
     private readonly DocumentShape[][] _headerShapes;
     private readonly DocumentShape[][] _footerShapes;
+    private readonly DocumentTable[][] _headerTables;
+    private readonly DocumentTable[][] _footerTables;
 
     private RunningContent(
         RichTextParagraph[][] headers,
         RichTextParagraph[][] footers,
         DocumentShape[][] headerShapes,
         DocumentShape[][] footerShapes,
-        bool differentFirstPage)
+        bool differentFirstPage,
+        DocumentTable[][]? headerTables = null,
+        DocumentTable[][]? footerTables = null)
     {
         _headers = headers;
         _footers = footers;
         _headerShapes = headerShapes;
         _footerShapes = footerShapes;
+        _headerTables = headerTables ?? NoBandTables;
+        _footerTables = footerTables ?? NoBandTables;
         DifferentFirstPage = differentFirstPage;
     }
 
@@ -146,27 +154,54 @@ public sealed class RunningContent
     public IReadOnlyList<DocumentShape> EffectiveFooterShapes(PageSelection selection) =>
         _footerShapes[EffectiveIndex(_footers, _footerShapes, selection)];
 
+    /// <summary>
+    /// The tables of the header that applies to <paramref name="selection"/>, in
+    /// that header's own paragraph coordinates, as a shape's tables are.
+    /// </summary>
+    /// <remarks>
+    /// Resolved with the header's paragraphs, never apart from them: a table's
+    /// indices only mean something against the paragraphs it was read with.
+    /// </remarks>
+    public IReadOnlyList<DocumentTable> EffectiveHeaderTables(PageSelection selection) =>
+        _headerTables[EffectiveIndex(_headers, _headerShapes, selection)];
+
+    /// <summary>The tables of the footer that applies to <paramref name="selection"/>.</summary>
+    public IReadOnlyList<DocumentTable> EffectiveFooterTables(PageSelection selection) =>
+        _footerTables[EffectiveIndex(_footers, _footerShapes, selection)];
+
+    /// <summary>
+    /// The same running content with <paramref name="selection"/>'s header
+    /// replaced. <paramref name="tables"/> index into <paramref name="paragraphs"/>;
+    /// a header given none has none, whatever the slot held before.
+    /// </summary>
     public RunningContent WithHeader(
         PageSelection selection,
         IReadOnlyList<RichTextParagraph>? paragraphs,
-        IReadOnlyList<DocumentShape>? shapes = null) =>
+        IReadOnlyList<DocumentShape>? shapes = null,
+        IReadOnlyList<DocumentTable>? tables = null) =>
         new(
             Replace(_headers, selection, paragraphs, None, RichTextParagraph.Empty),
             _footers,
             Replace(_headerShapes, selection, shapes, NoShapes, substitute: null),
             _footerShapes,
-            DifferentFirstPage);
+            DifferentFirstPage,
+            Replace(_headerTables, selection, tables, NoTables, substitute: null),
+            _footerTables);
 
+    /// <summary>The same running content with <paramref name="selection"/>'s footer replaced.</summary>
     public RunningContent WithFooter(
         PageSelection selection,
         IReadOnlyList<RichTextParagraph>? paragraphs,
-        IReadOnlyList<DocumentShape>? shapes = null) =>
+        IReadOnlyList<DocumentShape>? shapes = null,
+        IReadOnlyList<DocumentTable>? tables = null) =>
         new(
             _headers,
             Replace(_footers, selection, paragraphs, None, RichTextParagraph.Empty),
             _headerShapes,
             Replace(_footerShapes, selection, shapes, NoShapes, substitute: null),
-            DifferentFirstPage);
+            DifferentFirstPage,
+            _headerTables,
+            Replace(_footerTables, selection, tables, NoTables, substitute: null));
 
     /// <summary>
     /// The same running content with <see cref="DifferentFirstPage"/> set or
@@ -175,7 +210,7 @@ public sealed class RunningContent
     public RunningContent WithDifferentFirstPage(bool differentFirstPage) =>
         differentFirstPage == DifferentFirstPage
             ? this
-            : new(_headers, _footers, _headerShapes, _footerShapes, differentFirstPage);
+            : new(_headers, _footers, _headerShapes, _footerShapes, differentFirstPage, _headerTables, _footerTables);
 
     /// <summary>
     /// The selection whose header or footer actually applies: its own when it has

@@ -179,6 +179,9 @@ internal static class OdtReader
             new XElement(OdtNamespaces.Draw + "image", definition.Attributes().Where(attribute => attribute.Name.Namespace == OdtNamespaces.XLink),
                 definition.Elements(OdtNamespaces.Office + "binary-data"))), styles);
         styles.LinksOutsidePackage = images.LinksOutsidePackage;
+        styles.StyledLinks = content.Descendants(OdtNamespaces.Text + "a")
+            .Concat(styles.MasterStyles?.Descendants(OdtNamespaces.Text + "a") ?? [])
+            .Any(anchor => !string.IsNullOrEmpty((string?)anchor.Attribute(OdtNamespaces.Text + "style-name")));
         // The producer is needed before the content: OpenOffice.org 2.x wrote
         // text:display inverted, and the text's visibility depends on it.
         DocumentMetadata metadata = OdtMetadata.Read(meta, diagnostics);
@@ -189,6 +192,7 @@ internal static class OdtReader
         }
         styles.InvertsTextDisplay = OdtMetadata.WrittenByOpenOffice2(metadata.Producer);
         styles.PageFillBounds = OdtMetadata.PageFillBounds(metadata.Producer);
+        styles.LegacyShapeColors = OdtMetadata.LegacyShapeColors(metadata.Producer);
         XElement? master = ResolveMasterPage(content, styles);
         PageGeometry? page = ReadPageGeometry(master, styles, diagnostics);
         RichTextDocument document = ReadContent(content, styles, images, page, options.Limits, diagnostics, master);
@@ -204,6 +208,7 @@ internal static class OdtReader
         {
             ShrinksJustifiedLines = OdtRevisions.ConfigFlag(settings, "JustifyLinesWithShrinking"),
             TabsOverMargin = OdtRevisions.ConfigFlag(settings, "TabOverMargin"),
+            UndecoratedLinks = styles.StyledLinks,
             PreserveOpeningParagraphSpacing = true,
         });
         document = document.WithPageBackground(
@@ -635,7 +640,21 @@ internal static class OdtReader
             double? footerOrigin = page is PageGeometry geometry
                 ? geometry.Height - geometry.MarginBottom + (footerProperties is null ? 0 : Math.Max(0, Length(footerProperties, "margin-top")))
                 : null;
-            var (paragraphs, shapes) = ReadPart(part, styles, images, limits, diagnostics, page, footerOrigin);
+            // A page number that states no format of its own takes the one of the
+            // page it is on (style:num-format on the page layout), as Writer does.
+            ListNumberFormat? outerFormat = styles.PageNumberFormat;
+            styles.PageNumberFormat = PageLayoutNumberFormat(master, styles);
+            IReadOnlyList<RichTextParagraph> paragraphs;
+            IReadOnlyList<DocumentShape> shapes;
+            IReadOnlyList<DocumentTable> tables;
+            try
+            {
+                (paragraphs, shapes, tables) = ReadPart(part, styles, images, limits, diagnostics, page, footerOrigin);
+            }
+            finally
+            {
+                styles.PageNumberFormat = outerFormat;
+            }
             if (paragraphs.Count == 0 && shapes.Count == 0)
             {
                 // An empty part is an answer for the two selections that would
@@ -657,8 +676,8 @@ internal static class OdtReader
                 : selection;
 
             content = isHeader
-                ? content.WithHeader(target, paragraphs, shapes)
-                : content.WithFooter(target, paragraphs, shapes);
+                ? content.WithHeader(target, paragraphs, shapes, tables)
+                : content.WithFooter(target, paragraphs, shapes, tables);
         }
 
         return content;
@@ -707,6 +726,21 @@ internal static class OdtReader
         {
             "left" => SectionBreakType.EvenPage,
             "right" => SectionBreakType.OddPage,
+            _ => null,
+        };
+
+    /// <summary>
+    /// The <c>style:num-format</c> of <paramref name="master"/>'s page layout,
+    /// or null where it states none or one this does not read.
+    /// </summary>
+    private static ListNumberFormat? PageLayoutNumberFormat(XElement master, OdtStyles styles) =>
+        (string?)PageLayoutProperties(master, styles)?.Attribute(OdtNamespaces.Style + "num-format") switch
+        {
+            "1" => ListNumberFormat.Decimal,
+            "i" => ListNumberFormat.LowerRoman,
+            "I" => ListNumberFormat.UpperRoman,
+            "a" => ListNumberFormat.LowerLetter,
+            "A" => ListNumberFormat.UpperLetter,
             _ => null,
         };
 
@@ -1146,7 +1180,7 @@ internal static class OdtReader
         return variables;
     }
 
-    private static bool EvaluateCondition(string condition, IReadOnlyDictionary<string, string> variables)
+    private static bool? EvaluateCondition(string condition, IReadOnlyDictionary<string, string> variables)
     {
         if (string.Equals(condition, "true", StringComparison.OrdinalIgnoreCase) || condition == "1")
             return true;
@@ -1164,7 +1198,8 @@ internal static class OdtReader
             string op = tokens[1].ToUpperInvariant();
             string rhs = string.Join(" ", tokens.Skip(2)).Trim('"', '\'');
 
-            string lhsVal = variables.TryGetValue(lhs, out string? val) ? val : "";
+            if (!variables.TryGetValue(lhs, out string? lhsVal))
+                return null;
 
             bool isEq;
             if (double.TryParse(lhsVal, NumberStyles.Float, CultureInfo.InvariantCulture, out double numLhs) &&
@@ -1181,11 +1216,11 @@ internal static class OdtReader
             {
                 "EQ" or "==" or "=" => isEq,
                 "NE" or "!=" or "<>" => !isEq,
-                _ => false,
+                _ => null,
             };
         }
 
-        return false;
+        return null;
     }
 
     private static bool IsSectionHidden(XElement section, OdtReadContext context)
@@ -1196,8 +1231,13 @@ internal static class OdtReader
         if (display == "condition")
         {
             string? condition = (string?)section.Attribute(OdtNamespaces.Text + "condition");
-            if (!string.IsNullOrWhiteSpace(condition))
-                return EvaluateCondition(condition.Trim(), context.Variables);
+            if (!string.IsNullOrWhiteSpace(condition) &&
+                EvaluateCondition(condition.Trim(), context.Variables) is bool evaluated)
+                return evaluated;
+            // A condition this cannot evaluate (no spaces around the operator, a
+            // variable the document never declares, a formula) falls back to
+            // text:is-hidden, the result LibreOffice stored when it saved.
+            return (string?)section.Attribute(OdtNamespaces.Text + "is-hidden") == "true";
         }
         return false;
     }
@@ -1584,11 +1624,21 @@ internal static class OdtReader
 
         ShapeFill? fill = ReadDrawFill(properties, styles, implicitSolid);
 
+        // A drawing shape from an older producer that states no colours takes
+        // the defaults that producer drew it with (OdtMetadata.LegacyShapeColors).
+        (BColor Fill, BColor Line)? legacy = implicitSolid ? styles.LegacyShapeColors : null;
+        string? fillKind = (string?)properties.Attribute(OdtNamespaces.Draw + "fill");
+        if (legacy is { } fillDefault && fill is null && fillKind is null or "solid" &&
+            properties.Attribute(OdtNamespaces.Draw + "fill-color") is null)
+            fill = ShapeFill.Solid(fillDefault.Fill);
+
         BColor outline = BColor.Empty;
         string? stroke = (string?)properties.Attribute(OdtNamespaces.Draw + "stroke");
         if (!string.Equals(stroke, "none", StringComparison.Ordinal))
             if (!TryColor((string?)properties.Attribute(OdtNamespaces.Svg + "stroke-color"), out outline) && stroke is not null)
                 outline = BColor.Black;
+            else if (stroke is null && legacy is { } lineDefault && properties.Attribute(OdtNamespaces.Svg + "stroke-color") is null)
+                outline = lineDefault.Line;
 
         (ShapeWrap wrap, WrapSide side) = ReadWrap(properties);
         return (fill, outline, BehindText(properties), wrap, side);
@@ -1987,7 +2037,7 @@ internal static class OdtReader
     /// <c>svg:y</c> is read from the top of the page - the same reading the DOCX
     /// side gives a header's own band.
     /// </remarks>
-    private static (IReadOnlyList<RichTextParagraph> Paragraphs, IReadOnlyList<DocumentShape> Shapes) ReadPart(
+    private static (IReadOnlyList<RichTextParagraph> Paragraphs, IReadOnlyList<DocumentShape> Shapes, IReadOnlyList<DocumentTable> Tables) ReadPart(
         XElement part,
         OdtStyles styles,
         OdtImageLoader images,
@@ -2005,6 +2055,10 @@ internal static class OdtReader
         IReadOnlyList<RichTextParagraph> paragraphs = built.Paragraphs;
         IReadOnlyList<DocumentShape> shapes = built.Shapes;
 
+        // A table in a header or footer keeps its cells' borders: the band is
+        // laid out with its tables, as a frame's content is.
+        IReadOnlyList<DocumentTable> tables = built.Tables;
+
         // Running content carries no sections, so a hidden one in a header or
         // footer is left out here or not at all. A template keeps its file-name
         // footer in one (text:display="none") that LibreOffice never shows.
@@ -2013,13 +2067,23 @@ internal static class OdtReader
         {
             bool IsHidden(int index) => hidden.Any(section => section.Contains(index));
             paragraphs = [.. paragraphs.Where((_, index) => !IsHidden(index))];
+
+            // The tables index the paragraphs as read; with some left out they
+            // no longer line up, so the band falls back to flattened text.
+            tables = [];
             shapes = [.. shapes.Where(shape => !IsHidden(shape.ParagraphIndex))];
         }
 
-        if ((paragraphs.Count == 0 || (paragraphs.Count == 1 && paragraphs[0].Length == 0)) && shapes.Count == 0)
+        // A lone empty paragraph is no header, unless it draws something: an
+        // empty footer paragraph with a top border is the rule above every
+        // page number of tdf135056.odt.
+        if ((paragraphs.Count == 0 ||
+             (paragraphs.Count == 1 && paragraphs[0].Length == 0 &&
+              paragraphs[0].Style.Border is null && (paragraphs[0].Style.Background.IsEmpty || paragraphs[0].Style.Background.A == 0))) &&
+            shapes.Count == 0)
             paragraphs = [];
 
-        return (paragraphs, shapes);
+        return (paragraphs, shapes, paragraphs.Count == 0 ? [] : tables);
     }
 
     /// <summary>
@@ -2749,7 +2813,7 @@ internal static class OdtReader
 
             if (name == OdtNamespaces.Text + "page-number" || name == OdtNamespaces.Text + "page-count")
             {
-                ReadPageField(element, builder, style);
+                ReadPageField(element, builder, style, context.Styles.PageNumberFormat);
                 continue;
             }
 
@@ -3190,10 +3254,12 @@ internal static class OdtReader
     /// <remarks>
     /// <c>text:select-page</c> of <c>previous</c> or <c>next</c> shows the
     /// neighbouring page's number, and <c>text:page-adjust</c> moves it further.
-    /// A field with no <c>style:num-format</c> is written in decimal, where
-    /// LibreOffice would take the page style's format.
+    /// A field with no <c>style:num-format</c> takes the format of the page
+    /// layout whose header or footer it is in (<paramref name="pageFormat"/>),
+    /// and is written in decimal in the body, where LibreOffice would take the
+    /// page style's format.
     /// </remarks>
-    private static void ReadPageField(XElement element, OdtDocumentBuilder builder, InlineStyle style)
+    private static void ReadPageField(XElement element, OdtDocumentBuilder builder, InlineStyle style, ListNumberFormat? pageFormat)
     {
         bool count = element.Name.LocalName == "page-count";
         int adjust = 0;
@@ -3212,7 +3278,7 @@ internal static class OdtReader
 
         ListNumberFormat format = (string?)element.Attribute(OdtNamespaces.Style + "num-format") switch
         {
-            null => ListNumberFormat.Decimal,
+            null => pageFormat ?? ListNumberFormat.Decimal,
             "" => ListNumberFormat.None,
             "i" => ListNumberFormat.LowerRoman,
             "I" => ListNumberFormat.UpperRoman,
@@ -3491,9 +3557,31 @@ internal static class OdtReader
     /// Resolves a <c>text:a</c> into a link style: the anchor's own character
     /// style, then its target under the shared URI policy.
     /// </summary>
+    private const string InternetLinkStyleName = "Internet_20_link";
+
+    /// <summary>Writer's built-in "Internet Link" colour, navy.</summary>
+    private static readonly BColor InternetLinkColor = BColor.FromArgb(0x00, 0x00, 0x80);
+
     private static InlineStyle ApplyAnchorStyle(XElement anchor, OdtReadContext context, InlineStyle style)
     {
+        // A link looks the way its character style says and no other way. In
+        // a document whose links name styles, the links are undecorated
+        // (StyleDefaults.UndecoratedLinks), so a table of contents whose
+        // entries name the empty "Index Link" style (tdf135056.odt) is not
+        // drawn blue and underlined, and a link there naming no style gets
+        // Writer's "Internet Link" character style
+        // (SwTextINetFormat::GetCharFormat, RES_POOLCHR_INET_NORMAL), navy and
+        // underlined where the document does not define it. A document none
+        // of whose links names a style keeps the layout's link decoration.
         string? styleName = (string?)anchor.Attribute(OdtNamespaces.Text + "style-name");
+        if (string.IsNullOrEmpty(styleName) && context.Styles.StyledLinks)
+        {
+            if (context.Styles.Defines(OdtStyles.TextFamily, InternetLinkStyleName))
+                styleName = InternetLinkStyleName;
+            else if (anchor.Name == OdtNamespaces.Text + "a")
+                style = style with { Underline = true, Foreground = style.Foreground.IsEmpty ? InternetLinkColor : style.Foreground };
+        }
+
         foreach (XElement properties in context.Styles.TextPropertiesForSpan(styleName))
             style = ApplyTextProperties(properties, style, context.Styles, context.Builder);
 

@@ -1212,7 +1212,9 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                         double required = totalTableHeight + followingOpening;
                         bool keptWithPrevious = paragraphIndex > 0 &&
                             document.Paragraphs[paragraphIndex - 1].Style.KeepWithNext;
-                        if (required <= contentBottom - pageTop && y + required > contentBottom &&
+                        // A kept table longer than a page still starts on a new
+                        // one, as Word and LibreOffice place it (tdf119054.docx).
+                        if (y + required > contentBottom &&
                             ColumnHasContent() && (!keptWithPrevious || table.KeepTogether))
                         {
                             regionUnbalanced = true;
@@ -1930,7 +1932,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             runningBorders,
             top: 0,
             band: frame.TextTop,
-            topDistance: frame.HeaderDistance);
+            topDistance: frame.HeaderDistance,
+            tables: _running.EffectiveHeaderTables(selection));
         var footerLines = RunningLines(
             WithPageFields(_running.EffectiveFooter(selection), pageNumber, number),
             setup,
@@ -1938,7 +1941,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             runningBorders,
             top: frame.TextBottom,
             band: setup.HeightPoints - frame.TextBottom,
-            bottomDistance: frame.FooterDistance);
+            bottomDistance: frame.FooterDistance,
+            tables: _running.EffectiveFooterTables(selection));
 
         var all = new List<LayoutLine>(lines);
         all.AddRange(headerLines);
@@ -2027,7 +2031,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             IReadOnlyList<RichTextParagraph> headerParagraphs = _running.EffectiveHeader(selection);
             if (headerParagraphs.Count == 0 && _running.HasAnyHeader && fromTop >= top)
                 headerParagraphs = [RichTextParagraph.Empty];
-            double header = RunningHeight(headerParagraphs, setup, left, width);
+            double header = RunningHeight(headerParagraphs, setup, left, width, _running.EffectiveHeaderTables(selection));
             double overrun = fromTop + header - top;
             if (header > 0 && overrun > 0 && overrun <= (bottom - top) / 2)
                 top += overrun;
@@ -2035,7 +2039,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
         if (!fixedBands.Footer && footerDistance is double fromBottom && double.IsFinite(fromBottom) && fromBottom >= 0)
         {
-            double footer = RunningHeight(_running.EffectiveFooter(selection), setup, left, width);
+            double footer = RunningHeight(_running.EffectiveFooter(selection), setup, left, width, _running.EffectiveFooterTables(selection));
             double overrun = fromBottom + footer - (setup.HeightPoints - bottom);
             if (footer > 0 && overrun > 0 && overrun <= (bottom - top) / 2)
                 bottom -= overrun;
@@ -3401,10 +3405,12 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     /// the body.
     /// </summary>
     private List<LayoutLine> RunningLines(IReadOnlyList<RichTextParagraph> paragraphs, DocumentPageBox setup, PageFrame frame,
-        List<LayoutCell> borders, double top, double band, double? bottomDistance = null, double? topDistance = null)
+        List<LayoutCell> borders, double top, double band, double? bottomDistance = null, double? topDistance = null,
+        IReadOnlyList<DocumentTable>? tables = null)
     {
-        (List<LayoutLine> lines, double height) = ComposeRunning(paragraphs, setup, frame.Left, frame.Width);
-        if (lines.Count == 0)
+        (List<LayoutLine> lines, double height) = ComposeRunning(
+            paragraphs, tables ?? [], setup, frame.Left, frame.Width, out List<LayoutCell> tableCells);
+        if (lines.Count == 0 && tableCells.Count == 0)
             return lines;
 
         // A band of fixed height that its content overruns is cut at its
@@ -3425,6 +3431,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                     kept.Add(line);
             }
 
+            PlaceCells(start, limit);
             AddBorders(kept);
             return kept;
         }
@@ -3462,11 +3469,28 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             line.Top += y;
         }
 
+        PlaceCells(y, double.PositiveInfinity);
         AddBorders(lines);
         return lines;
 
+        void PlaceCells(double offset, double limit)
+        {
+            foreach (LayoutCell cell in tableCells)
+            {
+                double cellTop = offset + cell.Bounds.Top;
+                double cellBottom = Math.Min(limit, offset + cell.Bounds.Bottom);
+                if (cellBottom <= cellTop)
+                    continue;
+                cell.Bounds = new BRect(cell.Bounds.Left, cellTop, cell.Bounds.Width, cellBottom - cellTop);
+                borders.Add(cell);
+            }
+        }
+
         void AddBorders(List<LayoutLine> placed)
         {
+            // A band composed with its tables drew its paragraph borders then.
+            if (tableCells.Count > 0 || (tables?.Count ?? 0) > 0)
+                return;
             if (!paragraphs.Any(paragraph => paragraph.Style.Border is not null))
                 return;
 
@@ -3611,8 +3635,43 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     /// band's height with its paragraphs' spacing.
     /// </summary>
     private (List<LayoutLine> Lines, double Height) ComposeRunning(
-        IReadOnlyList<RichTextParagraph> paragraphs, DocumentPageBox setup, double left, double width)
+        IReadOnlyList<RichTextParagraph> paragraphs, DocumentPageBox setup, double left, double width) =>
+        ComposeRunning(paragraphs, [], setup, left, width, out _);
+
+    /// <summary>
+    /// A running band's lines and table cells, each placed from the top of the
+    /// band. A band holding a table is composed as a frame's content is, so
+    /// its cells keep their borders and padding: a footer whose only content
+    /// is a table (nestedTableInFooter.odt) drew nothing when its cells were
+    /// flattened into paragraphs.
+    /// </summary>
+    private (List<LayoutLine> Lines, double Height) ComposeRunning(
+        IReadOnlyList<RichTextParagraph> paragraphs, IReadOnlyList<DocumentTable> tables, DocumentPageBox setup,
+        double left, double width, out List<LayoutCell> cells)
     {
+        cells = [];
+        if (tables.Count > 0)
+        {
+            ListNumberer bodyLists = _lists;
+            _lists = new ListNumberer();
+            try
+            {
+                RichTextDocument content = RichTextDocument.FromParagraphs(paragraphs).WithTables(tables);
+                var blocks = ComposeBlocks(content, tables, 0, content.ParagraphCount, setup, left, width, drawParagraphBorders: true);
+                cells = blocks.Cells;
+
+                // Running lines are numbered below zero, as the paragraph path
+                // numbers them, so nothing reads one as a body paragraph's.
+                foreach (LayoutLine line in blocks.Lines)
+                    line.ParagraphIndex = -1 - line.ParagraphIndex;
+                return (blocks.Lines, blocks.Height);
+            }
+            finally
+            {
+                _lists = bodyLists;
+            }
+        }
+
         var lines = new List<LayoutLine>();
         double height = 0;
         for (int index = 0; index < paragraphs.Count; index++)
@@ -3638,8 +3697,9 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     }
 
     /// <summary>How tall a running band is, or zero for one with nothing in it.</summary>
-    private double RunningHeight(IReadOnlyList<RichTextParagraph> paragraphs, DocumentPageBox setup, double left, double width) =>
-        paragraphs.Count == 0 ? 0 : ComposeRunning(paragraphs, setup, left, width).Height;
+    private double RunningHeight(IReadOnlyList<RichTextParagraph> paragraphs, DocumentPageBox setup, double left, double width,
+        IReadOnlyList<DocumentTable>? tables = null) =>
+        paragraphs.Count == 0 ? 0 : ComposeRunning(paragraphs, tables ?? [], setup, left, width, out _).Height;
 
     /// <summary>The notes cited in <paramref name="lines"/>, in the order they are cited.</summary>
     private static IEnumerable<DocumentNote> CitedNotes(IEnumerable<LayoutLine> lines)
