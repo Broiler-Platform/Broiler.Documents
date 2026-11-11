@@ -451,8 +451,9 @@ table's text, as LibreOffice reads it.
 - **Down:** `\posy` from the top margin (`\pvmrg`, the default), the page
   (`\pvpg`) - both `DocumentShape.OffsetFromPage` - or the paragraph
   (`\pvpara`). `\posyt` is the reference's top. `\posyc` and `\posyb` need the
-  frame's height, which a frame sized by its text lacks until layout, so they
-  are set at the top and reported (`rtf.frame.position`). `\posyil` is the
+  frame's height, which a frame sized by its text lacks until layout; from the
+  page or margin it is estimated from the text (1.15 em a line), from the
+  paragraph the frame is set at the top and reported (`rtf.frame.position`). `\posyil` is the
   paragraph's own place.
 - **Size:** `\absw`, or the column's width when not stated. `\absh` above nought
   is the least the frame is and nought leaves it to the text, both
@@ -583,7 +584,7 @@ caller asked for that this codec does not do.
 | `rtf.shape.padding` | Warning | Write | Text-box inner padding was not written; the text and outer frame are retained. Once per write. |
 | `rtf.shape.flow` | Warning | Write | Linked text frames, minimum-width sizing, vertical text alignment or explicit overflow were not written; frame text is retained. |
 | `rtf.fill.extended` | Warning | Write | Bitmap and hatch fills, centred gradients, gradient borders or page-fill bounds were approximated. |
-| `rtf.frame.position` | Info | Read | A frame aligned to the centre or foot of its reference was set at its top, its height not being known until layout. Once per read. |
+| `rtf.frame.position` | Info | Read | A frame aligned to the centre or foot of its paragraph was set at its top, its height not being known until layout. Once per read. One measured from the page or margin is placed by its text height estimated at 1.15 em a line, and a centred one with no `\absw` is fitted to its text across the reference so it stays centred (`fdo52052.rtf`). A frame a `\page` closes stays on the page before the break even when `\sect` follows. |
 | `rtf.embedded` | Info | Read | Pictures and objects were skipped. Once per read, and replaced by `document.capability.not-composed` when decoding was asked for. |
 | `rtf.page.geometry` | Warning | Read | The section properties described a page with no room to write on, so the page was not read. A negative `\margt`/`\margb` is not that: it is Word's "exact" margin, read as its magnitude with a header or footer band that does not grow (`tdf107413.rtf`). |
 | `rtf.columns.geometry` | Warning | Read | `\cols` and `\colsx` left no room to write in a column; the page was kept and read as one column. |

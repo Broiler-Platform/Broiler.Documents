@@ -260,4 +260,29 @@ public sealed class RtfFrameTests
         Assert.Equal("First page", document.Paragraphs[0].Text);
         Assert.False(document.Paragraphs[0].Style.PageBreakBefore);
     }
+
+    [Fact]
+    public void Frames_Each_Closed_By_Page_And_Sect_Stay_On_Their_Own_Pages()
+    {
+        // fdo52052.rtf: a Crystal Reports export that ends every page's frame
+        // with \page\sect. The first frame was moved past the break to page two.
+        var document = Read(
+            @"\paperw16836\paperh11904\margl567\margr397\margt567\margb284\sectd\sbknone" +
+            @"{\pard\pvpg\phpg\posx2007\posy597\absw12870\absh-900 first\par}\page\sect " +
+            @"{\pard\pvpg\phpg\posxc\posyc\qr{\fs15 second}\par}\page\sect " +
+            @"{\pard\pvpg\phpg\posx13152\posy612\absw2984\absh-210 third\par}\sect", page: "");
+
+        Assert.Equal(3, document.Shapes.Count);
+        Assert.Equal([0, 1, 2], document.Shapes.Select(shape => shape.ParagraphIndex));
+        Assert.True(document.Paragraphs[1].Style.PageBreakBefore);
+        Assert.True(document.Paragraphs[2].Style.PageBreakBefore);
+
+        // The centred frame has no width or height: it is fitted to its text
+        // across the page and centred on the page's height by its one line.
+        DocumentShape centred = document.Shapes[1];
+        Assert.True(centred.FitsText);
+        Assert.Equal(-28.35, centred.OffsetX, 2);
+        Assert.Equal(841.8, centred.Width, 1);
+        Assert.Equal((595.2 - 7.5 * 1.15) / 2, centred.OffsetY, 1);
+    }
 }

@@ -147,6 +147,10 @@ public static class RtfReader
         private bool FixedHeaderBand => (_sectionTop ?? _marginTop) < 0;
         private bool FixedFooterBand => (_sectionBottom ?? _marginBottom) < 0;
         private bool _pastFirstSection;
+
+        // The paragraph PageBreak ended to hold the frames anchored before a
+        // \page, or -1.
+        private int _shapesBeforePageBreak = -1;
         private bool _bodySectionPending;
         private bool _bodySectionHasProperties;
         private BodySectionBreak _sectionBreak = BodySectionBreak.Page;
@@ -1030,7 +1034,12 @@ public static class RtfReader
                             ApplyBodySectionBreak();
                             _builder.EndParagraph(_state.Para);
                         }
-                        if (_builder.PageBreakPending && _builder.ParagraphCount == 1 && !_pastFirstSection)
+                        // A frame closed by an explicit \page was given its own
+                        // paragraph on the page before the break (fdo52052.rtf:
+                        // \page\sect after each frame); only one the break
+                        // reached unanchored moves with it (tdf141173).
+                        if (_builder.PageBreakPending && _builder.ParagraphCount == 1 && !_pastFirstSection &&
+                            _shapesBeforePageBreak != 0)
                         {
                             for (int i = 0; i < _shapes.Count; i++)
                             {
@@ -2462,6 +2471,12 @@ public static class RtfReader
             double referenceWidth = fromPage ? pageWidth : textWidth;
             double width = frame.Width > 0 ? frame.Width / 20d : textWidth;
             double height = Math.Abs((double)frame.Height) / 20d;
+            // A centred frame with no width is as wide as its text, which only
+            // layout measures: it is given the whole reference and fitted to its
+            // text there, which keeps it centred (fdo52052.rtf).
+            bool fitsText = frame.Width <= 0 && frame.AlignX == RtfFrameAlignX.Center && !empty;
+            if (fitsText)
+                width = referenceWidth;
             double x = frame.AlignX switch
             {
                 RtfFrameAlignX.Left or RtfFrameAlignX.Inside => 0,
@@ -2481,6 +2496,11 @@ public static class RtfReader
                 RtfFrameAlignY.Center or RtfFrameAlignY.Bottom when frame.Height < 0 && !fromParagraph =>
                     ((frame.Vertical == RtfFrameVertical.Page ? (_sectionHeight ?? _paperHeight) / 20d :
                         ((_sectionHeight ?? _paperHeight) - (double)TopMarginTwips - BottomMarginTwips) / 20d) - height) /
+                    (frame.AlignY == RtfFrameAlignY.Center ? 2 : 1),
+                RtfFrameAlignY.Center or RtfFrameAlignY.Bottom when !fromParagraph =>
+                    ((frame.Vertical == RtfFrameVertical.Page ? (_sectionHeight ?? _paperHeight) / 20d :
+                        ((_sectionHeight ?? _paperHeight) - (double)TopMarginTwips - BottomMarginTwips) / 20d) -
+                        Math.Max(height, EstimatedTextHeight(paragraphs))) /
                     (frame.AlignY == RtfFrameAlignY.Center ? 2 : 1),
                 RtfFrameAlignY.Center or RtfFrameAlignY.Bottom => ReportFrameAlignment(frame.AlignY),
                 _ => 0,
@@ -2506,7 +2526,31 @@ public static class RtfReader
                 wrap: wrap,
                 wrapDistance: distance,
                 offsetFromPage: !fromParagraph,
-                growsToText: frame.Height >= 0));
+                growsToText: frame.Height >= 0)
+            {
+                FitsText = fitsText,
+            });
+        }
+
+        /// <summary>
+        /// The height a frame sized by its text takes, estimated from its lines'
+        /// font sizes at single spacing: one line a paragraph, 1.15 em each, as
+        /// Arial and Liberation Sans set it, plus the paragraph spacing. Only
+        /// a frame centred on or set at the foot of its reference needs it, and
+        /// a centred one is out by half the error.
+        /// </summary>
+        private static double EstimatedTextHeight(IReadOnlyList<RichTextParagraph> paragraphs)
+        {
+            double height = 0;
+            foreach (RichTextParagraph paragraph in paragraphs)
+            {
+                double size = 0;
+                foreach (StyleRun run in paragraph.Runs)
+                    size = Math.Max(size, run.Style.FontSize ?? 12);
+                height += (size > 0 ? size : 12) * 1.15 + paragraph.Style.SpacingBefore + paragraph.Style.SpacingAfter;
+            }
+
+            return height;
         }
 
         /// <summary>
@@ -2622,6 +2666,7 @@ public static class RtfReader
                     _shapes.Any(shape => !shape.IsPageAnchored && shape.ParagraphIndex == _builder.ParagraphCount))
                 {
                     ApplyBodySectionBreak();
+                    _shapesBeforePageBreak = _builder.ParagraphCount;
                     _builder.EndParagraph(_state.Para);
                 }
                 if (!_builder.BreakPage(_state.Para))
