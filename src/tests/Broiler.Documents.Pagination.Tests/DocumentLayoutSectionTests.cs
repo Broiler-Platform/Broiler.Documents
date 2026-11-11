@@ -571,30 +571,4 @@ public sealed class DocumentLayoutSectionTests
         Assert.All(page.Lines.Where(line => line.ParagraphIndex != 1), line => Assert.Equal(72, LeftOf(line), 3));
         Assert.True(page.Lines.Count(line => line.ParagraphIndex == 1) > page.Lines.Count(line => line.ParagraphIndex == 0));
     }
-
-    [Theory]
-    [InlineData(SectionBreakType.NextPage, true, 72 + 50)]
-    [InlineData(SectionBreakType.NextPage, false, 72)]
-    [InlineData(SectionBreakType.Continuous, true, 72)]
-    public void Space_above_survives_the_top_of_a_page_its_section_opens(SectionBreakType breakType, bool preserve, double top)
-    {
-        // Writer keeps a paragraph's space above at the top of a page its
-        // section opens, where opening spacing counts, and drops it on a page
-        // the text simply ran onto (tdf170003_bottomSpacing.docx).
-        int perColumn = PerColumn();
-        var spaced = ParagraphStyle.Default with { SpacingBefore = 50 };
-        RichTextDocument document = RichTextDocument.FromParagraphs(
-                [.. Lines("first", breakType == SectionBreakType.Continuous ? perColumn : 1), Line("second", spaced)])
-            .WithStyleDefaults(DocumentStyleDefaults.Default with { PreserveOpeningParagraphSpacing = preserve })
-            .WithSections(
-            [
-                new DocumentSection(0, breakType == SectionBreakType.Continuous ? perColumn : 1, 1, 0),
-                new DocumentSection(breakType == SectionBreakType.Continuous ? perColumn : 1, 1, 1, 0, breakType: breakType),
-            ]);
-
-        IReadOnlyList<LayoutPage> pages = Layout(document).Pages;
-
-        Assert.Equal(2, pages.Count);
-        Assert.Equal(top, pages[1].Lines[0].Top, 3);
-    }
 }

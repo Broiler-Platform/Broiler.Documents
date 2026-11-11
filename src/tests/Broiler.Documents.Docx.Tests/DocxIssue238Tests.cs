@@ -138,4 +138,57 @@ public sealed class DocxIssue238Tests
         Assert.True(broken.PageBreakBefore);
         Assert.False(broken.PageBreakKeepsSpaceAbove);
     }
+
+    [Fact]
+    public void Word_2013_Mode_Starts_A_Broken_Page_At_Its_Top()
+    {
+        // tdf124637_sectionMargin.docx (mode 15): the headings sections open
+        // pages with sit at the top margin in the 24.2 reference.
+        DocumentReadResult result = Read(
+            DocxTestPackage.Paragraph("one") +
+            "<w:p><w:pPr><w:pageBreakBefore/></w:pPr><w:r><w:t>two</w:t></w:r></w:p>",
+            Settings("<w:compatSetting w:name=\"compatibilityMode\" w:uri=\"http://schemas.microsoft.com/office/word\" w:val=\"15\"/>"));
+
+        ParagraphStyle style = result.Document.Paragraphs[1].Style;
+        Assert.True(style.PageBreakBefore);
+        Assert.False(style.PageBreakKeepsSpaceAbove);
+    }
+
+    private const string AutoSpacing = "<w:spacing w:before=\"100\" w:beforeAutospacing=\"1\" w:after=\"100\" w:afterAutospacing=\"1\"/>";
+
+    [Fact]
+    public void Automatic_Spacing_Is_14_Points_And_None_At_The_Edges_Of_A_Cell_Or_The_Document()
+    {
+        // cell-grid-span.docx's HTML-born paragraphs: writerfilter gives
+        // w:beforeAutospacing and w:afterAutospacing 280 twips, and none above
+        // the first paragraph of the document or of a cell, or below the last
+        // of a cell.
+        string paragraph(string text) => "<w:p><w:pPr>" + AutoSpacing + "</w:pPr><w:r><w:t>" + text + "</w:t></w:r></w:p>";
+        DocumentReadResult result = Read(
+            paragraph("first") + paragraph("second") +
+            "<w:tbl><w:tblPr><w:tblW w:w=\"5000\" w:type=\"dxa\"/></w:tblPr><w:tblGrid><w:gridCol w:w=\"5000\"/></w:tblGrid>" +
+            "<w:tr><w:tc>" + paragraph("top") + paragraph("bottom") + "</w:tc></w:tr></w:tbl>" +
+            DocxTestPackage.Paragraph("after"));
+
+        ParagraphStyle Style(string text) => result.Document.Paragraphs.Single(p => p.Text == text).Style;
+        Assert.Equal(0, Style("first").SpacingBefore);
+        Assert.Equal(14, Style("first").SpacingAfter);
+        Assert.Equal(14, Style("second").SpacingBefore);
+        Assert.Equal(0, Style("top").SpacingBefore);
+        Assert.Equal(14, Style("top").SpacingAfter);
+        Assert.Equal(14, Style("bottom").SpacingBefore);
+        Assert.Equal(0, Style("bottom").SpacingAfter);
+    }
+
+    [Fact]
+    public void Automatic_Spacing_Is_5_Points_With_HTML_Auto_Spacing_Off()
+    {
+        DocumentReadResult result = Read(
+            DocxTestPackage.Paragraph("first") + "<w:p><w:pPr>" + AutoSpacing + "</w:pPr><w:r><w:t>second</w:t></w:r></w:p>",
+            Settings("<w:doNotUseHTMLParagraphAutoSpacing/>"));
+
+        ParagraphStyle style = result.Document.Paragraphs[1].Style;
+        Assert.Equal(5, style.SpacingBefore);
+        Assert.Equal(5, style.SpacingAfter);
+    }
 }

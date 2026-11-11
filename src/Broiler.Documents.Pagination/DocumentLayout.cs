@@ -1508,13 +1508,14 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             }
 
             // Word honors spacing above the opening paragraph. Subsequent
-            // page and column starts suppress it, except a page a section or
-            // the paragraph's own properties break to: Writer keeps the space
-            // above at the top of such a page (SwFlowFrame::HasParaSpaceAtPages,
-            // tdf170003_bottomSpacing.docx).
+            // page and column starts suppress it, except a page whose break
+            // the reader says keeps it: Writer keeps the space above at the top
+            // of a page the paragraph's own break or page style opens
+            // (SwFlowFrame::HasParaSpaceAtPages, tdf170003_bottomSpacing.docx).
             bool openingSpacing = _styleDefaults.PreserveOpeningParagraphSpacing &&
-                (paragraphIndex == 0 && !style.PageBreakBefore && !style.ColumnBreakBefore || sectionBreaksPage ||
-                 style.PageBreakBefore && style.PageBreakKeepsSpaceAbove);
+                (paragraphIndex == 0
+                    ? !style.PageBreakBefore && !style.ColumnBreakBefore
+                    : style.PageBreakBefore && style.PageBreakKeepsSpaceAbove);
             double spacingBefore = ColumnHasContent() ? _styleDefaults.SpaceAbove(style.SpacingBefore, spacingAfterPrevious)
                 : openingSpacing || style.ColumnBreakBefore ? Math.Max(0, style.SpacingBefore) : 0;
 

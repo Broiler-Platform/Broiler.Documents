@@ -72,6 +72,7 @@ internal static class DocxReader
             PageGeometry? page = ReadPageGeometry(documentXml, sections, diagnostics);
             int compatibilityMode = WordCompatibilityMode(settings.Root);
             bool splitPgBreakAndParaMark = HasSplitPgBreakAndParaMark(settings.Root);
+            styles.HtmlParagraphAutoSpacing = !HasCompatFlag(settings.Root, "doNotUseHTMLParagraphAutoSpacing");
             DocxNotes notes = DocxNotes.Load(
                 archive,
                 documentRelationships,
@@ -119,7 +120,7 @@ internal static class DocxReader
                 PreserveOpeningParagraphSpacing = true,
                 WidowOrphanLines = styles.HasParagraphDefaults ? 2 : 0,
                 KeepWithNextOpeningLines = true,
-                CollapsesParagraphSpacing = !HasCompatFlag(settings.Root, "doNotUseHTMLParagraphAutoSpacing"),
+                CollapsesParagraphSpacing = styles.HtmlParagraphAutoSpacing,
             });
             document = document.WithNoteNumbering(notes.Numbering with { RaisedLabels = notes.LabelsRaised ?? false });
             document = document.WithShowsRevisions(DocxRevisions.Shown(settings.Root));
@@ -917,7 +918,7 @@ internal static class DocxReader
         DocxReadContext context,
         XElement? dropCapParagraph = null)
     {
-        ParagraphStyle paragraphStyle = ReadParagraphStyle(pPr, paragraphStyleId, context);
+        ParagraphStyle paragraphStyle = ReadParagraphStyle(pPr, paragraphStyleId, context, paragraph);
 
         // An empty paragraph that is there only to end a section is not an item
         // of the list its style numbers. Word writes the section break on a
@@ -3152,7 +3153,8 @@ internal static class DocxReader
     private static ParagraphStyle ReadParagraphStyle(
         XElement? pPr,
         string? paragraphStyleId,
-        DocxReadContext context)
+        DocxReadContext context,
+        XElement? paragraph = null)
     {
         ParagraphStyle style = ParagraphStyle.Default;
         IReadOnlyList<XElement> chain = context.Styles.ParagraphProperties(paragraphStyleId, context.TableStyle, context.TableConditions);
@@ -3160,6 +3162,7 @@ internal static class DocxReader
             style = ApplyParagraphProperties(styleParagraphProperties, context.Numbering, style, context.Styles.Theme);
 
         style = ApplyParagraphProperties(pPr, context.Numbering, style, context.Styles.Theme);
+        style = ApplyAutoSpacing(style, chain, pPr, paragraph, context.Styles.HtmlParagraphAutoSpacing);
         if (context.Band != RunningBand.Body || context.InParagraphFrame)
             style = style with { Border = ReadParagraphBorder(chain, pPr, context.Styles.Theme) };
         return ApplyList(style, chain, pPr, paragraphStyleId, context.Numbering);
@@ -3283,6 +3286,66 @@ internal static class DocxReader
     }
 
     /// <summary>Applies paragraph properties, resolving shading against the document theme.</summary>
+    /// <summary>
+    /// Applies <c>w:beforeAutospacing</c> and <c>w:afterAutospacing</c>, the
+    /// paragraph's own or its style chain's, which take priority over
+    /// <c>w:before</c> and <c>w:after</c>: 14 pt where the settings leave HTML
+    /// paragraph auto spacing on, 5 pt where they turn it off. With it on, the
+    /// first paragraph of a cell, of a text box and of the document has no
+    /// automatic space above, and the last of a cell none below
+    /// (writerfilter's <c>DomainMapper_Impl::finishParagraph</c> and its table
+    /// handler). cell-grid-span.docx's HTML-born paragraphs stand 14 pt apart.
+    /// </summary>
+    private static ParagraphStyle ApplyAutoSpacing(
+        ParagraphStyle style, IReadOnlyList<XElement> chain, XElement? pPr, XElement? paragraph, bool html)
+    {
+        bool? before = null, after = null;
+        foreach (XElement? properties in chain.Append(pPr))
+        {
+            if (properties?.Element(DocxNamespaces.Wordprocessing + "spacing") is not { } spacing)
+                continue;
+            before = AutoSpacingState(spacing, "before") ?? before;
+            after = AutoSpacingState(spacing, "after") ?? after;
+        }
+
+        if (before != true && after != true)
+            return style;
+
+        float amount = html ? 14f : 5f;
+        if (before == true)
+        {
+            XElement? container = paragraph?.Parent;
+            bool first = html && paragraph is not null && container is not null &&
+                container.Name.LocalName is "tc" or "txbxContent" or "body" &&
+                container.Elements(DocxNamespaces.Wordprocessing + "p").FirstOrDefault() == paragraph &&
+                !paragraph.ElementsBeforeSelf().Any(e => e.Name.LocalName == "tbl");
+            style = style with { SpacingBefore = first ? 0 : amount };
+        }
+
+        if (after == true)
+        {
+            bool lastInCell = html && paragraph?.Parent is { Name.LocalName: "tc" } cell &&
+                cell.Elements(DocxNamespaces.Wordprocessing + "p").LastOrDefault() == paragraph &&
+                !paragraph.ElementsAfterSelf().Any(e => e.Name.LocalName == "tbl");
+            style = style with { SpacingAfter = lastInCell ? 0 : amount };
+        }
+
+        return style;
+    }
+
+    /// <summary>
+    /// True where a <c>w:spacing</c> turns automatic spacing on for
+    /// <paramref name="side"/>, false where it turns it off or states the
+    /// space itself, null where it says nothing of that side.
+    /// </summary>
+    private static bool? AutoSpacingState(XElement spacing, string side)
+    {
+        XAttribute? auto = spacing.Attribute(DocxNamespaces.Wordprocessing + (side + "Autospacing"));
+        if (auto is not null)
+            return (string?)auto is "1" or "true" or "on";
+        return spacing.Attribute(DocxNamespaces.Wordprocessing + side) is not null ? false : null;
+    }
+
     private static ParagraphStyle ApplyParagraphProperties(
         XElement? pPr,
         DocxNumbering numbering,

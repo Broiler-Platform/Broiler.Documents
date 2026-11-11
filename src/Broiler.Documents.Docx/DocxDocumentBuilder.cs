@@ -363,6 +363,14 @@ internal sealed class DocxDocumentBuilder(
             _heldBreakKeepsSpaceAbove = false;
         }
 
+        // Word 2013 and later (compatibility mode 15) start the page a
+        // section or w:pageBreakBefore opens at its top, as earlier modes keep
+        // the paragraph's space above there: tdf170003_bottomSpacing.docx
+        // (mode 14) keeps its 50 pt in the 24.2 reference, and
+        // tdf124637_sectionMargin.docx (mode 15) drops its headings' 12 pt.
+        if (style.PageBreakKeepsSpaceAbove && WordCompatibilityMode >= 15)
+            style = style with { PageBreakKeepsSpaceAbove = false };
+
         _paragraphStyle = style;
 
         if (_blockPageBreak)

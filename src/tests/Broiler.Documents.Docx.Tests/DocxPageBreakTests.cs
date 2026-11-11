@@ -321,7 +321,9 @@ public sealed class DocxPageBreakTests
             RichTextParagraph.Create(
                 "page two",
                 InlineStyle.Default,
-                ParagraphStyle.Default with { PageBreakBefore = true }),
+                // Written as w:pageBreakBefore, the paragraph's own break,
+                // whose page keeps the space above in Word 2010 mode.
+                ParagraphStyle.Default with { PageBreakBefore = true, PageBreakKeepsSpaceAbove = true }),
         ]);
 
         using var stream = new MemoryStream(DocxDocumentCodec.WriteToArray(expected), writable: false);
