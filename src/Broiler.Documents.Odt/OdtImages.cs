@@ -37,6 +37,7 @@ internal sealed class OdtImageLoader(
     private enum LoadResult { Success, Missing, Limit, Format, External }
     private readonly Dictionary<string, (PicturePart? Part, LoadResult Result)> _parts = new(StringComparer.OrdinalIgnoreCase);
     private static readonly Lazy<BImageResource> AudioPreview = new(CreateAudioPreview);
+    private static readonly Lazy<BImageResource> ObjectPreview = new(CreateObjectPreview);
 
     /// <summary>How many pictures this read turned into inline images.</summary>
     public int ImageCount { get; private set; }
@@ -69,10 +70,25 @@ internal sealed class OdtImageLoader(
                 if (width > 0 && height > 0 && frame.Element(OdtNamespaces.Draw + "plugin") is XElement plugin && IsAudio(plugin))
                     return ReadAudioPreview(width, height, altText, name, diagnostics);
 
-                diagnostics.AddDiagnosticOnce(
-                    "odt.image.shape",
-                    "An ODT frame held no embedded picture and was skipped.");
-                return null;
+                // An OLE object with no replacement picture (a linked object, or one
+                // whose preview is absent) keeps its frame's extent: LibreOffice
+                // draws its replacement graphic there rather than nothing.
+                if (width > 0 && height > 0 &&
+                    (frame.Element(OdtNamespaces.Draw + "object") ?? frame.Element(OdtNamespaces.Draw + "object-ole"))
+                        ?.Attribute(OdtNamespaces.XLink + "href") is not null)
+                {
+                    diagnostics.AddDiagnosticOnce(
+                        "odt.image.object",
+                        "An ODT embedded object without a replacement picture was drawn as a placeholder icon.");
+                    return ReadGeneratedPreview(ObjectPreview.Value, width, height, altText, name);
+                }
+                else
+                {
+                    diagnostics.AddDiagnosticOnce(
+                        "odt.image.shape",
+                        "An ODT frame held no embedded picture and was skipped.");
+                    return null;
+                }
             }
 
             if (lastResult is LoadResult.Missing or LoadResult.External or LoadResult.Format && width > 0 && height > 0)
@@ -146,6 +162,40 @@ internal sealed class OdtImageLoader(
             return null;
         ImageCount++;
         return new InlineImage(resource, id, width, height, altText, name);
+    }
+
+    private InlineImage? ReadGeneratedPreview(BImageResource resource, double width, double height, string? altText, string? name)
+    {
+        if (!_resources.TryAdmit(new DocumentResourceRequest(resource, DocumentResourceProvenance.ReadFromSource,
+                DocumentResourceDisposition.Generated, name, "ODT"), DocumentResourceOperations.ExtractToModel,
+                out DocumentResourceId id, out _))
+            return null;
+        ImageCount++;
+        return new InlineImage(resource, id, width, height, altText, name);
+    }
+
+    /// <summary>
+    /// LibreOffice's replacement graphic for an OLE object it cannot show: a
+    /// blue puzzle piece in the frame's top-left corner.
+    /// </summary>
+    private static BImageResource CreateObjectPreview()
+    {
+        const int size = 144;
+        using var bitmap = new BBitmap(size, size);
+        using (var canvas = bitmap.OpenCanvas())
+        {
+            var fill = new BColor(125, 182, 240);
+            var edge = new BColor(52, 101, 164);
+            var white = new BColor(255, 255, 255);
+            canvas.FillRect(new RectangleF(0, 0, size, size), white);
+            canvas.FillRoundedRect(new RectangleF(0, 22, 108, 92), edge, 6, 6);
+            canvas.FillRoundedRect(new RectangleF(3, 25, 102, 86), fill, 4, 4);
+            canvas.FillRoundedRect(new RectangleF(36, 0, 32, 30), edge, 15, 15);
+            canvas.FillRoundedRect(new RectangleF(39, 3, 26, 28), fill, 13, 13);
+            canvas.FillRoundedRect(new RectangleF(-12, 52, 28, 28), edge, 14, 14);
+            canvas.FillRoundedRect(new RectangleF(-12, 55, 25, 22), white, 11, 11);
+        }
+        return BImageResource.FromPixels(bitmap.ToPixelBuffer());
     }
 
     private static BImageResource CreateAudioPreview()
