@@ -62,11 +62,12 @@ internal static class OdsReader
                 return new OdsReadResult(RichTextDocument.Empty, new SpreadsheetWorkbook([]), diagnostics, DocumentResultStatus.Rejected);
             }
 
+            Dictionary<string, double> columnStyleWidths = ReadColumnStyleWidths(contentXml.Root);
             var sheets = new List<SpreadsheetWorksheet>();
             foreach (XElement tableElem in spreadsheet.Elements(OdsNamespaces.Table + "table"))
             {
                 string sheetName = (string?)tableElem.Attribute(OdsNamespaces.Table + "name") ?? $"Sheet{sheets.Count + 1}";
-                SpreadsheetWorksheet sheet = ReadSheet(sheetName, tableElem);
+                SpreadsheetWorksheet sheet = ReadSheet(sheetName, tableElem, columnStyleWidths);
                 sheets.Add(sheet);
             }
 
@@ -80,9 +81,69 @@ internal static class OdsReader
         }
     }
 
-    private static SpreadsheetWorksheet ReadSheet(string sheetName, XElement tableElem)
+    /// <summary>
+    /// The <c>style:column-width</c> of each automatic table-column style, in
+    /// points, by style name.
+    /// </summary>
+    private static Dictionary<string, double> ReadColumnStyleWidths(XElement root)
     {
-        // Column widths
+        var widths = new Dictionary<string, double>(StringComparer.Ordinal);
+        XElement? automatic = root.Element(OdsNamespaces.Office + "automatic-styles");
+        if (automatic is null)
+            return widths;
+
+        foreach (XElement style in automatic.Elements(OdsNamespaces.Style + "style"))
+        {
+            if ((string?)style.Attribute(OdsNamespaces.Style + "family") != "table-column" ||
+                (string?)style.Attribute(OdsNamespaces.Style + "name") is not string name)
+                continue;
+
+            string? width = (string?)style.Element(OdsNamespaces.Style + "table-column-properties")?
+                .Attribute(OdsNamespaces.Style + "column-width");
+            if (TryParseLength(width, out double points) && points > 0)
+                widths[name] = points;
+        }
+
+        return widths;
+    }
+
+    /// <summary>An ODF length (in, cm, mm, pt, pc, px) in points.</summary>
+    private static bool TryParseLength(string? value, out double points)
+    {
+        points = 0;
+        if (string.IsNullOrWhiteSpace(value))
+            return false;
+
+        string text = value.Trim();
+        int unitStart = text.Length;
+        while (unitStart > 0 && char.IsLetter(text[unitStart - 1]))
+            unitStart--;
+
+        double scale = text[unitStart..].ToLowerInvariant() switch
+        {
+            "in" => 72.0,
+            "cm" => 72.0 / 2.54,
+            "mm" => 72.0 / 25.4,
+            "pt" => 1.0,
+            "pc" => 12.0,
+            "px" => 0.75,
+            _ => double.NaN,
+        };
+        if (double.IsNaN(scale) ||
+            !double.TryParse(text[..unitStart], NumberStyles.Float, CultureInfo.InvariantCulture, out double number) ||
+            !double.IsFinite(number))
+            return false;
+
+        points = number * scale;
+        return true;
+    }
+
+    private static SpreadsheetWorksheet ReadSheet(string sheetName, XElement tableElem, IReadOnlyDictionary<string, double> columnStyleWidths)
+    {
+        // Column widths, from each column's automatic style; a column whose style
+        // states none keeps one inch. Only the used columns are kept (below):
+        // a sheet declares all 1024 of its grid's columns, and LibreOffice prints
+        // only the used range.
         var columnWidths = new List<double>();
         foreach (XElement col in tableElem.Elements(OdsNamespaces.Table + "table-column"))
         {
@@ -90,8 +151,10 @@ internal static class OdsReader
             if (int.TryParse((string?)col.Attribute(OdsNamespaces.Table + "number-columns-repeated"), NumberStyles.Integer, CultureInfo.InvariantCulture, out int r))
                 repeated = Math.Clamp(r, 1, 1024);
 
-            for (int i = 0; i < repeated; i++)
-                columnWidths.Add(72.0); // Default 1 inch if style lookup omitted
+            string? styleName = (string?)col.Attribute(OdsNamespaces.Table + "style-name");
+            double width = styleName is not null && columnStyleWidths.TryGetValue(styleName, out double stated) ? stated : 72.0;
+            for (int i = 0; i < repeated && columnWidths.Count < 1024; i++)
+                columnWidths.Add(width);
         }
 
         var rows = new List<SpreadsheetRow>();
@@ -223,7 +286,15 @@ internal static class OdsReader
         while (rows.Count > 0 && rows[^1].Cells.All(c => c.Value.IsEmpty && string.IsNullOrEmpty(c.Formula)))
             rows.RemoveAt(rows.Count - 1);
 
-        return new SpreadsheetWorksheet(sheetName, rows, columnWidths);
+        var sheet = new SpreadsheetWorksheet(sheetName, rows, columnWidths);
+        int usedColumns = sheet.ColumnCount;
+        if (columnWidths.Count > usedColumns)
+        {
+            columnWidths.RemoveRange(usedColumns, columnWidths.Count - usedColumns);
+            sheet = new SpreadsheetWorksheet(sheetName, rows, columnWidths);
+        }
+
+        return sheet;
     }
 
     private static string? NormalizeOdsFormula(string? formula)

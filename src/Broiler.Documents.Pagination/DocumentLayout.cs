@@ -78,6 +78,9 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     private IReadOnlyList<(int Paragraph, int Offset)?>? _pageStarts;
     private IReadOnlyList<RichTextParagraph> _bodyParagraphs = [];
     private IReadOnlyList<DocumentSection> _sections = [];
+    private IReadOnlyList<DocumentTable> _bodyTables = [];
+    private int _lineNumberCount;
+    private DocumentSection? _lineNumberSection;
     private DocumentPageBox _setup = DocumentPageBox.Default;
     private PageGeometry? _documentPageGeometry;
     private PageGeometry? _currentPageGeometry;
@@ -211,6 +214,9 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         _frame = null;
         _bodyParagraphs = document.Paragraphs;
         _sections = document.Sections;
+        _bodyTables = document.Tables;
+        _lineNumberCount = 0;
+        _lineNumberSection = null;
         _setup = setup;
         _documentPageGeometry = document.PageGeometry;
         _currentPageGeometry = document.PageGeometry;
@@ -1055,6 +1061,12 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             }
         }
 
+        // True when shapes text does not wrap around hang from the paragraph,
+        // and none that it does: those can follow the paragraph to a new page.
+        bool CarriesFreeShapes(int index) =>
+            _documentShapes.Any(shape => shape.ParagraphIndex == index && !shape.IsPageAnchored && !shape.OffsetFromPage) &&
+            !_documentShapes.Any(shape => shape.ParagraphIndex == index && (shape.Wraps || shape.IsAsCharacter));
+
         void ReanchorParagraph(int index)
         {
             _paragraphTops[index] = y;
@@ -1637,6 +1649,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                     if (fit == 0 && (ColumnHasContent() || y > pageTop + 0.01))
                     {
                         regionUnbalanced = true;
+                        if (first && CarriesFreeShapes(paragraphIndex))
+                            _paragraphTops.Remove(paragraphIndex);
                         BreakColumn();
                         if (truncated)
                             break;
@@ -1693,6 +1707,15 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 // foot of the page as well as for itself.
                 if (y + line.Height > contentBottom - NotesHeight([line]) && (ColumnHasContent() || y > pageTop + 0.01) && !heldByOwnShapes)
                 {
+                    // A paragraph that moves on whole takes the shapes anchored
+                    // to it along: they are not drawn on the page it left, and
+                    // stand from its top on the page it reaches
+                    // (tdf123351_UnderlineGroupSapeText.docx). Only shapes text
+                    // ignores: a wrapping frame keeps its own page above, and
+                    // moved with its anchor it would push the line on again.
+                    bool carriesShapes = first && CarriesFreeShapes(paragraphIndex);
+                    if (carriesShapes)
+                        _paragraphTops.Remove(paragraphIndex);
                     BreakColumn();
                     if (truncated)
                         break;
@@ -1710,6 +1733,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                         // No line of this paragraph was placed yet. Its new
                         // page can have different margins/paper or exclusions,
                         // so measure it there before placing its first line.
+                        if (carriesShapes)
+                            ReanchorParagraph(paragraphIndex);
                         composed = ComposeParagraph(paragraph, marker, setup, paragraphIndex,
                             columnWidthOverride: columns.Width, wrapTop: y,
                             wrapColumnLeft: columns.Offset(column));
@@ -1944,6 +1969,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             bottomDistance: frame.FooterDistance,
             tables: _running.EffectiveFooterTables(selection));
 
+        NumberLines(inlineLines ?? lines);
+
         var all = new List<LayoutLine>(lines);
         all.AddRange(headerLines);
         all.AddRange(footerLines);
@@ -1983,6 +2010,54 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             PageBorders = setup.Continuous ? default : _currentPageGeometry?.Borders ?? default,
             PageBorderInsets = _currentPageGeometry?.BorderInsets ?? default,
         };
+    }
+
+    /// <summary>
+    /// Sets the numbers the page's <see cref="PageGeometry.LineNumbering"/> asks
+    /// for in the margin beside the body lines of a page.
+    /// </summary>
+    /// <remarks>
+    /// Only body paragraphs' lines count: running lines and notes carry a
+    /// paragraph index below zero, and a table's paragraphs are skipped. Each
+    /// number is a piece of its line, right-aligned the numbering's distance to
+    /// the left of the line's text column and set in the document's default
+    /// face and size - LibreOffice's <c>Line Numbering</c> character style.
+    /// </remarks>
+    private void NumberLines(IReadOnlyList<LayoutLine> lines)
+    {
+        if (_currentPageGeometry?.LineNumbering is not LineNumbering numbering)
+            return;
+
+        if (numbering.Restart == LineNumberRestart.NewPage)
+            _lineNumberCount = 0;
+
+        var style = InlineStyle.Default with
+        {
+            FontFamily = _styleDefaults.FontFamily,
+            FontSize = _styleDefaults.FontSizePoints,
+        };
+        foreach (LayoutLine line in lines)
+        {
+            int index = line.ParagraphIndex;
+            if (index < 0 || index >= _bodyParagraphs.Count || _bodyTables.Any(table => table.Covers(index)))
+                continue;
+
+            DocumentSection? section = DocumentSection.Containing(_sections, index);
+            if (section?.Hidden == true)
+                continue;
+
+            if (numbering.Restart == LineNumberRestart.NewSection && !ReferenceEquals(section, _lineNumberSection))
+                _lineNumberCount = 0;
+            _lineNumberSection = section;
+
+            int number = numbering.Start + _lineNumberCount++;
+            if (number % numbering.CountBy != 0)
+                continue;
+
+            LayoutPiece piece = MakeTextPiece(number.ToString(CultureInfo.InvariantCulture), style, decorateLink: false);
+            piece.X = line.TextAreaLeft - numbering.Distance - piece.Width;
+            line.AddPiece(piece);
+        }
     }
 
     /// <summary>
@@ -2283,7 +2358,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
                 (List<LayoutLine> lines, List<LayoutCell> nested, List<CutPiece> pieces, double height) =
                     ComposeBlocks(document, cell.Tables, cell.ParagraphIndex, cell.ParagraphEnd, setup, cellLeft + padding.Left, textWidth,
-                        keepsDefaultLines);
+                        keepsDefaultLines, inTableCell: !keepsDefaultLines);
 
                 // Text that runs past the cell is cut at its edge, as Writer
                 // cuts a text portion; the innermost cell's edge wins for a
@@ -2670,10 +2745,20 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     /// so the default goes there only; that a stated value is off in other
     /// rows is not modelled. <c>fdo68607.docx</c>'s two-line definition moves
     /// its row to the next page whole rather than leave one line behind.
+    /// A paragraph's keep-with-next holds in a text box but not in a table cell
+    /// (<paramref name="inTableCell"/>): Writer ignores the keep attribute of a
+    /// frame inside a cell "for compatibility reasons" (<c>SwFlowFrame::IsKeep</c>
+    /// in <c>flowfrm.cxx</c>), though a table nested there still keeps.
+    /// <c>tdf119054.docx</c> holds a cell of keep-with-next headings longer than
+    /// a page, and its last heading moves to the next page on its own. A
+    /// floating table's cells still keep: <c>tdf170846_2.docx</c>'s frame of kept
+    /// paragraphs is neither split nor moved, and Writer lays a floating table out
+    /// in a fly of its own rather than in the body's flow.
     /// </remarks>
     private (List<LayoutLine> Lines, List<LayoutCell> Cells, List<CutPiece> Pieces, double Height) ComposeBlocks(
         RichTextDocument document, IReadOnlyList<DocumentTable> tables, int from, int to, DocumentPageBox setup,
-        double left, double width, bool keepsDefaultLines = false, bool drawParagraphBorders = false)
+        double left, double width, bool keepsDefaultLines = false, bool drawParagraphBorders = false,
+        bool inTableCell = false)
     {
         var lines = new List<LayoutLine>();
         var cells = new List<LayoutCell>();
@@ -2808,7 +2893,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 paragraphPieces.RemoveAt(0);
             }
             pieces.AddRange(paragraphPieces);
-            keepPrevious = paragraph.Style.KeepWithNext;
+            keepPrevious = paragraph.Style.KeepWithNext && !inTableCell;
 
             y += Math.Max(0, paragraph.Style.SpacingAfter);
             index++;

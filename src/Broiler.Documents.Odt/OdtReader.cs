@@ -191,6 +191,7 @@ internal static class OdtReader
                 styles.UserDefinedFields.TryAdd(name, field.Value);
         }
         styles.InvertsTextDisplay = OdtMetadata.WrittenByOpenOffice2(metadata.Producer);
+        styles.EmptyDbFieldHidesParagraph = OdtRevisions.ConfigFlag(settings, "EmptyDbFieldHidesPara");
         styles.PageFillBounds = OdtMetadata.PageFillBounds(metadata.Producer);
         styles.LegacyShapeColors = OdtMetadata.LegacyShapeColors(metadata.Producer);
         XElement? master = ResolveMasterPage(content, styles);
@@ -629,7 +630,10 @@ internal static class OdtReader
             if (first && selection == PageSelection.Even)
                 continue;
 
-            XElement? part = master.Element(OdtNamespaces.Style + element);
+            // LibreOffice writes the first page's parts as loext:header-first and
+            // loext:footer-first in documents it saves as ODF 1.3 extended.
+            XElement? part = master.Element(OdtNamespaces.Style + element) ??
+                (selection == PageSelection.First ? master.Element(OdtNamespaces.LibreOffice + element) : null);
             if (part is null)
                 continue;
 
@@ -796,14 +800,14 @@ internal static class OdtReader
         double outerBottom = Margin("margin-bottom");
         bool hasHeader = master?.Elements().Any(element =>
             (element.Name == OdtNamespaces.Style + "header" || element.Name == OdtNamespaces.Style + "header-left" ||
-             element.Name == OdtNamespaces.Style + "header-first") &&
+             element.Name == OdtNamespaces.Style + "header-first" || element.Name == OdtNamespaces.LibreOffice + "header-first") &&
             (string?)element.Attribute(OdtNamespaces.Style + "display") != "false") == true;
         XElement? header = properties.Parent?.Element(OdtNamespaces.Style + "header-style")
             ?.Element(OdtNamespaces.Style + "header-footer-properties");
         double headerHeight = hasHeader && header is not null ? BandHeight(header, "margin-bottom") : 0;
         bool hasFooter = master?.Elements().Any(element =>
             (element.Name == OdtNamespaces.Style + "footer" || element.Name == OdtNamespaces.Style + "footer-left" ||
-             element.Name == OdtNamespaces.Style + "footer-first") &&
+             element.Name == OdtNamespaces.Style + "footer-first" || element.Name == OdtNamespaces.LibreOffice + "footer-first") &&
             (string?)element.Attribute(OdtNamespaces.Style + "display") != "false") == true;
         XElement? footer = properties.Parent?.Element(OdtNamespaces.Style + "footer-style")
             ?.Element(OdtNamespaces.Style + "header-footer-properties");
@@ -981,7 +985,10 @@ internal static class OdtReader
         string? inheritedAnchor = null,
         int inheritedAnchorPage = 0)
     {
-        if (drawing.Name == OdtNamespaces.Draw + "line")
+        // A connector is a line between two points as far as the page shows: it
+        // states the same svg:x1/y1/x2/y2, and its glue to other shapes only
+        // matters to an editor moving them.
+        if (drawing.Name == OdtNamespaces.Draw + "line" || drawing.Name == OdtNamespaces.Draw + "connector")
             return ReadShapeLine(drawing, context, offsetX, offsetY, inheritedAnchor, inheritedAnchorPage);
         if (!TryReadFrameWidth(drawing, out double width))
             return false;
@@ -998,7 +1005,8 @@ internal static class OdtReader
             (string?)textBox?.Attribute(OdtNamespaces.Fo + "min-height"), out double minHeight);
         if (grows)
             height = statedHeight ? Math.Max(height, minHeight) : minHeight;
-        else if (!statedHeight && textBox is not null)
+        bool sizedByText = !statedHeight && textBox is null && GrowsToItsText(drawing, context.Styles);
+        if (!grows && !statedHeight && (textBox is not null || sizedByText))
             (grows, height) = (true, 0);
 
         if (height < 0 || (height == 0 && !grows))
@@ -1100,8 +1108,10 @@ internal static class OdtReader
             IsAsCharacter = ((string?)drawing.Attribute(OdtNamespaces.Text + "anchor-type") ?? inheritedAnchor) == "as-char",
             IsCustomShape = drawing.Name != OdtNamespaces.Draw + "frame",
             RotationRadians = rotation,
+            // A text box keeps its width and grows down to its text, where a
+            // drawn shape with words in it fits itself about them.
             FitsText = drawing.Name == OdtNamespaces.Draw + "custom-shape" && paragraphs.Count > 0 &&
-                shapeContent.Tables.Count == 0,
+                shapeContent.Tables.Count == 0 && !sizedByText,
             WrapMargins = ReadWrapMargins(graphic),
             MinimumWrapRoom = MinimumWrapRoom(graphic),
         });
@@ -1243,6 +1253,17 @@ internal static class OdtReader
     }
 
     /// <summary>
+    /// Whether <paramref name="paragraph"/> is hidden because a database field in
+    /// it shows nothing and the document says such a paragraph is
+    /// (<see cref="OdtStyles.EmptyDbFieldHidesParagraph"/>). A paragraph that
+    /// anchors a drawing keeps it, and is kept.
+    /// </summary>
+    private static bool HiddenByEmptyDatabaseField(XElement paragraph, OdtStyles styles) =>
+        styles.EmptyDbFieldHidesParagraph &&
+        paragraph.Descendants(OdtNamespaces.Text + "database-display").Any(field => field.Value.Length == 0) &&
+        !paragraph.Descendants().Any(element => element.Name.Namespace == OdtNamespaces.Draw);
+
+    /// <summary>
     /// Reads a <c>draw:control</c> that places a label (<c>form:fixed-text</c>)
     /// as a box holding the label's words, set in the control's
     /// <c>draw:text-style-name</c>. Other controls are left out, as before.
@@ -1264,10 +1285,12 @@ internal static class OdtReader
              control.Name != OdtNamespaces.Form + "date-field" &&
              control.Name != OdtNamespaces.Form + "time" &&
              control.Name != OdtNamespaces.Form + "image" &&
-             control.Name != OdtNamespaces.Form + "button"))
+             control.Name != OdtNamespaces.Form + "button" &&
+             control.Name != OdtNamespaces.Form + "checkbox"))
             return;
 
         bool isButton = control.Name == OdtNamespaces.Form + "button";
+        bool isCheckBox = control.Name == OdtNamespaces.Form + "checkbox";
         bool isTime = control.Name == OdtNamespaces.Form + "time";
         bool isImage = control.Name == OdtNamespaces.Form + "image";
         string? styleName = (string?)drawing.Attribute(OdtNamespaces.Draw + "style-name");
@@ -1287,6 +1310,19 @@ internal static class OdtReader
                 new XAttribute(OdtNamespaces.Text + "style-name", (string?)drawing.Attribute(OdtNamespaces.Draw + "text-style-name") ?? ""),
                 label));
         RichTextDocument content = ReadShapeParagraphs(textBox, context, depth: 0);
+        IReadOnlyList<RichTextParagraph> paragraphs = content.Paragraphs;
+        if (isCheckBox && paragraphs.Count > 0)
+        {
+            // A check box draws its box ahead of its label, crossed when it is
+            // checked (form:current-state, or form:state for its default).
+            string state = (string?)control.Attribute(OdtNamespaces.Form + "current-state")
+                ?? (string?)control.Attribute(OdtNamespaces.Form + "state") ?? "unchecked";
+            RichTextParagraph first = paragraphs[0];
+            InlineStyle boxStyle = first.StyleAt(0) with { FontFamily = "DejaVu Sans" };
+            first = first.InsertText(0, label.Length > 0 ? " " : "", first.StyleAt(0))
+                .InsertText(0, state == "checked" ? "☒" : "☐", boxStyle);
+            paragraphs = [first, .. paragraphs.Skip(1)];
+        }
 
         XElement? graphic = context.Styles.GraphicPropertiesFor(styleName);
         (ShapeFill? fill, BColor outline, bool behindText, ShapeWrap wrap, WrapSide wrapSide) = ReadShapeStyle(styleName, context.Styles);
@@ -1300,6 +1336,11 @@ internal static class OdtReader
         }
         if ((isTime || isImage) && outline.IsEmpty)
             outline = BColor.Black;
+        // A check box paints its box and label and nothing around them: the
+        // stroke and fill a graphic style passes down are the drawing layer's
+        // defaults, which the control does not draw.
+        if (isCheckBox)
+            (fill, outline) = (null, BColor.Empty);
         double x = OdtUnits.TryParseLength((string?)drawing.Attribute(OdtNamespaces.Svg + "x"), out double left) ? left : 0;
         double y = OdtUnits.TryParseLength((string?)drawing.Attribute(OdtNamespaces.Svg + "y"), out double top) ? top : 0;
         (int anchorPage, x, y, bool fromPage) = PlaceOnPage(drawing, styleName, x, y, width, height, context);
@@ -1312,7 +1353,7 @@ internal static class OdtReader
             height,
             fill: fill,
             outline: outline,
-            paragraphs: content.Paragraphs,
+            paragraphs: paragraphs,
             behindText: behindText,
             wrap: wrap,
             wrapSide: wrapSide,
@@ -1323,7 +1364,7 @@ internal static class OdtReader
             {
                 "middle" => CellVerticalAlignment.Center,
                 "bottom" => CellVerticalAlignment.Bottom,
-                _ => isButton || isTime ? CellVerticalAlignment.Center : CellVerticalAlignment.Top,
+                _ => isButton || isTime || isCheckBox ? CellVerticalAlignment.Center : CellVerticalAlignment.Top,
             },
             // A label is drawn whole about its alignment even where its box is
             // shorter than its line, as a control sized to the text's cap height
@@ -1397,6 +1438,17 @@ internal static class OdtReader
             printable: Prints(properties)));
         return true;
     }
+
+    /// <summary>
+    /// Whether a custom shape that states no height is a text box sized by its
+    /// text: its graphic style says <c>draw:auto-grow-height</c> and it carries
+    /// paragraphs. A Word text box saved to ODF arrives that way.
+    /// </summary>
+    private static bool GrowsToItsText(XElement drawing, OdtStyles styles) =>
+        drawing.Name == OdtNamespaces.Draw + "custom-shape" &&
+        drawing.Elements(OdtNamespaces.Text + "p").Any() &&
+        (string?)styles.GraphicPropertiesFor((string?)drawing.Attribute(OdtNamespaces.Draw + "style-name"))
+            ?.Attribute(OdtNamespaces.Draw + "auto-grow-height") == "true";
 
     private static TableCellPadding ReadShapePadding(XElement? properties)
     {
@@ -2160,7 +2212,7 @@ internal static class OdtReader
             {
                 ReadDrawGroup(child, context, totalX, totalY, anchorType, anchorPage, depth + 1);
             }
-            else if (child.Name == OdtNamespaces.Draw + "custom-shape" || child.Name == OdtNamespaces.Draw + "line" ||
+            else if (child.Name == OdtNamespaces.Draw + "custom-shape" || child.Name == OdtNamespaces.Draw + "line" || child.Name == OdtNamespaces.Draw + "connector" ||
                      child.Name == OdtNamespaces.Draw + "ellipse" || child.Name == OdtNamespaces.Draw + "rect")
             {
                 ReadShape(child, context, depth, totalX, totalY, anchorType, anchorPage);
@@ -2194,7 +2246,8 @@ internal static class OdtReader
 
             if (name == OdtNamespaces.Text + "p" || name == OdtNamespaces.Text + "h")
             {
-                ReadParagraph(element, context, list, depth);
+                if (!HiddenByEmptyDatabaseField(element, context.Styles))
+                    ReadParagraph(element, context, list, depth);
                 continue;
             }
 
@@ -2335,7 +2388,7 @@ internal static class OdtReader
                 continue;
             }
 
-            if (name == OdtNamespaces.Draw + "custom-shape" || name == OdtNamespaces.Draw + "line" ||
+            if (name == OdtNamespaces.Draw + "custom-shape" || name == OdtNamespaces.Draw + "line" || name == OdtNamespaces.Draw + "connector" ||
                 name == OdtNamespaces.Draw + "ellipse" || name == OdtNamespaces.Draw + "rect")
             {
                 if (ReadShape(element, context, depth))
@@ -2768,7 +2821,7 @@ internal static class OdtReader
                 continue;
             }
 
-            if (name == OdtNamespaces.Draw + "custom-shape" || name == OdtNamespaces.Draw + "line" ||
+            if (name == OdtNamespaces.Draw + "custom-shape" || name == OdtNamespaces.Draw + "line" || name == OdtNamespaces.Draw + "connector" ||
                 name == OdtNamespaces.Draw + "ellipse" || name == OdtNamespaces.Draw + "rect")
             {
                 ReadShape(element, context, depth: 0);
@@ -2846,6 +2899,12 @@ internal static class OdtReader
             if (ReadChangeMark(element, context, depth))
                 continue;
 
+            if (name == OdtNamespaces.Field + "fieldmark")
+            {
+                ReadFormFieldmark(element, builder, style);
+                continue;
+            }
+
             if (IsIgnorableInline(name))
                 continue;
 
@@ -2855,6 +2914,41 @@ internal static class OdtReader
             // lose the words a reader can plainly see.
             if (element.HasElements || !string.IsNullOrEmpty(element.Value))
                 ReadInlineContent(element, context, style, depth + 1);
+        }
+    }
+
+    /// <summary>
+    /// Reads a Word-style legacy form field LibreOffice keeps as a
+    /// <c>field:fieldmark</c>: a check box as the ballot box it draws
+    /// (<c>Checkbox_Checked</c> crossing it), a drop-down as its selected entry
+    /// (<c>Dropdown_Selected</c>, the first when none is stated). Other kinds
+    /// carry nothing a reader sees and are left out, as before.
+    /// </summary>
+    /// <remarks>
+    /// The box is a glyph in DejaVu Sans, as the DOCX reader draws an ActiveX
+    /// check box, so it is the size of the text beside it, which is how Writer
+    /// sizes the field. A drop-down with no entries shows nothing.
+    /// </remarks>
+    private static void ReadFormFieldmark(XElement fieldmark, OdtDocumentBuilder builder, InlineStyle style)
+    {
+        string? type = (string?)fieldmark.Attribute(OdtNamespaces.Field + "type");
+        List<(string Name, string Value)> parameters = [.. fieldmark.Elements(OdtNamespaces.Field + "param")
+            .Select(param => ((string?)param.Attribute(OdtNamespaces.Field + "name") ?? "",
+                (string?)param.Attribute(OdtNamespaces.Field + "value") ?? ""))];
+        switch (type)
+        {
+            case "vnd.oasis.opendocument.field.FORMCHECKBOX":
+                bool isChecked = parameters.Any(param => param.Name == "Checkbox_Checked" &&
+                    string.Equals(param.Value, "true", StringComparison.OrdinalIgnoreCase));
+                builder.AppendLiteral(isChecked ? "☒" : "☐", style with { FontFamily = "DejaVu Sans" });
+                break;
+            case "vnd.oasis.opendocument.field.FORMDROPDOWN":
+                string[] entries = [.. parameters.Where(param => param.Name == "Dropdown_ListEntry").Select(param => param.Value)];
+                int selected = parameters.LastOrDefault(param => param.Name == "Dropdown_Selected").Value is string stated &&
+                    int.TryParse(stated, NumberStyles.Integer, CultureInfo.InvariantCulture, out int index) ? index : 0;
+                if (selected >= 0 && selected < entries.Length && entries[selected].Length > 0)
+                    builder.AppendLiteral(entries[selected], style);
+                break;
         }
     }
 
@@ -3229,7 +3323,7 @@ internal static class OdtReader
         // draw:a is not listed: a clickable picture wraps its frame in one, and
         // skipping it would lose the picture rather than the link.
         if (name.Namespace == OdtNamespaces.Draw)
-            return name.LocalName is "g" or "custom-shape" or "rect" or "line" or "polyline";
+            return name.LocalName is "g" or "custom-shape" or "rect" or "line" or "connector" or "polyline";
 
         if (name.Namespace != OdtNamespaces.Text)
             return true;
@@ -3484,6 +3578,13 @@ internal static class OdtReader
                 OdtUnits.TryParsePercentage((string?)frame.Attribute(OdtNamespaces.Style + "rel-height"), out double relativeHeight) && relativeHeight > 0)
                 height = Math.Min(OdtUnits.MaxLengthPoints, page.Height * relativeHeight);
         }
+        // A Writer picture frame's edge is its fo:border; it has no line of its
+        // own. The draw:stroke and svg:stroke-color it may inherit from the
+        // default graphic style (svg:stroke-color="#000000" in most files) are
+        // for drawing shapes, and LibreOffice draws no outline from them. A
+        // picture inside a draw:g is a drawing object and keeps its line.
+        if (frame.Parent?.Name != OdtNamespaces.Draw + "g")
+            outline = BColor.Empty;
         double outlineWidth = OdtUnits.TryParseLength((string?)graphic?.Attribute(OdtNamespaces.Svg + "stroke-width"), out double lineWidth) ? lineWidth : 0.75;
         if (graphic?.Attribute(OdtNamespaces.Fo + "border") is not null)
         {

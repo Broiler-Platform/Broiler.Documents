@@ -240,6 +240,13 @@ internal sealed class OdtStyles : IOdtImageDiagnostics
     public bool InvertsTextDisplay { get; set; }
 
     /// <summary>
+    /// True when the document's settings say a paragraph whose database field
+    /// shows nothing is hidden (<c>EmptyDbFieldHidesPara</c>), as a mail merge
+    /// leaves out the address line of a column a record has empty.
+    /// </summary>
+    public bool EmptyDbFieldHidesParagraph { get; set; }
+
+    /// <summary>
     /// The fill and line colours a drawing shape gets when neither it nor the
     /// default graphic style states one, for a document from an older producer;
     /// null for a current one. See <see cref="OdtMetadata.LegacyShapeColors"/>.

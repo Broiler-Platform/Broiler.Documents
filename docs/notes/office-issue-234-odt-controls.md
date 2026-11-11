@@ -1,0 +1,28 @@
+# Office issue #234: ODT form controls, form fields, connectors and running parts
+
+Ten ODT and FODT samples where broilerdoc and LibreOffice 24.2 disagreed on whether
+the page has ink at all. Nine rendered blank in broilerdoc and inked in LibreOffice.
+One went the other way. Ink is the count of pixels darker than 200/255 on page 1 at
+96 dpi.
+
+| Sample | Cause | Outcome |
+| --- | --- | --- |
+| `ww8export/data/checkbox_control.odt` | Two `draw:control`s place `form:checkbox` controls, one as-char and one floating. `ReadControl` only handled labels, dates, times, images and buttons, so check boxes were dropped. | Fixed. A check box is now read like a label. Its first paragraph starts with a DejaVu Sans ballot box (U+2610, or U+2612 when `form:current-state`/`form:state` is `checked`) and a space, and its text is centred vertically. It gets no fill or outline: the `#3465a4`/`#729fcf` that the default graphic style passes down belongs to the drawing layer, and the control does not paint it. Ink 0 → 1309 (LibreOffice 1215). |
+| `ooxmlexport/data/activex_control_at_run_end.odt` | Same two check box controls (as-char and char-anchored). | Fixed by the same change. Ink 0 → 1276 (LibreOffice 1183). |
+| `globalfilter/data/checkbox_form_field.odt` | Legacy Word form fields are stored as `field:fieldmark` (namespace `urn:openoffice:names:experimental:ooo-ms-interop:xmlns:field:1.0`). The inline reader skipped every element outside `text:`, so the fields disappeared. | Fixed. `ReadFormFieldmark` draws `FORMCHECKBOX` as a DejaVu Sans ballot box, crossed when `Checkbox_Checked` is `true`, the same way the DOCX reader draws an ActiveX check box. Ink 0 → 170 (LibreOffice 133). The glyph box is 12 px where Writer's box is 16 px. |
+| `globalfilter/data/dropdown_form_field.odt` | `FORMDROPDOWN` fieldmarks were skipped the same way. | Fixed. A drop-down shows the `Dropdown_ListEntry` that `Dropdown_Selected` points to, or the first entry if none is selected. A drop-down with no entries shows nothing. That gives "2000", as in LibreOffice. Ink 0 → 168 (LibreOffice 158). |
+| `uiwriter/data/tdf104032.odt` | A single unchecked `FORMCHECKBOX` fieldmark. | Fixed by the fieldmark change. Ink 0 → 73 (LibreOffice 60). |
+| `uiwriter/data/tdf95699.odt` | A single unchecked `FORMCHECKBOX` fieldmark. | Fixed by the fieldmark change. Ink 0 → 73 (LibreOffice 60). |
+| `ooxmlexport/data/tdf99810-lost-arrow.odt` | The body's only drawing is a `draw:connector` of `draw:type="line"`. No reader path accepted `draw:connector`. | Partly fixed. A connector is now read as the line between its `svg:x1/y1/x2/y2` everywhere a `draw:line` is: in the block, inline and group paths and in `ReadShape`. The line sits where LibreOffice puts it (bounding box 235,454-343,493 vs 235,453-345,493). Ink 0 → 39 (LibreOffice 190). The rest of the gap is the dash (`draw:stroke-dash`) and the arrow head (`draw:marker-end="Arrow"`). `DocumentShape` models neither, and adding them touches the model, both painters and the PDF writer, so that is a feature and not part of this fix. |
+| `unowriter/data/textboxInColumn2.fodt` | A Word text box saved as a `draw:custom-shape` (`ooxml-rect`) in a table cell. It has `svg:width` but no `svg:height`, and its style says `draw:auto-grow-height="true"`. `ReadShape` only lets a `draw:text-box` grow from no height, so the shape and its "hello" were dropped. | Fixed. Such a custom shape is now a shape that grows to its text (`GrowsToText`). It also no longer has `FitsText` set: that flag shrank a drawn shape around its words and centred it, but a text box keeps its 30 mm width. Ink 0 → 715 (LibreOffice 424). The x position and width match LibreOffice. The box is about 24 px lower and the text is in a different face. A flat document with no page layout gets the caller's fallback page (1 in top margin and a sans default font) instead of Writer's A4 with 2 cm margins and Liberation Serif. That fallback is deliberate for layout-free documents other than forms (see `formPage` in `OdtReader.ReadDocument`), so it is left alone here. |
+| `uiwriter/data/textfield-getanchor-gettext-in-footer.odt` | The first page's footer, which holds the `text:user-field-get` "userfield_in_footer", is written as `loext:footer-first`. LibreOffice uses that extension element for ODF 1.3 extended saves. The reader only looked for `style:footer-first`, and the plain `style:footer` is an empty paragraph. | Fixed. `ReadParts` falls back to `loext:header-first` and `loext:footer-first` for the First selection, and `ReadPageGeometry` counts them when it reserves the header and footer bands. Ink 0 → 528 (LibreOffice 507). |
+| `mailmerge/data/empty-db-field.fodt` | The paragraph "Text" holds a `text:database-display` with nothing in it, and `settings` say `EmptyDbFieldHidesPara` is `true`. Writer hides such a paragraph. The reader showed it. | Fixed. `OdtStyles.EmptyDbFieldHidesParagraph` reads the setting. A paragraph whose database field is empty is then left out, unless it anchors a drawing. The setting has to be stated: a document without it keeps the paragraph, as older Writer documents do. Ink 125 → 0 (LibreOffice 0). |
+
+No LibreOffice reference was found to be defective. None of these samples belongs in
+`tests/office/extras-reference-defects.json`.
+
+Tests: `OdtIssue234ControlTests` in `Broiler.Documents.Odt.Tests`. They cover the
+check box and drop-down fieldmarks, check box controls (unchecked and checked, with
+no frame), the connector line, the custom-shape text box that grows to its text, the
+`loext:footer-first` footer, and the `EmptyDbFieldHidesPara` paragraph (hidden when
+the setting is true, kept when it is false or absent).

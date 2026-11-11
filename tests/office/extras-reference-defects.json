@@ -1,7 +1,7 @@
 {
   "$schema": "extras-reference-defects.schema.json",
   "schemaVersion": 1,
-  "updated": "2026-11-08",
+  "updated": "2026-11-11",
   "policy": {
     "records": "Samples of LibreOffice's sw/qa/extras corpus that the LibreOffice the references come from draws with a LibreOffice defect a later LibreOffice release fixed. The corpus is LibreOffice's master tree and the references come from the release reference-data workflow pins, which is older, so a sample added with an upstream fix tests that fix and the pinned release draws it the way the fix corrected.",
     "rule": "While the reference LibreOffice's major.minor is older than a row's fixedIn, the checks the row names (pixel, text) are not compared for its samples: each is reported as skipped with the bug and the note that shows it, and the sample is listed under Known Reference Defects. broilerdoc still reads, dumps and renders it and has to end each in a documented exit code, and every check the row does not name runs and ranks as usual. A row stops applying by itself once references come from a fixed release.",
@@ -368,6 +368,33 @@
       "samples": ["layout/data/tdf163285.fodt"],
       "evidence": "The pinned 24.2 PDF has two pages: the keep-together first row splits once and the rest of its text, from the line after pg_2 through pg_3, is never drawn, so page 2 holds only the second row. The upstream test asserts three pages whose first rows start with pg_1, pg_2 and pg_3; the text export still holds every line.",
       "reference": "docs/notes/office-issue-232-tdf163285.md"
+    },
+    {
+      "id": "tdf163230-keep-together-row-loop",
+      "bug": "tdf#163230",
+      "fixedIn": "24.8",
+      "fixCommits": [
+        "d5c0b3f93d33ce1e3d320ee74d6b7b5c5d53d176",
+        "b387a283c08a8efcd91e2386db41467435fb9856"
+      ],
+      "upstreamTests": [
+        "sw/qa/extras/layout/layout4.cxx TestTdf163230"
+      ],
+      "axes": ["pixel"],
+      "samples": ["layout/data/tdf163230.fodt"],
+      "evidence": "The first row of the table is marked keep-together but is taller than the 19 cm page. The pinned 24.2 PDF has two pages: page 1 clips the row at the page foot, and page 2 holds only the second row, so the rest of the first row (its last line and five more paragraphs) is never drawn. The upstream test asserts three pages ('Before the fix, the document had only two pages'). The fix landed on master and was cherry-picked to libreoffice-24-8. Local LibreOffice 26.2.6.3 exports three pages that continue the first row on page 2 and put the second row on page 3; broilerdoc draws the same three pages. The text export holds every line.",
+      "reference": "docs/notes/office-issue-234-odt-layout.md"
+    },
+    {
+      "id": "tdf118465-rtf-repeated-header-rows",
+      "bug": "tdf#118465",
+      "fixedIn": "25.8",
+      "fixCommits": ["44d1dd3a252cb79629037110c75058925efdeb80"],
+      "upstreamTests": ["sw/qa/extras/rtfimport/rtfimport2.cxx test118465Tdf"],
+      "axes": ["pixel"],
+      "samples": ["rtfimport/data/tblrepeat.rtf"],
+      "evidence": "The table's first three rows carry \\trhdr. LibreOffice 24.2's RTF import ignored \\trhdr, so the pinned PDF draws the three header rows on page one only and leaves page two, which holds the table's empty rows, blank. The fix, committed to master on 2025-02-18 and first released in 25.8, came with this sample and a test asserting HeaderRowCount 3. Local LibreOffice 26.2 repeats the rows on page two, as broilerdoc does. The text export lists the header text once either way, so only the pixel check is affected.",
+      "reference": "docs/notes/office-issue-234-rtf.md"
     }
   ]
 }

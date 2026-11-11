@@ -226,15 +226,34 @@ public sealed class DocumentLayoutParagraphKeepTests
     }
 
     [Fact]
-    public void Table_cell_keeps_a_heading_with_the_next_paragraph()
+    public void Table_cell_ignores_keep_with_next_as_writer_does()
     {
+        // tdf119054.docx: Writer ignores the keep attribute of a paragraph in a
+        // table cell (SwFlowFrame::IsKeep), so a heading at the foot of the page
+        // stays there and only what does not fit moves on.
         using var images = new ImageStore();
         var document = RichTextDocument.FromParagraphs([Para(7),
                 Para(1, Style with { KeepWithNext = true }), Para(2)])
             .WithTables([new DocumentTable(1, 2, [new TableRow([new TableCell(1, 2, 0)])], [100], cellPadding: 0)]);
         var result = new DocumentLayout(new LayoutSettings(), images).Layout(document,
             new DocumentPageBox(200, 100, 10, 10, 10, 10));
-        Assert.Equal(new[] { 7, 3 }, result.Pages.Select(page => page.Lines.Count));
+        Assert.Equal(new[] { 8, 2 }, result.Pages.Select(page => page.Lines.Count));
+    }
+
+    [Fact]
+    public void Table_cell_breaks_between_keep_with_next_paragraphs_when_the_last_ones_space_after_does_not_fit()
+    {
+        // The two paragraphs' lines fit the page but the space after the last
+        // does not. Held together they were one piece that ran past the foot
+        // of the page; Writer breaks between them and the last moves on.
+        using var images = new ImageStore();
+        var document = RichTextDocument.FromParagraphs([
+                Para(5, Style with { KeepWithNext = true, SpacingAfter = 15 }),
+                Para(1, Style with { KeepWithNext = true, SpacingAfter = 15 })])
+            .WithTables([new DocumentTable(0, 2, [new TableRow([new TableCell(0, 2, 0)])], [100], cellPadding: 0)]);
+        var result = new DocumentLayout(new LayoutSettings(), images).Layout(document,
+            new DocumentPageBox(200, 100, 10, 10, 10, 10));
+        Assert.Equal(new[] { 5, 1 }, result.Pages.Select(page => page.Lines.Count));
     }
 
     [Fact]

@@ -36,6 +36,12 @@ internal static class OdtNamespaces
     /// <summary>The form namespace: the controls a <c>draw:control</c> places on the page.</summary>
     public static readonly XNamespace Form = "urn:oasis:names:tc:opendocument:xmlns:form:1.0";
 
+    /// <summary>
+    /// The form-field namespace LibreOffice writes a Word-style legacy form field
+    /// in: <c>field:fieldmark</c> and its <c>field:param</c>s.
+    /// </summary>
+    public static readonly XNamespace Field = "urn:openoffice:names:experimental:ooo-ms-interop:xmlns:field:1.0";
+
     /// <summary>The settings namespace: <c>config:config-item</c> in <c>settings.xml</c>.</summary>
     public static readonly XNamespace Config = "urn:oasis:names:tc:opendocument:xmlns:config:1.0";
 

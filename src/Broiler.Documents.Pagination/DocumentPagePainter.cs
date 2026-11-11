@@ -788,7 +788,8 @@ public sealed class DocumentPagePainter
     {
         if (resolveImage(image) is not BImageHandle decoded)
         {
-            DrawMissingImage(list, destination);
+            if (image.MarksMissingPayload || !image.IsMissingPayload)
+                DrawMissingImage(list, destination);
             return;
         }
 
@@ -990,10 +991,16 @@ public sealed class DocumentPagePainter
                 double advance = _settings.TextMeasurer is not null ? _settings.TextMeasurer.MeasureAdvance(leader, piece.Font) : BTextMeasurer.MeasureAdvance(leader, piece.Font);
                 if (advance > 0 && double.IsFinite(advance))
                 {
+                    // Each leader character is set at the advance the layout
+                    // measured, not run on as one string: the face the renderer
+                    // draws a run with can advance wider than the measured one
+                    // (a bold leader did), and a run would then spill past the
+                    // tab over the text after it and off the page.
                     int count = (int)Math.Min(2000, Math.Floor(piece.Width / advance));
-                    if (count > 0)
-                        list.DrawText(new BTextRun(string.Concat(Enumerable.Repeat(leader, count)), piece.Font, piece.Color),
-                            new BPoint(piece.X, baseline - piece.Rise - piece.Font.Size * 0.8));
+                    var leaderRun = new BTextRun(leader, piece.Font, piece.Color);
+                    double leaderY = baseline - piece.Rise - piece.Font.Size * 0.8;
+                    for (int i = 0; i < count; i++)
+                        list.DrawText(leaderRun, new BPoint(piece.X + i * advance, leaderY));
                 }
             }
 
@@ -1069,8 +1076,10 @@ public sealed class DocumentPagePainter
         {
             // The image did not decode. Draw the box it would have occupied with
             // a cross through it: the page then shows where content is missing
-            // instead of quietly closing up around the hole.
-            DrawMissingImage(list, destination);
+            // instead of quietly closing up around the hole - unless the source
+            // prints nothing there (InlineImage.MarksMissingPayload).
+            if (piece.Image!.MarksMissingPayload || !piece.Image.IsMissingPayload)
+                DrawMissingImage(list, destination);
             return;
         }
 

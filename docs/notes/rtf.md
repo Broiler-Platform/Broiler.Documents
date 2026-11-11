@@ -22,6 +22,7 @@ shape text), `RtfDefaultSizeTests` (inherited font sizes on export),
 |---|---|
 | Inline character | `\b` `\b0` `\i` `\i0` `\ul` `\ul0` `\ulnone` `\strike` `\strike0` `\v` `\v0` `\caps` `\caps0` `\scaps` `\scaps0` `\plain` `\fsN` `\fN` `\cfN` `\cbN` `\highlightN` |
 | Paragraph | `\pard` `\ql` `\qc` `\qr` `\qj` `\liN` `\sbN` `\saN` `\slN` with `\slmult1` `\pagebb` `\pagebb0` `\cbpatN` (the paragraph's shading, → `ParagraphStyle.Background`; written back) |
+| Tab stops | `\txN` closing a stop that `\tqr` `\tqc` `\tqdec` and the leaders `\tldot` `\tlhyph` `\tlul` `\tlth` `\tlmdot` open, in a paragraph or a style (→ `ParagraphStyle.TabStops`; `\tleq` gives no leader, as LibreOffice draws none; a bar tab `\tbN` is no stop). An RTF lets tabs run over the margin (→ `DocumentStyleDefaults.TabsOverMargin`), as LibreOffice reads a document with no Word compatibility mode. Not written back |
 | Paragraph mark | The character formatting in effect at `\par` (→ `RichTextParagraph.MarkStyle`, what an empty paragraph is as tall as; not written back) |
 | Breaks & entities | `\par` `\line` `\page` (→ `PageBreakBefore` on the paragraph that follows) `\tab` `\nestcell` (→ tab) `\lquote` `\rquote` `\ldblquote` `\rdblquote` `\bullet` `\endash` `\emdash` `\enspace` `\emspace` |
 | Control symbols | `\\` `\{` `\}` `\~` (nbsp) `\_` (nb-hyphen) `\-` (optional hyphen, dropped) `\`+CR/LF (→ paragraph) `\*` (destination marker) |
@@ -585,6 +586,7 @@ caller asked for that this codec does not do.
 | `rtf.shape.flow` | Warning | Write | Linked text frames, minimum-width sizing, vertical text alignment or explicit overflow were not written; frame text is retained. |
 | `rtf.fill.extended` | Warning | Write | Bitmap and hatch fills, centred gradients, gradient borders or page-fill bounds were approximated. |
 | `rtf.frame.position` | Info | Read | A frame aligned to the centre or foot of its paragraph was set at its top, its height not being known until layout. Once per read. One measured from the page or margin is placed by its text height estimated at 1.15 em a line, and a centred one with no `\absw` is fitted to its text across the reference so it stays centred (`fdo52052.rtf`). A frame a `\page` closes stays on the page before the break even when `\sect` follows. |
+| `rtf.image.external` | Warning | Read | An `INCLUDEPICTURE` field with no saved result links to a picture outside the document; the reader is given only the document's bytes and loads no other file. Once per read. |
 | `rtf.embedded` | Info | Read | Pictures and objects were skipped. Once per read, and replaced by `document.capability.not-composed` when decoding was asked for. |
 | `rtf.page.geometry` | Warning | Read | The section properties described a page with no room to write on, so the page was not read. A negative `\margt`/`\margb` is not that: it is Word's "exact" margin, read as its magnitude with a header or footer band that does not grow (`tdf107413.rtf`). |
 | `rtf.columns.geometry` | Warning | Read | `\cols` and `\colsx` left no room to write in a column; the page was kept and read as one column. |

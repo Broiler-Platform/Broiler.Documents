@@ -216,4 +216,24 @@ public sealed class DocumentPaginatorTests
         Assert.Equal(100, stroke.Rect.Width, 2);
     }
 
+    [Fact]
+    public void Missing_Payload_Image_Without_A_Mark_Draws_Nothing()
+    {
+        // An ODT frame whose picture the package does not hold: LibreOffice
+        // prints an empty frame there, so the box keeps its place and has no ink.
+        var image = InlineImage.CreateMissingPayload(100, 50, "Missing", marked: false);
+        var shape = new DocumentShape(0, 10, 20, 100, 50, image: image);
+        RichTextDocument document = WithPicture(image).WithShapes([shape]);
+        using var images = new ImageStore();
+        using var renderer = new BImageRenderer();
+        var paginator = new DocumentPaginator();
+        LayoutSettings settings = paginator.SettingsFor(document);
+        LayoutResult layout = new DocumentLayout(settings, images).Layout(document, DocumentPageBox.FromSetup(BPageSetup.Default));
+        var list = new BRenderList();
+        new DocumentPagePainter(settings, images).Paint(layout.Pages[0], layout.Setup, list, picture => images.Handle(renderer, picture));
+
+        Assert.Empty(list.Commands.OfType<BRenderCommand.StrokeRect>());
+        Assert.False(image.WithSize(80, 40).MarksMissingPayload);
+    }
+
 }

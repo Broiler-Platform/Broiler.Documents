@@ -34,6 +34,7 @@ internal sealed class RtfStyle
     public int? ParagraphBackgroundIndex { get; set; }
     public BColor? ParagraphBackground { get; set; }
     public bool? PageBreakBefore { get; set; }
+    public List<ParagraphTabStop>? TabStops { get; set; }
 
     // Character formatting
     public bool? Bold { get; set; }
@@ -134,6 +135,7 @@ internal sealed class RtfStyleSheet
             style.MultipleLineSpacing ??= baseStyle.MultipleLineSpacing;
             style.ParagraphBackground ??= baseStyle.ParagraphBackground;
             style.PageBreakBefore ??= baseStyle.PageBreakBefore;
+            style.TabStops ??= baseStyle.TabStops;
 
             // Inherit unset character formatting
             style.FontFamily ??= baseStyle.FontFamily;
@@ -197,6 +199,8 @@ internal sealed class RtfStyleSheet
             para = para with { Background = style.ParagraphBackground.Value };
         if (style.PageBreakBefore.HasValue)
             para = para with { PageBreakBefore = style.PageBreakBefore.Value };
+        if (style.TabStops is { Count: > 0 })
+            para = para with { TabStops = new ParagraphTabStops(style.TabStops) };
 
         style.ResolvedParagraph = para;
 

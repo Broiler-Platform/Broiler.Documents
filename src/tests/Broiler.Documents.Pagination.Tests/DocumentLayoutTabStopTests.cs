@@ -81,9 +81,36 @@ public sealed class DocumentLayoutTabStopTests
         var commands = new Broiler.Graphics.RenderList.BRenderList();
         new DocumentPagePainter(new LayoutSettings(), images).Paint(page, box, commands, _ => null);
         var tab = Assert.Single(Assert.Single(page.Lines).Pieces, piece => piece.IsTab);
-        Assert.Contains(commands.Commands.OfType<Broiler.Graphics.RenderList.BRenderCommand.DrawText>(),
-            command => command.Text.Text.Length > 1 && command.Text.Text.All(c => c == '.'));
+        var dots = commands.Commands.OfType<Broiler.Graphics.RenderList.BRenderCommand.DrawText>()
+            .Where(command => command.Text.Text == ".").ToArray();
+        Assert.True(dots.Length > 1);
         Assert.True(tab.Width > 0);
+
+        // Each dot is set at its measured advance, so the leader ends inside the
+        // gap whatever advance the renderer's face gives a run of dots.
+        double advance = Broiler.Graphics.Text.BTextMeasurer.MeasureAdvance(".", tab.Font);
+        Assert.All(dots, dot => Assert.InRange(dot.Origin.X, tab.X - 0.01, tab.X + tab.Width - advance + 0.01));
+    }
+
+    [Fact]
+    public void A_Bold_Tab_Leader_Stays_Inside_The_Reserved_Gap()
+    {
+        // rtfimport/data/fdo82071.rtf: a bold TOC entry's dot leader ran on as
+        // one string past its page number and off the page.
+        var paragraph = RichTextParagraph.Create("title\t12", InlineStyle.Default with { Bold = true },
+            ParagraphStyle.Default with { TabStops = new ParagraphTabStops([new(180, TabAlignment.Right, ".")]) });
+        var box = new DocumentPageBox(400, 200, 10, 10, 10, 10);
+        using var images = new ImageStore();
+        var page = Assert.Single(new DocumentLayout(new LayoutSettings(), images)
+            .Layout(RichTextDocument.FromParagraphs([paragraph]), box).Pages);
+        var commands = new Broiler.Graphics.RenderList.BRenderList();
+        new DocumentPagePainter(new LayoutSettings(), images).Paint(page, box, commands, _ => null);
+        var tab = Assert.Single(Assert.Single(page.Lines).Pieces, piece => piece.IsTab);
+        var leader = commands.Commands.OfType<Broiler.Graphics.RenderList.BRenderCommand.DrawText>()
+            .Where(command => command.Text.Text.Length > 0 && command.Text.Text.All(c => c == '.')).ToArray();
+        Assert.NotEmpty(leader);
+        Assert.All(leader, dot => Assert.Equal(1, dot.Text.Text.Length));
+        Assert.All(leader, dot => Assert.True(dot.Origin.X < tab.X + tab.Width));
     }
 
     /// <summary>
