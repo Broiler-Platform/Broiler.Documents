@@ -46,6 +46,8 @@ public static class RtfReader
         /// that holds it is open and gives it back when the group closes.
         /// </summary>
         public RtfDestination FieldHost;
+        /// <summary>Where an <c>\object</c>'s <c>\result</c> belongs: the destination the object opened in.</summary>
+        public RtfDestination ObjectHost;
         public FieldFrame? Field;
         public int UnicodeSkip;
         public int CodePage;
@@ -608,6 +610,18 @@ public static class RtfReader
                 return;
             }
 
+            // An embedded object draws as its \result, the picture (or text)
+            // the producer saved beside the OLE data, as Word and LibreOffice
+            // both do. Everything else in the object is skipped.
+            if (_state.Dest == RtfDestination.Object)
+            {
+                if (kw == "result")
+                    _state.Dest = _state.ObjectHost;
+                else if (star || kw is "pict" or "object" or "field" or "shp")
+                    _state.Dest = RtfDestination.Skip;
+                return;
+            }
+
             if (_state.Dest == RtfDestination.LegacyDrawing)
             {
                 // Unknown ignorable subgroups remain opaque inside a drawing too.
@@ -752,6 +766,12 @@ public static class RtfReader
                     _state.Dest = RtfDestination.FieldResult;
                     if (_state.Field?.Link is string link)
                         _state.Char = _state.Char with { LinkHref = link };
+                    return;
+                case "object" when _state.Dest is RtfDestination.Normal or RtfDestination.FieldResult or
+                    RtfDestination.ShapeText or RtfDestination.Note || IsRunning(_state.Dest):
+                    _state.ObjectHost = _state.Dest;
+                    _state.Dest = RtfDestination.Object;
+                    ReportEmbedded();
                     return;
                 case "pict":
                 case "object":
@@ -2759,7 +2779,65 @@ public static class RtfReader
                 return _infoAuthor.ToString().Trim();
             if (keyword.Equals("SUBJECT", StringComparison.OrdinalIgnoreCase))
                 return _infoSubject.ToString().Trim();
+            if (keyword.Equals("IF", StringComparison.OrdinalIgnoreCase))
+                return EvaluateIfField(space > 0 ? code[space..] : "");
             return null;
+        }
+
+        /// <summary>
+        /// The text an <c>IF</c> field with no saved result shows. Its arguments
+        /// are split on spaces, a quoted argument kept whole (an unclosed quote runs
+        /// to the end); the last two are the true and the false text and the rest
+        /// the condition, which is how LibreOffice reads a malformed one too. A
+        /// field with fewer than three arguments shows nothing. A comparison of
+        /// two numbers (or else two strings) is evaluated as Word does; a lone
+        /// number is true unless zero, and a condition that is neither is taken as
+        /// true, as LibreOffice takes it.
+        /// </summary>
+        internal static string? EvaluateIfField(string arguments)
+        {
+            var args = new List<string>();
+            int i = 0;
+            while (i < arguments.Length)
+            {
+                if (char.IsWhiteSpace(arguments[i])) { i++; continue; }
+                var token = new StringBuilder();
+                if (arguments[i] == '"')
+                {
+                    i++;
+                    while (i < arguments.Length && arguments[i] != '"') token.Append(arguments[i++]);
+                    i++;
+                }
+                else
+                {
+                    while (i < arguments.Length && !char.IsWhiteSpace(arguments[i]) && arguments[i] != '"') token.Append(arguments[i++]);
+                }
+                args.Add(token.ToString());
+            }
+            if (args.Count < 3)
+                return null;
+
+            List<string> condition = args.GetRange(0, args.Count - 2);
+            bool result = true;
+            if (condition.Count == 3 && condition[1] is "=" or "<>" or "<" or ">" or "<=" or ">=")
+            {
+                int order = double.TryParse(condition[0], NumberStyles.Float, CultureInfo.InvariantCulture, out double left) &&
+                            double.TryParse(condition[2], NumberStyles.Float, CultureInfo.InvariantCulture, out double right)
+                    ? left.CompareTo(right)
+                    : string.Compare(condition[0], condition[2], StringComparison.Ordinal);
+                result = condition[1] switch
+                {
+                    "=" => order == 0,
+                    "<>" => order != 0,
+                    "<" => order < 0,
+                    ">" => order > 0,
+                    "<=" => order <= 0,
+                    _ => order >= 0,
+                };
+            }
+            else if (condition.Count == 1 && double.TryParse(condition[0], NumberStyles.Float, CultureInfo.InvariantCulture, out double value))
+                result = value != 0;
+            return result ? args[^2] : args[^1];
         }
 
         private static string? ExtractRubyBase(string instruction)
