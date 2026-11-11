@@ -115,4 +115,15 @@ public sealed class DocxLineHeightTests
         using var reader = new StreamReader(archive.GetEntry("word/document.xml")!.Open());
         return reader.ReadToEnd();
     }
+
+    [Fact]
+    public void An_Auto_Line_Too_Large_For_LibreOffice_Wraps_To_An_Exact_Height()
+    {
+        // 31680 twips are 55880 1/100 mm, which a 16-bit field wraps to -9656:
+        // LibreOffice then draws an exact line of 9656 1/100 mm (273.7pt).
+        ParagraphStyle style = ReadSpacing("<w:spacing w:line=\"31680\" w:lineRule=\"auto\"/>");
+
+        Assert.Equal(LineHeightRule.Exact, style.LineHeightRule);
+        Assert.Equal(273.7f, style.LineHeight, 0.1f);
+    }
 }

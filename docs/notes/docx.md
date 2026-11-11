@@ -621,6 +621,26 @@ LibreOffice's `DomainMapperTableHandler` does:
   `docx.background.fill`. A write puts `w:color` (a gradient's middle colour)
   on `w:background`, a `v:background` for a gradient, and turns the switch on.
 
+### Oversized auto line spacing and VML WordArt
+
+`test_line_spacing.docx` sets `w:line="31680" w:lineRule="auto"` (13200%,
+Word's maximum). LibreOffice's writerfilter handles `w:line` before
+`w:lineRule`, so it first stores the value as a fixed height in 1/100 mm in a
+16-bit field: 55880 wraps to -9656, and the auto rule then turns the negative
+height into an exact line of 9656 1/100 mm (273.7pt). The reader reproduces
+that wrap for auto lines above 32767 1/100 mm (a positive wrap becomes a
+percentage of 423, i.e. 12pt), so the sample keeps both paragraphs on one
+page as LibreOffice does instead of a 1773pt line that pushes "World" to
+page 2.
+
+An inline VML WordArt shape (`v:shape` whose `v:textpath`, or the
+`v:shapetype` it names, is `on`; `testWordArtWithinDraingtool.docx`) was read
+as an unrenderable freeform path and drew nothing. It is now read as its
+`string`, line by line, in the text path's font and the shape's fill colour,
+sized so the longest line fits the shape's width. Glyphs are not stretched to
+the path (`docx.shape.wordart`). The sample's centred footer frame
+(`w:framePr w:xAlign="center"` in a footer) is still drawn at the left margin.
+
 ## Intentional Limits
 
 Each feature's limits are stated with it above. Beyond those:

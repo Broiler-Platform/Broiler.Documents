@@ -1523,6 +1523,56 @@ internal static class DocxReader
     /// kept on it, so a picture inside a hyperlink stays inside that link. An
     /// anchored picture goes to <see cref="ReadFloatingPicture"/> instead.
     /// </summary>
+    /// <summary>
+    /// An inline VML WordArt shape (<c>v:textpath</c>) is drawn as its string
+    /// in the shape's font, sized so the longest line fits the shape's width
+    /// and the lines its height. Word and LibreOffice stretch each glyph to the
+    /// path instead; the text at least lands where their ink is.
+    /// </summary>
+    private static bool ReadVmlWordArt(XElement picture, DocxReadContext context, InlineStyle style)
+    {
+        if (picture.Name != DocxNamespaces.Wordprocessing + "pict")
+            return false;
+        XElement? shape = picture.Elements(DocxNamespaces.Vml + "shape").FirstOrDefault();
+        XElement? textPath = shape?.Element(DocxNamespaces.Vml + "textpath");
+        if (shape is null || textPath is null)
+            return false;
+        // The shape's v:textpath usually inherits on="t" from its v:shapetype,
+        // which may sit in the other branch of an mc:AlternateContent.
+        string? typeId = ((string?)shape.Attribute("type"))?.TrimStart('#');
+        string? on = (string?)textPath.Attribute("on") ?? (string.IsNullOrEmpty(typeId) ? null :
+            (string?)picture.Document?.Descendants(DocxNamespaces.Vml + "shapetype")
+                .FirstOrDefault(type => (string?)type.Attribute("id") == typeId)
+                ?.Element(DocxNamespaces.Vml + "textpath")?.Attribute("on"));
+        if (on is not ("t" or "true" or "1"))
+            return false;
+        string? text = (string?)textPath.Attribute("string");
+        Dictionary<string, string> shapeStyle = DocxVml.ReadStyle((string?)shape.Attribute("style"));
+        if (string.IsNullOrWhiteSpace(text) ||
+            string.Equals(shapeStyle.GetValueOrDefault("position"), "absolute", StringComparison.OrdinalIgnoreCase) ||
+            !DocxVml.TryLength(shapeStyle.GetValueOrDefault("width"), out double width) ||
+            !DocxVml.TryLength(shapeStyle.GetValueOrDefault("height"), out double height) || width <= 0 || height <= 0)
+            return false;
+
+        string[] lines = text.Replace("\r\n", "\n").Split('\n').Select(line => line.Trim()).Where(line => line.Length > 0).ToArray();
+        if (lines.Length == 0)
+            return false;
+        Dictionary<string, string> textStyle = DocxVml.ReadStyle((string?)textPath.Attribute("style"));
+        string? family = textStyle.GetValueOrDefault("font-family")?.Trim().Trim('"', '\'');
+        // Half an em per character is a narrow face's average advance.
+        double size = Math.Min(height / lines.Length / 1.2, width / (lines.Max(line => line.Length) * 0.5));
+        InlineStyle wordArt = style with
+        {
+            FontFamily = string.IsNullOrEmpty(family) ? style.FontFamily : family,
+            FontSize = (float)Math.Clamp(size, 1, 400),
+            Foreground = DocxVml.TryColor((string?)shape.Attribute("fillcolor"), out BColor color) ? color : style.Foreground,
+        };
+        context.Builder.AppendText(string.Join((char)0x2028, lines), wordArt);
+        context.Builder.AddDiagnosticOnce("docx.shape.wordart",
+            "A VML WordArt shape was drawn as plain text in its box; its glyphs are not fitted to the text path.");
+        return true;
+    }
+
     private static void ReadPicture(XElement picture, DocxReadContext context, InlineStyle style)
     {
         // tdf#153613: In Word 2010 and earlier compatibility modes without
@@ -1537,6 +1587,7 @@ internal static class DocxReader
         if (!deferBreakAfterAnchor)
             context.Builder.EnsureBreakApplied();
         if (ReadDiagram(picture, context)) return;
+        if (ReadVmlWordArt(picture, context, style)) return;
 
         // A w:drawing is either a picture or a shape. A shape reports nothing when
         // it does not match, so a drawing that is neither still reaches the picture
@@ -3120,6 +3171,19 @@ internal static class DocxReader
                         _ => LineHeightRule.Proportional,
                     };
 
+                // LibreOffice reads w:line before w:lineRule and so first
+                // stores an auto line as a fixed height in 1/100 mm, which a
+                // 16-bit field truncates. Above 32767 (about 18577 twips, 77
+                // lines) the value wraps: a negative one becomes an exact
+                // height, a positive one a percentage of 423 (12pt).
+                if (rule == LineHeightRule.Proportional && lineRule == "auto" &&
+                    WrappedAutoLineHeight(line) is { } wrapped)
+                {
+                    if (wrapped < 0)
+                        rule = LineHeightRule.Exact;
+                    line = wrapped < 0 ? (int)Math.Round(-wrapped * 72d / 127d) : (int)Math.Round(wrapped * 240d / 423d);
+                }
+
                 if (rule != LineHeightRule.Proportional)
                     style = style with { LineSpacing = 1f, LineHeightRule = rule, LineHeight = FixedLineHeight(line) };
                 else if (line > 0)
@@ -3428,6 +3492,17 @@ internal static class DocxReader
         DocxValueReader.TryReadTwips(ind.Attribute(DocxNamespaces.Wordprocessing + "left"), out twips);
 
     /// <summary>An exact or at-least w:line in twips, as points, within Word's limit.</summary>
+    private static int? WrappedAutoLineHeight(int twips)
+    {
+        if (twips <= 0)
+            return null;
+        long mm100 = (long)Math.Round(twips * 127d / 72d);
+        if (mm100 <= short.MaxValue)
+            return null;
+        short wrapped = unchecked((short)mm100);
+        return wrapped == 0 ? null : wrapped;
+    }
+
     private static float FixedLineHeight(int twips) =>
         (float)Math.Min(Math.Abs((long)twips) / 20d, ParagraphStyle.MaxLineHeight);
 
