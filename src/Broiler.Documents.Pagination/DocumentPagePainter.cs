@@ -35,6 +35,15 @@ public sealed class DocumentPagePainter
     /// <summary>How wide a changed line's bar is drawn: a hairline, as LibreOffice draws it.</summary>
     private const double ChangeBarWidth = 0.5;
 
+    /// <summary>
+    /// How wide a stroke the document states as zero is drawn. LibreOffice draws
+    /// such a hairline one device pixel wide (tdf115153.rtf's <c>\dplinew0</c>
+    /// rule). The render list has no device-pixel unit, so this is that pixel at
+    /// 96 dpi: any band this wide covers a pixel centre and draws, where the
+    /// quarter point used before fell between centres and drew nothing.
+    /// </summary>
+    private const double HairlineWidth = 0.75;
+
     /// <summary>The colour of a changed line's bar, LibreOffice's default black.</summary>
     private static readonly BColor ChangeBarColor = new(0, 0, 0);
 
@@ -241,7 +250,7 @@ public sealed class DocumentPagePainter
 
         if (!shape.Outline.IsEmpty && shape.Outline.A > 0)
         {
-            double thickness = shape.OutlineWidth == 0 ? 0.25 : shape.OutlineWidth;
+            double thickness = shape.OutlineWidth == 0 ? HairlineWidth : shape.OutlineWidth;
             if (shape.Geometry == ShapeGeometry.Ellipse)
                 list.Append(new BRenderCommand.StrokeRoundedRect(shape.Bounds, shape.Outline, shape.Bounds.Width / 2, shape.Bounds.Height / 2, thickness));
             else if (shape.Geometry == ShapeGeometry.RoundedRectangle)
@@ -267,7 +276,7 @@ public sealed class DocumentPagePainter
     /// </summary>
     private static void DrawRule(BRenderList list, LayoutShape shape)
     {
-        double width = shape.OutlineWidth == 0 ? 0.25 : shape.OutlineWidth;
+        double width = shape.OutlineWidth == 0 ? HairlineWidth : shape.OutlineWidth;
         if (shape.Outline.IsEmpty || shape.Outline.A == 0)
             return;
 
@@ -283,7 +292,7 @@ public sealed class DocumentPagePainter
         if (color.IsEmpty || color.A == 0) return;
         double dx = end.X - start.X, dy = end.Y - start.Y, length = Math.Sqrt(dx * dx + dy * dy);
         if (length <= 0) return;
-        double half = (width == 0 ? 0.25 : width) / 2;
+        double half = (width == 0 ? HairlineWidth : width) / 2;
         list.PushTransform(new BMatrix3x2(dx / length, dy / length, -dy / length, dx / length, start.X, start.Y));
         list.FillRect(new BRect(0, -half, length, 2 * half), color);
         list.PopTransform();

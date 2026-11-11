@@ -76,6 +76,15 @@ public static class RtfReader
         /// <summary>The currently active paragraph style ID (\sN), or null if none.</summary>
         public int? ActiveParaStyleId;
 
+        /// <summary>
+        /// Whether the paragraph's tab stops are still the ones its style gave it.
+        /// The first <c>	x</c> of the paragraph replaces them rather than adding
+        /// to them: an RTF paragraph states its whole set of stops, and
+        /// LibreOffice's <c>DomainMapper</c> does not start an RTF paragraph's
+        /// stops from its style's (fdo#81033).
+        /// </summary>
+        public bool TabsFromStyle;
+
         /// <summary>The currently active character style ID (\csN), or null if none.</summary>
         public int? ActiveCharStyleId;
 
@@ -880,8 +889,12 @@ public static class RtfReader
             // \* says to ignore what the reader does not understand, so a
             // destination it does understand has to be let through - a shape
             // arrives as {\*\shpinst ...} and would otherwise be dropped here,
-            // several hundred lines before the case that handles it.
-            if (star && kw is not ("shpinst" or "background"))
+            // several hundred lines before the case that handles it. A character
+            // style is no destination at all: \* before it says nothing, and
+            // LibreOffice applies it and reads on. Writer's own export puts
+            // {ldrslt \*\cs12 ...} round a link's text (tdf141964_numId0.rtf),
+            // and skipping there dropped the text.
+            if (star && kw is not ("shpinst" or "background" or "cs"))
             {
                 _state.Dest = RtfDestination.Skip;
                 return;
@@ -1001,6 +1014,7 @@ public static class RtfReader
                     {
                         _state.ActiveParaStyleId = p;
                         _state.Para = paraStyle.ResolvedParagraph;
+                        _state.TabsFromStyle = true;
                         if (paraStyle.LineSpacing.HasValue)
                         {
                             _state.LineSpacing = paraStyle.LineSpacing.Value;
@@ -1182,6 +1196,7 @@ public static class RtfReader
 
                 case "pard":
                     _state.ActiveParaStyleId = 0;
+                    _state.TabsFromStyle = true;
                     if (_styleSheet.TryGetParagraphStyle(0, out RtfStyle? normalPara))
                     {
                         _state.Para = normalPara.ResolvedParagraph;
@@ -1259,6 +1274,11 @@ public static class RtfReader
                     _state.Para = _state.Para with { IndentLevel = indent,
                         LeftIndent = Math.Abs(exactLeft - indent * 18f) < 0.001f ? null : exactLeft };
                     break;
+                // The first line's indent from the left one, negative for a
+                // hanging indent, and the right indent. Zero is the default, which
+                // the model holds as no value.
+                case "fi": _state.Para = _state.Para with { FirstLineIndent = IndentPoints(p, has) }; break;
+                case "ri": _state.Para = _state.Para with { RightIndent = IndentPoints(p, has) }; break;
                 case "sb": _state.Para = _state.Para with { SpacingBefore = has ? p / 20f : 0f }; break;
                 case "sa": _state.Para = _state.Para with { SpacingAfter = has ? p / 20f : 0f }; break;
 
@@ -1278,10 +1298,11 @@ public static class RtfReader
                     break;
                 case "tx":
                     if (has && TakeTabStop(p) is ParagraphTabStop stop)
-                        _state.Para = _state.Para with
-                        {
-                            TabStops = new ParagraphTabStops([.. _state.Para.TabStops ?? (IEnumerable<ParagraphTabStop>)[], stop]),
-                        };
+                    {
+                        IEnumerable<ParagraphTabStop> kept = _state.TabsFromStyle ? [] : _state.Para.TabStops ?? (IEnumerable<ParagraphTabStop>)[];
+                        _state.TabsFromStyle = false;
+                        _state.Para = _state.Para with { TabStops = new ParagraphTabStops([.. kept, stop]) };
+                    }
                     break;
                 case "tb": TakeTabStop(0); break;
 
@@ -1812,6 +1833,8 @@ public static class RtfReader
                     _currentStyle.IndentLevel = indent;
                     _currentStyle.LeftIndent = Math.Abs(exactLeft - indent * 18f) < 0.001f ? null : exactLeft;
                     break;
+                case "fi": _currentStyle.FirstLineIndent = IndentPoints(p, has) ?? 0; break;
+                case "ri": _currentStyle.RightIndent = IndentPoints(p, has) ?? 0; break;
                 case "sb": _currentStyle.SpacingBefore = has ? p / 20f : 0f; break;
                 case "sa": _currentStyle.SpacingAfter = has ? p / 20f : 0f; break;
                 case "sl": if (has) _currentStyle.LineSpacing = p; break;
@@ -3044,6 +3067,10 @@ public static class RtfReader
         }
 
         private static int Clamp(int value) => Math.Clamp(value, 0, 255);
+
+        /// <summary>An indent in twips as points, or null for zero or no value.</summary>
+        private static float? IndentPoints(int twips, bool has) =>
+            has && twips != 0 ? Math.Clamp(twips / 20f, -20000, 20000) : null;
 
         private static int TwipsToLevel(int twips) =>
             twips <= 0 ? 0 : Math.Clamp((int)Math.Round(twips / 360.0), 0, 32);
