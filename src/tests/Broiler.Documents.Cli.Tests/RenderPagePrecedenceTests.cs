@@ -102,4 +102,34 @@ public sealed class RenderPagePrecedenceTests
         Assert.Equal(PageSetup.Default.WidthPoints, setup.WidthPoints, 3);
         Assert.Equal(PageSetup.Default.MarginLeftPoints, setup.MarginLeftPoints, 3);
     }
+
+    [Fact]
+    public void A_Default_Margin_Is_Used_For_A_Document_That_States_No_Page()
+    {
+        // 1cm top and bottom, 2cm at the sides: LibreOffice's HTML page, which
+        // the office runner asks for an HTML document.
+        PageSetup setup = Resolve(RichTextDocument.FromPlainText("body"), "--default-margin", "1cm,2cm");
+
+        Assert.Equal(PageSetup.Default.WidthPoints, setup.WidthPoints, 3);
+        Assert.Equal(28.346, setup.MarginTopPoints, 2);
+        Assert.Equal(56.693, setup.MarginLeftPoints, 2);
+        Assert.Equal(56.693, setup.MarginRightPoints, 2);
+    }
+
+    [Fact]
+    public void A_Default_Margin_Leaves_A_Stated_Page_Alone()
+    {
+        PageSetup setup = Resolve(Stating(StatedPage), "--default-margin", "1cm,2cm");
+
+        Assert.Equal(612, setup.WidthPoints, 3);
+        Assert.Equal(90, setup.MarginLeftPoints, 3);
+    }
+
+    [Fact]
+    public void A_Margin_Outranks_A_Default_Margin()
+    {
+        PageSetup setup = Resolve(RichTextDocument.FromPlainText("body"), "--default-margin", "1cm", "--margin", "2in");
+
+        Assert.Equal(144, setup.MarginLeftPoints, 3);
+    }
 }

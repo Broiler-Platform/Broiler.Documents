@@ -121,7 +121,10 @@ public sealed class PageSetup
         if (line.Has("landscape"))
             (width, height) = (height, width);
 
-        (double top, double right, double bottom, double left) = ParseMargins(line.Get("margin", "1in")!);
+        // --default-margin only moves the fallback: a document that states its
+        // own page keeps it, where --margin replaces every document's.
+        (double top, double right, double bottom, double left) =
+            ParseMargins(line.Get("margin") ?? line.Get("default-margin", "1in")!);
 
         double dpi = line.GetDouble("dpi", PixelsPerInch);
         if (dpi < 1 || dpi > 2400)
