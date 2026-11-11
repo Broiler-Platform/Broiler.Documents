@@ -94,6 +94,9 @@ public sealed record PageGeometry(
     /// <summary>Space from each page border to the content area, in points.</summary>
     public TableCellPadding BorderPadding { get; init; }
 
+    /// <summary>The numbers set beside the body's lines, or null for none.</summary>
+    public LineNumbering? LineNumbering { get; init; }
+
     /// <summary>True when the text area is divided into more than one column.</summary>
     public bool HasColumns => ColumnCount > 1;
 

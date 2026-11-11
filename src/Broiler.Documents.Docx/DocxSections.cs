@@ -278,8 +278,43 @@ internal sealed class DocxSections
             Margin("footer", defaultHeaderFooter))
         {
             VerticalWriting = verticalWriting,
+            LineNumbering = ReadLineNumbering(sectPr.Element(DocxNamespaces.Wordprocessing + "lnNumType")),
         };
         return geometry.IsUsable ? geometry : null;
+    }
+
+    /// <summary>
+    /// The line numbering a <c>w:lnNumType</c> asks for (ECMA-376 §17.6.8), or
+    /// null for none.
+    /// </summary>
+    /// <remarks>
+    /// Numbering is on only where <c>w:countBy</c> is at least one, which is how
+    /// Word writes it and LibreOffice reads it. <c>w:start</c> is stored one
+    /// below the first number shown - Word's "Start at: 1" is no attribute, or
+    /// zero - and <c>w:restart</c> defaults to <c>newPage</c>.
+    /// </remarks>
+    public static LineNumbering? ReadLineNumbering(XElement? lnNumType)
+    {
+        if (lnNumType is null)
+            return null;
+
+        XNamespace w = DocxNamespaces.Wordprocessing;
+        if (!int.TryParse((string?)lnNumType.Attribute(w + "countBy"), NumberStyles.Integer,
+                CultureInfo.InvariantCulture, out int countBy) || countBy < 1)
+            return null;
+
+        int start = int.TryParse((string?)lnNumType.Attribute(w + "start"), NumberStyles.Integer,
+            CultureInfo.InvariantCulture, out int stored) && stored > 0 ? stored + 1 : 1;
+        double? distance = lnNumType.Attribute(w + "distance") is XAttribute attribute &&
+            DocxValueReader.TryReadTwips(attribute, out int twips) && twips > 0 ? twips / 20d : null;
+        LineNumberRestart restart = (string?)lnNumType.Attribute(w + "restart") switch
+        {
+            "newSection" => LineNumberRestart.NewSection,
+            "continuous" => LineNumberRestart.Continuous,
+            _ => LineNumberRestart.NewPage,
+        };
+
+        return new LineNumbering(countBy, start, distance, restart);
     }
 
     /// <summary>True when <paramref name="paragraph"/> is the last of its section.</summary>
