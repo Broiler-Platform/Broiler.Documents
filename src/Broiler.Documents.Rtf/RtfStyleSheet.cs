@@ -26,6 +26,8 @@ internal sealed class RtfStyle
     // Paragraph formatting
     public TextAlignment? Alignment { get; set; }
     public float? LeftIndent { get; set; }
+    public float? FirstLineIndent { get; set; }
+    public float? RightIndent { get; set; }
     public int? IndentLevel { get; set; }
     public float? SpacingBefore { get; set; }
     public float? SpacingAfter { get; set; }
@@ -129,6 +131,8 @@ internal sealed class RtfStyleSheet
             style.Alignment ??= baseStyle.Alignment;
             style.IndentLevel ??= baseStyle.IndentLevel;
             style.LeftIndent ??= baseStyle.LeftIndent;
+            style.FirstLineIndent ??= baseStyle.FirstLineIndent;
+            style.RightIndent ??= baseStyle.RightIndent;
             style.SpacingBefore ??= baseStyle.SpacingBefore;
             style.SpacingAfter ??= baseStyle.SpacingAfter;
             style.LineSpacing ??= baseStyle.LineSpacing;
@@ -179,6 +183,8 @@ internal sealed class RtfStyleSheet
         if (style.Alignment.HasValue) para = para with { Alignment = style.Alignment.Value };
         if (style.IndentLevel.HasValue) para = para with { IndentLevel = style.IndentLevel.Value };
         if (style.LeftIndent.HasValue) para = para with { LeftIndent = style.LeftIndent.Value };
+        if (style.FirstLineIndent is float first && first != 0) para = para with { FirstLineIndent = first };
+        if (style.RightIndent is float right && right != 0) para = para with { RightIndent = right };
         if (style.SpacingBefore.HasValue) para = para with { SpacingBefore = style.SpacingBefore.Value };
         if (style.SpacingAfter.HasValue) para = para with { SpacingAfter = style.SpacingAfter.Value };
         if (style.LineSpacing.HasValue)

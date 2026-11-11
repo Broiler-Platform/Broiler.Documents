@@ -107,6 +107,7 @@ internal sealed class LineWrapper(double tabStopPoints, IDocumentTextMeasurer? t
                 // forced break is stretched like any other non-final line, which
                 // is measured rather than assumed - LibreOffice does the same, and
                 // `isLastLine` below still names only the paragraph's final row.
+                KeepTrailingLeaders();
                 pendingSpace.Clear();
                 pendingWidth = 0;
                 Flush(wraps: false);
@@ -223,8 +224,29 @@ internal sealed class LineWrapper(double tabStopPoints, IDocumentTextMeasurer? t
             currentWidth += token.Width;
         }
 
+        KeepTrailingLeaders();
         rows.Add(current);
         return rows;
+
+        // A tab with a leader that ends the paragraph, or the line a forced break
+        // ends, still draws its leader: LibreOffice sets the tab portion and its
+        // fill characters with no text after them - a form's blank to write on
+        // (fdo81033.rtf). The whitespace after the last such tab is dropped as
+        // any trailing whitespace is.
+        void KeepTrailingLeaders()
+        {
+            int last = pendingSpace.FindLastIndex(space => space.IsTab && space.Pieces.Count > 0 && space.Pieces[0].TabLeader is not null);
+            if (last < 0)
+                return;
+
+            for (int i = 0; i <= last; i++)
+            {
+                current.AddRange(pendingSpace[i].Pieces);
+                currentWidth += pendingSpace[i].Width;
+            }
+
+            pendingSpace.RemoveRange(0, last + 1);
+        }
 
         // Moves the whitespace held back into the row, now that a word follows it.
         void AddPending()
