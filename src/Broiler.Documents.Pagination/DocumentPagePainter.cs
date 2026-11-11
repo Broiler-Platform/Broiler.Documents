@@ -275,6 +275,17 @@ public sealed class DocumentPagePainter
                 DrawSegment(list, bottom, left, shape.Outline, thickness);
                 DrawSegment(list, left, top, shape.Outline, thickness);
             }
+            else if (shape.RotationRadians != 0)
+            {
+                // A stroked rectangle is not turned by the transform it is drawn
+                // under, so a rotated box's outline is drawn as its four edges
+                // (tdf76446.docx).
+                BPoint topLeft = new(bounds.Left, bounds.Top), topRight = new(bounds.Right, bounds.Top);
+                DrawSegment(list, topLeft, topRight, shape.Outline, thickness);
+                DrawSegment(list, topRight, lowerRight, shape.Outline, thickness);
+                DrawSegment(list, lowerRight, lowerLeft, shape.Outline, thickness);
+                DrawSegment(list, lowerLeft, topLeft, shape.Outline, thickness);
+            }
             else list.StrokeRect(shape.Bounds, shape.Outline, thickness);
         }
 
@@ -292,14 +303,110 @@ public sealed class DocumentPagePainter
         {
             DrawCells(list, shape.Cells);
             DrawParagraphShading(list, shape.Lines);
-            foreach (LayoutLine line in shape.Lines)
-                DrawLine(list, line, resolveImage);
+            if (!DrawStretchedText(list, shape, resolveImage))
+            {
+                foreach (LayoutLine line in shape.Lines)
+                    DrawLine(list, line, resolveImage);
+            }
         }
         finally
         {
             if (turned)
                 list.PopTransform();
         }
+    }
+
+    /// <summary>
+    /// Paints WordArt text (<see cref="LayoutShape.StretchesTextToBox"/>) stretched
+    /// to its box, as Word and LibreOffice fit a VML text path's glyphs to the
+    /// shape: each line's ink from the box's left edge to its right, and the ink
+    /// of all the lines from its top to its bottom. The glyph outlines are then
+    /// stroked in <see cref="LayoutShape.TextOutline"/>. False, with nothing
+    /// drawn, when the glyphs' outlines are not known, so the lines are drawn as
+    /// they were laid out.
+    /// </summary>
+    private bool DrawStretchedText(BRenderList list, LayoutShape shape, Func<InlineImage, BImageHandle?> resolveImage)
+    {
+        if (!shape.StretchesTextToBox || shape.Lines.Count == 0 || shape.TextFlow != ShapeTextFlow.Horizontal ||
+            _settings.TextMeasurer is not Fonts.PaginationFontAdapter adapter)
+            return false;
+
+        var lines = new List<(LayoutLine Line, List<BPoint[]> Contours, double Left, double Right)>();
+        double top = double.PositiveInfinity, bottom = double.NegativeInfinity;
+        foreach (LayoutLine line in shape.Lines)
+        {
+            List<BPoint[]> contours = [];
+            double left = double.PositiveInfinity, right = double.NegativeInfinity;
+            foreach (LayoutPiece piece in line.Pieces)
+            {
+                if (piece.IsImage || piece.Text.Length == 0)
+                    continue;
+                if (adapter.FontService.ResolveFace(piece.Font.FamilyName, piece.Bold, piece.Italic) is not { TrueType: { } font } face ||
+                    face.UnitsPerEm <= 0)
+                    return false;
+
+                double scale = piece.Font.Size / face.UnitsPerEm;
+                double x = piece.X, baseline = line.Top + line.Baseline - piece.Rise;
+                for (int i = 0; i < piece.Text.Length;)
+                {
+                    int codepoint = char.ConvertToUtf32(piece.Text, i);
+                    string character = char.ConvertFromUtf32(codepoint);
+                    i += character.Length;
+                    foreach (var contour in font.GetGlyphContours(font.GetGlyphIndex(codepoint)))
+                    {
+                        BPoint[] points = [.. contour.Select(point => new BPoint(x + point.X * scale, baseline - point.Y * scale))];
+                        foreach (BPoint point in points)
+                        {
+                            left = Math.Min(left, point.X);
+                            right = Math.Max(right, point.X);
+                            top = Math.Min(top, point.Y);
+                            bottom = Math.Max(bottom, point.Y);
+                        }
+                        if (points.Length > 1)
+                            contours.Add(points);
+                    }
+                    x += face.GetAdvancePoints(character, piece.Font.Size);
+                }
+            }
+            if (contours.Count > 0)
+                lines.Add((line, contours, left, right));
+        }
+        if (lines.Count == 0 || bottom - top <= 0)
+            return false;
+
+        BRect box = shape.Bounds;
+        double scaleY = box.Height / (bottom - top);
+        foreach ((LayoutLine line, List<BPoint[]> contours, double left, double right) in lines)
+        {
+            double scaleX = right - left > 0 ? box.Width / (right - left) : 1;
+            var matrix = new BMatrix3x2(scaleX, 0, 0, scaleY, box.Left - left * scaleX, box.Top - top * scaleY);
+            list.PushTransform(matrix);
+            try
+            {
+                DrawLine(list, line, resolveImage);
+            }
+            finally
+            {
+                list.PopTransform();
+            }
+
+            if (shape.TextOutline.IsEmpty || shape.TextOutline.A == 0)
+                continue;
+            double width = shape.TextOutlineWidth > 0 ? shape.TextOutlineWidth : HairlineWidth;
+            foreach (BPoint[] contour in contours)
+            {
+                for (int i = 0; i < contour.Length; i++)
+                {
+                    BPoint start = contour[i], end = contour[(i + 1) % contour.Length];
+                    DrawSegment(list,
+                        new BPoint(box.Left + (start.X - left) * scaleX, box.Top + (start.Y - top) * scaleY),
+                        new BPoint(box.Left + (end.X - left) * scaleX, box.Top + (end.Y - top) * scaleY),
+                        shape.TextOutline, width);
+                }
+            }
+        }
+
+        return true;
     }
 
     /// <summary>

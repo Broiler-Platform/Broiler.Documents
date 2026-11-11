@@ -289,15 +289,13 @@ internal static class DocxReader
     }
 
     /// <summary>
-    /// Reads an <c>mc:AlternateContent</c> block: the first <c>mc:Choice</c>,
-    /// falling back to <c>mc:Fallback</c>. Only one branch may contribute, or the
+    /// Reads an <c>mc:AlternateContent</c> block: the first <c>mc:Choice</c> the
+    /// reader understands, falling back to <c>mc:Fallback</c> (<see cref="DocxAlternateContent.Branch"/>). Only one branch may contribute, or the
     /// same content would be read twice.
     /// </summary>
     private static void ReadAlternateContent(XElement alternate, DocxReadContext context, int depth)
     {
-        XElement? branch =
-            alternate.Element(DocxNamespaces.MarkupCompatibility + "Choice") ??
-            alternate.Element(DocxNamespaces.MarkupCompatibility + "Fallback");
+        XElement? branch = DocxAlternateContent.Branch(alternate);
         if (branch is not null)
             ReadBlockContent(branch.Elements(), context, depth + 1);
     }
@@ -1462,9 +1460,7 @@ internal static class DocxReader
             // picture is read twice.
             if (child.Name == DocxNamespaces.MarkupCompatibility + "AlternateContent")
             {
-                XElement? branch =
-                    child.Element(DocxNamespaces.MarkupCompatibility + "Choice") ??
-                    child.Element(DocxNamespaces.MarkupCompatibility + "Fallback");
+                XElement? branch = DocxAlternateContent.Branch(child);
                 if (branch is not null)
                     ReadRunContent(branch.Elements(), context, style);
                 continue;
@@ -1491,8 +1487,7 @@ internal static class DocxReader
                     ReadPicture(pict, context, style);
                 else if (child.Element(DocxNamespaces.MarkupCompatibility + "AlternateContent") is { } alt)
                 {
-                    XElement? branch = alt.Element(DocxNamespaces.MarkupCompatibility + "Choice") ??
-                                       alt.Element(DocxNamespaces.MarkupCompatibility + "Fallback");
+                    XElement? branch = DocxAlternateContent.Branch(alt);
                     if (branch is not null)
                         ReadRunContent(branch.Elements(), context, style);
                 }
@@ -2426,17 +2421,40 @@ internal static class DocxReader
         // A floating WordArt shape (a text watermark, tdf138739): its fill and
         // stroke paint the glyphs, and its path is only the envelope they are
         // fitted to, so neither the box nor the path is drawn.
+        bool wordArtText = false;
+        BColor textOutline = BColor.Empty;
         if (image is null && !segment && ReadVmlTextPath(shape, width, height, InlineStyle.Default) is { } wordArt)
         {
-            BColor ink = fill is { IsGradient: false, Image: null, Hatch: null } && !fill.Start.IsEmpty ? fill.Start : outline;
-            InlineStyle glyphs = wordArt.Style with { Foreground = ink.IsEmpty ? InlineStyle.Default.Foreground : ink };
+            // The fill paints the glyphs and the stroke outlines them, so a
+            // WordArt left at VML's white fill and black stroke reads as
+            // hollow black letters (tdf114308.docx's "DRAFT" watermark).
+            // Only the VML text shape types are fitted to the box. LibreOffice
+            // writes its Fontwork back out as a custom shape (o:spt="100") with
+            // a text path, which LibreOffice 24.2 reads as a plain shape
+            // (tdf138739.docx, drawinglayer-pic-pos.docx); that keeps the old
+            // plain text.
+            wordArtText = IsVmlTextShapeType(shape);
+            bool solid = fill is { IsGradient: false, Image: null, Hatch: null } && !fill.Start.IsEmpty;
+            BColor ink = solid ? fill!.Start : outline;
+            textOutline = solid && wordArtText ? outline : BColor.Empty;
+            // The painter stretches each line across the box, so the size only
+            // has to keep every line on one line: no glyph is wider than an em
+            // and a tenth.
+            float unwrapped = wordArtText
+                ? (float)Math.Max(1, width / (wordArt.Lines.Max(line => line.Length) * 1.1))
+                : wordArt.Style.FontSize ?? 12;
+            InlineStyle glyphs = wordArt.Style with
+            {
+                Foreground = ink.IsEmpty ? InlineStyle.Default.Foreground : ink,
+                FontSize = Math.Min(wordArt.Style.FontSize ?? unwrapped, unwrapped),
+            };
             paragraphs = [.. wordArt.Lines.Select(line => RichTextParagraph.Empty
                 .WithParagraphStyle(ParagraphStyle.Default with { Alignment = TextAlignment.Center })
                 .InsertText(0, line, glyphs))];
             (fill, outline, path) = (null, BColor.Empty, null);
             (textPadding, textAlignment) = (default, CellVerticalAlignment.Center);
             context.Builder.AddDiagnosticOnce("docx.shape.wordart",
-                "A VML WordArt shape was drawn as plain text in its box; its glyphs are not fitted to the text path.");
+                "A VML WordArt shape's text was stretched to fill its box; its glyphs are not bent along the text path.");
         }
         if (image is null && !string.IsNullOrEmpty(path) && !segment)
         {
@@ -2572,8 +2590,31 @@ internal static class DocxReader
         {
             RotationRadians = rotation,
             TextFlow = ReadVmlTextFlow(shape.Element(DocxNamespaces.Vml + "textbox")),
+            IsCustomShape = shape.Attribute(DocxVmlShapeWalker.Grouped) is not null,
+            StretchesTextToBox = wordArtText,
+            TextOutline = textOutline,
+            TextOutlineWidth = outlineWidth,
         });
         return true;
+    }
+
+    /// <summary>
+    /// Whether a VML shape is one of the WordArt text shape types, 136
+    /// (<c>textPlainText</c>) to 175 (<c>textCanDown</c>): its own <c>o:spt</c>,
+    /// else its <c>v:shapetype</c>'s, else the number in Word's
+    /// <c>#_x0000_tNNN</c> type reference.
+    /// </summary>
+    private static bool IsVmlTextShapeType(XElement shape)
+    {
+        XNamespace office = "urn:schemas-microsoft-com:office:office";
+        string? typeId = ((string?)shape.Attribute("type"))?.TrimStart('#');
+        string? spt = (string?)shape.Attribute(office + "spt") ?? (string.IsNullOrEmpty(typeId) ? null :
+            (string?)shape.AncestorsAndSelf().Last().Descendants(DocxNamespaces.Vml + "shapetype")
+                .FirstOrDefault(type => (string?)type.Attribute("id") == typeId)?.Attribute(office + "spt"));
+        if (spt is null && typeId is not null && typeId.StartsWith("_x0000_t", StringComparison.Ordinal))
+            spt = typeId["_x0000_t".Length..];
+        return double.TryParse(spt, NumberStyles.Float, CultureInfo.InvariantCulture, out double number) &&
+            number is >= 136 and <= 175;
     }
 
     private static double[]? ReadVmlSegmentPoints(XElement shape)
