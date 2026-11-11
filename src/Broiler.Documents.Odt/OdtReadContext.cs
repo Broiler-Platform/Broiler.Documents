@@ -29,7 +29,7 @@ internal sealed record OdtReadContext(
     public double? FrameTextWidth { get; init; }
     /// <summary>True while reading the text of a text box or custom shape, whose own shapes would be lost.</summary>
     public bool InShapeText { get; init; }
-    public double? FooterOrigin { get; init; }
+    public double? BandOrigin { get; init; }
     public Func<string, string?, int, bool>? SelectPageStyle { get; init; }
     public bool UsesSoftPageBreaks { get; init; }
     public int SoftPageNumber { get; set; } = 1;
