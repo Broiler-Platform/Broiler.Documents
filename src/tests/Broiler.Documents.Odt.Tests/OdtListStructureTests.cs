@@ -21,6 +21,18 @@ public sealed class OdtListStructureTests
     }
 
     [Fact]
+    public void An_Unstyled_List_Takes_Writers_Built_In_Indents()
+    {
+        // tdf163285.fodt: a text:list naming no style sets its text at 1.27 cm
+        // and its label a quarter inch before that, one quarter inch more a level.
+        var document = Read("<text:list>" + "<text:list-item>" + Paragraph("one") +
+            "<text:list>" + Item("two") + "</text:list></text:list-item></text:list>").Document;
+        Assert.Equal(36f, document.Paragraphs[0].Style.LeftIndent);
+        Assert.Equal(-18f, document.Paragraphs[0].Style.FirstLineIndent);
+        Assert.Equal(54f, document.Paragraphs[1].Style.LeftIndent);
+    }
+
+    [Fact]
     public void Numbered_Paragraphs_Keep_Content_And_Independent_List_Ids_Across_Body_Text()
     {
         var result = Read(Numbered("one") + Paragraph("between") + Numbered("two") + Numbered("fresh", "y") + Numbered("three"));

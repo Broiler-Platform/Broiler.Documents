@@ -703,8 +703,19 @@ internal sealed class OdtStyles : IOdtImageDiagnostics
     public ListDefinition? DefinitionForList(string? listStyleName) => FindListStyle(listStyleName)?.Definition;
 
     /// <summary>Explicit label-alignment indents for a list level, in points.</summary>
+    /// <remarks>
+    /// A list that names no style at all takes Writer's built-in numbering
+    /// rule (SwNumRule's label-alignment defaults): the text at a quarter inch
+    /// per level plus one, the label a quarter inch before it. tdf163285.fodt's
+    /// unstyled list sets its text at 1.27 cm, not at one 18 pt indent step.
+    /// </remarks>
     public (float? Left, float? First) IndentsForList(string? name, int level) =>
-        FindListStyle(name)?.IndentsAt(level) ?? (null, null);
+        string.IsNullOrEmpty(name)
+            ? ((float)(UnstyledListIndent * (Math.Max(1, level) + 1)), (float)-UnstyledListIndent)
+            : FindListStyle(name)?.IndentsAt(level) ?? (null, null);
+
+    /// <summary>Writer's built-in list indent step, a quarter inch, in points.</summary>
+    private const double UnstyledListIndent = 18.0;
 
     private ListStyle? FindListStyle(string? name)
     {

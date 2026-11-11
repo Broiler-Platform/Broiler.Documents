@@ -175,6 +175,11 @@ toolkit behind it.
   `text:continue-list` names the `xml:id` of the one it carries on; a sub-list
   counts in the list it is nested in; a `text:list-item`'s `text:start-value`
   restarts the count there. A `text:list-header` paragraph is in no list.
+- A `text:list` that names no list style takes Writer's built-in label-alignment
+  indents: text at a quarter inch per level plus one (1.27 cm at level 1), the
+  label a quarter inch before it (`tdf163285.fodt`). LibreOffice's reference
+  of that file also spaces those items wider, from the fallback font its missing
+  bullet glyph is drawn in; that is not modelled.
 - Outline numbering: a `text:h` outside any list is numbered by the document's
   `text:outline-style` at its `text:outline-level`, unless it is a list header;
   `text:restart-numbering` restarts the count. A level above a heading's that
