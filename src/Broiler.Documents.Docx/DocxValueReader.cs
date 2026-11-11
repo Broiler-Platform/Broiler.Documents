@@ -61,6 +61,16 @@ internal static class DocxValueReader
     internal static double Twips(XElement? element, string name) =>
         TryReadTwips(element?.Attribute(DocxNamespaces.Wordprocessing + name), out int twips) ? twips / 20d : 0;
 
+    /// <summary>
+    /// The largest twip value Word honours for a table indent or cell margin:
+    /// anything from 32768 up is a legacy 16-bit overflow Word (and
+    /// LibreOffice's <c>convertTwipToMm100_Limited</c>) reads as zero.
+    /// </summary>
+    internal const int MaxLimitedTwips = short.MaxValue;
+
+    /// <summary>A twip value with Word's 16-bit limit applied: out of range reads as 0.</summary>
+    internal static int LimitTwips(int twips) => twips > MaxLimitedTwips ? 0 : twips;
+
     /// <summary>A length in twips, written either way <see cref="TryReadMeasure"/> accepts.</summary>
     internal static bool TryReadTwips(XAttribute? attribute, out int twips) =>
         TryReadMeasure(attribute, unitsPerPoint: 20, out twips);

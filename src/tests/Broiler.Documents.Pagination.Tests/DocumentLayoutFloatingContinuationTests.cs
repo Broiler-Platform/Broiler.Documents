@@ -46,6 +46,25 @@ public sealed class DocumentLayoutFloatingContinuationTests
         Assert.Equal(10, Assert.Single(pages[1].Cells).Bounds.Top, 3);
     }
 
+    [Fact]
+    public void A_First_Row_Fused_By_Keeps_Stays_At_Its_Anchor_And_Is_Clipped_At_The_Foot()
+    {
+        // tdf170846_2.docx: LibreOffice neither splits nor moves the frame.
+        static RichTextParagraph Kept(string text) => RichTextParagraph.Create(text, InlineStyle.Default,
+            ParagraphStyle.Default with { LineHeightRule = LineHeightRule.Exact, LineHeight = 10, KeepWithNext = true, KeepTogether = true });
+        var table = new DocumentTable(3, 3, [new TableRow([new TableCell(3, 3, 0)])], [100], cellPadding: 0,
+            position: new TablePosition(TableAnchor.Text, 0, TableAnchor.Text, 0));
+        var pages = Layout(RichTextDocument.FromParagraphs([Text("before1"), Text("before2"), Text("before3"),
+            Kept("c1"), Kept("c2"), Kept("c3")]).WithTables([table]), 70).Pages;
+        var cell = Assert.Single(pages[0].Cells);
+        Assert.Equal(40, cell.Bounds.Top, 3);
+        Assert.Equal(60, cell.Bounds.Bottom, 3);
+        var text = pages[0].Lines.SelectMany(line => line.Pieces).Select(piece => piece.Text).ToArray();
+        Assert.Contains("c1", text);
+        Assert.Contains("c2", text);
+        Assert.DoesNotContain(pages.Skip(1).SelectMany(page => page.Cells), _ => true);
+    }
+
     [Theory]
     [InlineData(false, true, 50)]
     [InlineData(true, false, 50)]
