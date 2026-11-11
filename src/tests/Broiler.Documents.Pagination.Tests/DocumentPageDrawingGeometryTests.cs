@@ -6,11 +6,11 @@ namespace Broiler.Documents.Pagination.Tests;
 
 public sealed class DocumentPageDrawingGeometryTests
 {
-    private static IReadOnlyList<BRenderCommand> Paint(ShapeGeometry geometry, double width = 80, double height = 40, ShapeFill? fill = null)
+    private static IReadOnlyList<BRenderCommand> Paint(ShapeGeometry geometry, double width = 80, double height = 40, ShapeFill? fill = null, double outlineWidth = 3)
     {
         var box = new DocumentPageBox(200, 150, 10, 10, 10, 10);
         var document = RichTextDocument.FromPlainText("anchor").WithShapes([new DocumentShape(0, 10, 20, width, height,
-            fill, BColor.Black, geometry: geometry, outlineWidth: 3)]);
+            fill, BColor.Black, geometry: geometry, outlineWidth: outlineWidth)]);
         using var images = new ImageStore();
         var page = Assert.Single(new DocumentLayout(new LayoutSettings(), images).Layout(document, box).Pages);
         var list = new BRenderList();
@@ -39,6 +39,15 @@ public sealed class DocumentPageDrawingGeometryTests
         Assert.Single(commands.OfType<BRenderCommand.PopTransform>());
         Assert.Single(commands.OfType<BRenderCommand.FillRect>());
         Assert.Empty(commands.OfType<BRenderCommand.StrokeRect>());
+    }
+
+    [Fact]
+    public void A_Zero_Width_Line_Is_A_Hairline_Of_One_Pixel_At_96_Dpi()
+    {
+        // tdf122717.docx: a vertical a:ln w="0" line. A quarter-point band fell
+        // between pixel centres and drew nothing where LibreOffice draws a pixel.
+        var command = Assert.Single(Paint(ShapeGeometry.Line, width: 0.05, height: 200, outlineWidth: 0).OfType<BRenderCommand.FillRect>());
+        Assert.Equal(0.75, command.Rect.Height, 6);
     }
 
     [Fact]

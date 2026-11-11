@@ -940,6 +940,8 @@ internal static class DocxReader
         ReadParagraphChildren(paragraph.Elements(), context, inherited);
         if (context.Sections is not null && DocxSections.EndsSection(paragraph))
             context.Builder.TrimSectionParagraphEnd();
+        else if (context.Builder.JoinsFieldCodeParagraph())
+            return;
         context.Builder.FinishParagraph();
     }
 
@@ -1699,9 +1701,9 @@ internal static class DocxReader
             return false;
 
         (ShapeWrap Wrap, WrapSide Side, TableCellPadding Margins) = ReadWrap(anchor);
-        (double offsetY, bool fromPage) = VerticalOffset(anchor, context);
+        (double offsetY, bool fromPage) = VerticalOffset(anchor, context, picture: true);
         context.Builder.AddShape(new DocumentShape(
-            context.Builder.CurrentParagraphIndex,
+            AnchorParagraph(anchor, context, picture: true),
             HorizontalOffset(anchor, context),
             offsetY,
             boxWidth,
@@ -1715,7 +1717,8 @@ internal static class DocxReader
             wrapSide: Side,
             wrapDistance: Math.Max(Margins.Left, Margins.Right),
             zOrder: RelativeHeight(anchor),
-            offsetFromPage: fromPage)
+            offsetFromPage: fromPage,
+            offsetXFromCell: context.Builder.InTableCell && RelativeFrom(anchor, "positionH") == "column" && LaysOutInCell(anchor))
         {
             WrapMargins = Wrap == ShapeWrap.None ? null : Margins,
             WrapPolygon = Wrap == ShapeWrap.None ? null : ReadWrapPolygon(anchor),
@@ -2031,6 +2034,23 @@ internal static class DocxReader
     /// </summary>
     private static bool LaysOutInCell(XElement anchor) =>
         (string?)anchor.Attribute("layoutInCell") is not ("0" or "false" or "off");
+
+    /// <summary>
+    /// Whether an object in a table cell states its vertical position against the
+    /// page and is laid out in the cell, so that the page means the cell: its top
+    /// is the top of the cell's first paragraph. LibreOffice 24.2 places a picture
+    /// so (tdf#115094: a logo anchored in a cell's second paragraph sits from the
+    /// cell's top). Callers apply it to pictures only: later releases treat drawn
+    /// shapes and the page margin the same way (tdf#160077), but 24.2, which the
+    /// references come from, measures those from the page.
+    /// </summary>
+    private static bool MeasuresPageFromCell(XElement anchor, DocxReadContext context) =>
+        context.Band == RunningBand.Body && context.Builder.InTableCell && LaysOutInCell(anchor) &&
+        SimplePosition(anchor) is null && RelativeFrom(anchor, "positionV") == "page";
+
+    /// <summary>The paragraph a floating object hangs from: its own, or its cell's first where the page means the cell.</summary>
+    private static int AnchorParagraph(XElement anchor, DocxReadContext context, bool picture) =>
+        picture && MeasuresPageFromCell(anchor, context) ? context.Builder.CellParagraphIndex : context.Builder.CurrentParagraphIndex;
 
     private static TableCellPadding ReadShapePadding(XElement? body)
     {
@@ -2593,7 +2613,7 @@ internal static class DocxReader
     /// whose side depends on the page's parity, and a margin with no page to
     /// measure it on are kept as stated and reported.
     /// </remarks>
-    private static (double Offset, bool FromPage) VerticalOffset(XElement anchor, DocxReadContext context)
+    private static (double Offset, bool FromPage) VerticalOffset(XElement anchor, DocxReadContext context, bool picture = false)
     {
         if (SimplePosition(anchor) is XElement simple)
             return (SimpleCoordinate(simple, "y"), true);
@@ -2624,6 +2644,12 @@ internal static class DocxReader
         }
 
         if (from is null or "paragraph" or "line")
+            return (offset, false);
+
+        // A picture laid out in its table cell measures the page against the cell
+        // it is in: LibreOffice's follow-text-flow positioning of layoutInCell. It
+        // is measured from the cell's first paragraph (see AnchorParagraph).
+        if (picture && MeasuresPageFromCell(anchor, context))
             return (offset, false);
 
         if (FromPageTop(from, offset, context.PlacementPage) is double fromPage)

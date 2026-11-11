@@ -38,6 +38,15 @@ internal sealed class DocxDocumentBuilder(
     private int _tableCount;
     private int _unsupportedBlockCount;
 
+    // A paragraph mark inside a field's instruction, held so the next paragraph
+    // continues this one (see JoinsFieldCodeParagraph).
+    private bool _joinsNextParagraph;
+    private int _joinedParagraphs;
+    private bool _joinGaveUp;
+
+    /// <summary>How many paragraph marks in a row one field's instruction may hide.</summary>
+    private const int MaxJoinedParagraphs = 64;
+
     public DocumentLimits Limits => limits;
 
     /// <summary>The complex fields open in the flow this builds.</summary>
@@ -86,7 +95,20 @@ internal sealed class DocxDocumentBuilder(
     }
 
     /// <summary>Collects the tables read from here until the matching pop.</summary>
-    public void PushTableSink(List<DocumentTable> sink) => _tableSinks.Push(sink);
+    public void PushTableSink(List<DocumentTable> sink)
+    {
+        // A table ends a paragraph held open for a field's instruction.
+        if (_joinsNextParagraph)
+            FinishParagraph();
+        _tableSinks.Push(sink);
+        _cellStarts.Push(_paragraphs.Count);
+    }
+
+    // The first paragraph of each cell being read, innermost on top.
+    private readonly Stack<int> _cellStarts = new();
+
+    /// <summary>The first paragraph of the table cell being read, or the current paragraph outside one.</summary>
+    public int CellParagraphIndex => _cellStarts.Count > 0 ? _cellStarts.Peek() : CurrentParagraphIndex;
 
     public bool InTableCell => _tableSinks.Count > 0;
 
@@ -94,6 +116,8 @@ internal sealed class DocxDocumentBuilder(
     {
         if (_tableSinks.Count > 0)
             _tableSinks.Pop();
+        if (_cellStarts.Count > 0)
+            _cellStarts.Pop();
     }
 
     /// <summary>
@@ -246,7 +270,12 @@ internal sealed class DocxDocumentBuilder(
 
     public void StartParagraph(ParagraphStyle style, InlineStyle markStyle = default)
     {
-        _segments.Clear();
+        // A paragraph that continues one whose mark was field code keeps its text;
+        // its own properties are the ones the joined paragraph shows.
+        if (_joinsNextParagraph)
+            _joinsNextParagraph = false;
+        else
+            _segments.Clear();
         _markStyle = markStyle;
 
         // The two spellings mean one break. A paragraph reached by a
@@ -376,8 +405,36 @@ internal sealed class DocxDocumentBuilder(
             SplitAtPageBreak();
     }
 
+    /// <summary>
+    /// Holds the paragraph being read open when its mark lies inside a field's
+    /// instruction, so the next paragraph continues it. The mark is field code,
+    /// which Word does not display, and LibreOffice's import drops it
+    /// (tdf#125038): an <c>IF</c> whose instruction runs over a paragraph break
+    /// shows its result on the line it starts, not after an empty one. Not in a
+    /// table cell, where the paragraphs belong to the cell, and not for more than
+    /// a bounded run of paragraphs, so a field whose instruction never ends does
+    /// not fold the rest of the document into one paragraph.
+    /// </summary>
+    public bool JoinsFieldCodeParagraph()
+    {
+        if (!Fields.InCode)
+        {
+            (_joinedParagraphs, _joinGaveUp) = (0, false);
+            return false;
+        }
+        if (_joinedParagraphs >= MaxJoinedParagraphs)
+            _joinGaveUp = true;
+        if (InTableCell || _pageBreakSeen || _joinGaveUp)
+            return false;
+
+        _joinedParagraphs++;
+        _joinsNextParagraph = true;
+        return true;
+    }
+
     public void FinishParagraph()
     {
+        _joinsNextParagraph = false;
         // A column break that ends a cell's paragraph splits nothing.
         _cellSplitPending = false;
 
@@ -501,6 +558,10 @@ internal sealed class DocxDocumentBuilder(
 
     public RichTextDocument Build()
     {
+        // A part that ends inside a field's instruction still ends its paragraph.
+        if (_joinsNextParagraph)
+            FinishParagraph();
+
         // A break stated in the last paragraph of a part has no paragraph
         // to start. Word ends such a document on a blank page, and nothing
         // in this model says "and then a page with nothing on it", so the

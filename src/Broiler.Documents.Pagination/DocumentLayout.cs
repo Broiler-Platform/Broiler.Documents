@@ -1031,6 +1031,12 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 // - starts the page this section owns.
                 pendingOwner = next;
                 hasPendingOwner = true;
+                // A continuous section starts on the page its break is on, so the page
+                // its first paragraph's hard break opens is its second, not its first:
+                // as for a break further in (OwnBreak), that page shares the others'
+                // parts. tdf131963.docx's fourth section opens with a page break and
+                // has a first-page footer of nothing; LibreOffice numbers that page.
+                pendingSharesFirst = next?.BreakType == SectionBreakType.Continuous;
             }
 
             columns = ColumnsOf(next, owner);

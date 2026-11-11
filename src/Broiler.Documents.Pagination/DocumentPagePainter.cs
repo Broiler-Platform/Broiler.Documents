@@ -36,13 +36,13 @@ public sealed class DocumentPagePainter
     private const double ChangeBarWidth = 0.5;
 
     /// <summary>
-    /// How wide a stroke the document states as zero is drawn. LibreOffice draws
-    /// such a hairline one device pixel wide (tdf115153.rtf's <c>\dplinew0</c>
-    /// rule). The render list has no device-pixel unit, so this is that pixel at
-    /// 96 dpi: any band this wide covers a pixel centre and draws, where the
-    /// quarter point used before fell between centres and drew nothing.
+    /// How wide an outline of width zero is drawn. DrawingML <c>a:ln w="0"</c> and
+    /// ODF <c>svg:stroke-width="0"</c> are hairlines, which LibreOffice draws one
+    /// device pixel wide: three quarters of a point is that pixel at 96 dpi. A
+    /// narrower band fell between pixel centres and drew nothing (tdf115153.rtf's <c>\dplinew0</c>
+    /// rule, tdf122717.docx).
     /// </summary>
-    private const double HairlineWidth = 0.75;
+    internal const double HairlineWidth = 0.75;
 
     /// <summary>The colour of a changed line's bar, LibreOffice's default black.</summary>
     private static readonly BColor ChangeBarColor = new(0, 0, 0);
