@@ -180,6 +180,9 @@ public sealed class LayoutLine : IPaginatedLineArtifact
     /// <summary>How wide the paragraph's shading is: from its indent to its column's edge.</summary>
     public double BackgroundWidth { get; internal set; }
 
+    /// <summary>Adds a piece drawn on the line after the ones it was laid out with.</summary>
+    internal void AddPiece(LayoutPiece piece) => _pieces.Add(piece);
+
     internal void Shift(double dx)
     {
         if (dx == 0)

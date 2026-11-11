@@ -78,6 +78,9 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     private IReadOnlyList<(int Paragraph, int Offset)?>? _pageStarts;
     private IReadOnlyList<RichTextParagraph> _bodyParagraphs = [];
     private IReadOnlyList<DocumentSection> _sections = [];
+    private IReadOnlyList<DocumentTable> _bodyTables = [];
+    private int _lineNumberCount;
+    private DocumentSection? _lineNumberSection;
     private DocumentPageBox _setup = DocumentPageBox.Default;
     private PageGeometry? _documentPageGeometry;
     private PageGeometry? _currentPageGeometry;
@@ -211,6 +214,9 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         _frame = null;
         _bodyParagraphs = document.Paragraphs;
         _sections = document.Sections;
+        _bodyTables = document.Tables;
+        _lineNumberCount = 0;
+        _lineNumberSection = null;
         _setup = setup;
         _documentPageGeometry = document.PageGeometry;
         _currentPageGeometry = document.PageGeometry;
@@ -1944,6 +1950,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             bottomDistance: frame.FooterDistance,
             tables: _running.EffectiveFooterTables(selection));
 
+        NumberLines(inlineLines ?? lines);
+
         var all = new List<LayoutLine>(lines);
         all.AddRange(headerLines);
         all.AddRange(footerLines);
@@ -1983,6 +1991,54 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             PageBorders = setup.Continuous ? default : _currentPageGeometry?.Borders ?? default,
             PageBorderInsets = _currentPageGeometry?.BorderInsets ?? default,
         };
+    }
+
+    /// <summary>
+    /// Sets the numbers the page's <see cref="PageGeometry.LineNumbering"/> asks
+    /// for in the margin beside the body lines of a page.
+    /// </summary>
+    /// <remarks>
+    /// Only body paragraphs' lines count: running lines and notes carry a
+    /// paragraph index below zero, and a table's paragraphs are skipped. Each
+    /// number is a piece of its line, right-aligned the numbering's distance to
+    /// the left of the line's text column and set in the document's default
+    /// face and size - LibreOffice's <c>Line Numbering</c> character style.
+    /// </remarks>
+    private void NumberLines(IReadOnlyList<LayoutLine> lines)
+    {
+        if (_currentPageGeometry?.LineNumbering is not LineNumbering numbering)
+            return;
+
+        if (numbering.Restart == LineNumberRestart.NewPage)
+            _lineNumberCount = 0;
+
+        var style = InlineStyle.Default with
+        {
+            FontFamily = _styleDefaults.FontFamily,
+            FontSize = _styleDefaults.FontSizePoints,
+        };
+        foreach (LayoutLine line in lines)
+        {
+            int index = line.ParagraphIndex;
+            if (index < 0 || index >= _bodyParagraphs.Count || _bodyTables.Any(table => table.Covers(index)))
+                continue;
+
+            DocumentSection? section = DocumentSection.Containing(_sections, index);
+            if (section?.Hidden == true)
+                continue;
+
+            if (numbering.Restart == LineNumberRestart.NewSection && !ReferenceEquals(section, _lineNumberSection))
+                _lineNumberCount = 0;
+            _lineNumberSection = section;
+
+            int number = numbering.Start + _lineNumberCount++;
+            if (number % numbering.CountBy != 0)
+                continue;
+
+            LayoutPiece piece = MakeTextPiece(number.ToString(CultureInfo.InvariantCulture), style, decorateLink: false);
+            piece.X = line.TextAreaLeft - numbering.Distance - piece.Width;
+            line.AddPiece(piece);
+        }
     }
 
     /// <summary>
