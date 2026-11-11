@@ -166,6 +166,9 @@ public sealed class DocumentShape(
     /// <summary>True when this shape's box shrinks/fits to its text content centered in the declared bounds.</summary>
     public bool FitsText { get; init; }
 
+    /// <summary>Clockwise rotation in radians around the shape's top-left corner.</summary>
+    public double RotationRadians { get; init; }
+
     /// <summary>Optional per-side wrap clearance margins in points (Left, Top, Right, Bottom).</summary>
     public TableCellPadding? WrapMargins { get; init; }
 
@@ -289,6 +292,7 @@ public sealed class DocumentShape(
             IsAsCharacter = IsAsCharacter,
             IsCustomShape = IsCustomShape,
             FitsText = FitsText,
+            RotationRadians = RotationRadians,
             WrapMargins = WrapMargins,
         };
 

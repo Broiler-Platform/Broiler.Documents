@@ -32,6 +32,8 @@ namespace Broiler.Documents.Odt;
 /// </remarks>
 internal sealed class OdtStyles : IOdtImageDiagnostics
 {
+    public Dictionary<string, string> UserDefinedFields { get; } = new(StringComparer.Ordinal);
+
     /// <summary>The two style families this codec resolves.</summary>
     public const string ParagraphFamily = "paragraph";
 

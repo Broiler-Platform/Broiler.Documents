@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Text;
 using System.Xml.Linq;
 using Broiler.Documents.Model;
@@ -71,6 +72,11 @@ internal sealed class DocxFields
     /// </summary>
     public bool InTableOfContents => _open.Exists(static open => open.Separated && open.TableOfContents);
 
+    public bool SuppressesResult => _open.Exists(static open => open.Separated && open.HiddenResult);
+
+    public static bool IsHiddenResult(string instruction) =>
+        Tokens(instruction) is [string name, ..] && name.Equals("SET", StringComparison.OrdinalIgnoreCase);
+
     /// <summary>Notes that the innermost field's result has text of its own.</summary>
     public void NoteResultText()
     {
@@ -83,7 +89,7 @@ internal sealed class DocxFields
     /// here without any result text stands for, which the caller writes as
     /// the first page's number for the layout to replace; null otherwise.
     /// </summary>
-    public (PageField? Page, string? FallbackText) Read(XElement fieldCharacter, DocxStyles styles, InlineStyle runStyle)
+    public (PageField? Page, string? FallbackText, bool Ruby) Read(XElement fieldCharacter, DocxStyles styles, InlineStyle runStyle)
     {
         switch ((string?)fieldCharacter.Attribute(DocxNamespaces.Wordprocessing + "fldCharType"))
         {
@@ -92,6 +98,7 @@ internal sealed class DocxFields
                 break;
             case "separate" when _open.Count > 0 && !_open[^1].Separated:
                 _open[^1].Separated = true;
+                _open[^1].HiddenResult = IsHiddenResult(_open[^1].Code.ToString());
                 _open[^1].StyleReference = StyleReference(_open[^1].Code.ToString(), styles);
                 _open[^1].Page = Page(_open[^1].Code.ToString());
                 if (_open[^1].Page is PageField separated)
@@ -105,14 +112,28 @@ internal sealed class DocxFields
                 if (!ended.HasResultText)
                 {
                     if ((ended.Page ?? Page(ended.Code.ToString())) is PageField empty)
-                        return (empty, null);
+                        return (empty, null, false);
                     if (ExtractRubyBase(ended.Code.ToString()) is string ruby)
-                        return (null, ruby);
+                        return (null, ruby, true);
+                    if (Symbol(ended.Code.ToString()) is string symbol)
+                        return (null, symbol, false);
                 }
                 break;
         }
 
-        return (null, null);
+        return (null, null, false);
+    }
+
+    internal static string? Symbol(string instruction)
+    {
+        if (Tokens(instruction) is not [string name, string value, ..] ||
+            !name.TrimStart('\\').Equals("SYMBOL", StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        bool parsed = value.StartsWith("0x", StringComparison.OrdinalIgnoreCase)
+            ? int.TryParse(value.AsSpan(2), NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out int code)
+            : int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out code);
+        return parsed && Rune.IsValid(code) && code >= 32 ? char.ConvertFromUtf32(code) : null;
     }
 
     /// <summary>
@@ -281,5 +302,6 @@ internal sealed class DocxFields
         public bool HasResultText { get; set; }
 
         public bool TableOfContents { get; set; }
+        public bool HiddenResult { get; set; }
     }
 }

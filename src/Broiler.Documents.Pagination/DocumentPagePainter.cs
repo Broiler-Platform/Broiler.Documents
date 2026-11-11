@@ -157,6 +157,29 @@ public sealed class DocumentPagePainter
     /// </summary>
     private void DrawShape(BRenderList list, LayoutShape shape, Func<InlineImage, BImageHandle?> resolveImage)
     {
+        double angle = shape.RotationRadians;
+        if (angle == 0 || !double.IsFinite(angle))
+        {
+            DrawShapeContent(list, shape, resolveImage);
+            return;
+        }
+
+        double cos = Math.Cos(angle), sin = Math.Sin(angle);
+        double x = shape.Bounds.Left, y = shape.Bounds.Top;
+        list.PushTransform(new BMatrix3x2(cos, sin, -sin, cos,
+            x - x * cos + y * sin, y - x * sin - y * cos));
+        try
+        {
+            DrawShapeContent(list, shape, resolveImage);
+        }
+        finally
+        {
+            list.PopTransform();
+        }
+    }
+
+    private void DrawShapeContent(BRenderList list, LayoutShape shape, Func<InlineImage, BImageHandle?> resolveImage)
+    {
         if (shape.Geometry is ShapeGeometry.Line or ShapeGeometry.LineAscending)
         {
             BRect box = shape.Bounds;

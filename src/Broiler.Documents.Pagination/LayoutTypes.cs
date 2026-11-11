@@ -235,6 +235,7 @@ public sealed class LayoutShape : IPaginatedShapeArtifact
     double IPaginatedShapeArtifact.Height => Bounds.Height;
     double IPaginatedShapeArtifact.OutlineWidth => OutlineWidth;
     public double OutlineWidth { get; }
+    public double RotationRadians { get; init; }
 
     /// <summary>The picture the box draws, filling <see cref="Bounds"/>, or null.</summary>
     public InlineImage? Image { get; }

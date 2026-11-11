@@ -41,7 +41,8 @@ internal sealed class OdtImageLoader(
     /// Reads a <c>draw:frame</c>. Returns null, after recording why, when the
     /// frame holds no picture this codec can carry.
     /// </summary>
-    public InlineImage? Read(XElement frame, IOdtImageDiagnostics diagnostics, PageGeometry? inlinePage = null)
+    public InlineImage? Read(XElement frame, IOdtImageDiagnostics diagnostics, PageGeometry? inlinePage = null,
+        double? frameTextWidth = null)
     {
         PicturePart? part = null;
         bool foundImage = false;
@@ -54,7 +55,7 @@ internal sealed class OdtImageLoader(
                 break;
         }
 
-        (double width, double height) = ReadExtent(frame, inlinePage);
+        (double width, double height) = ReadExtent(frame, inlinePage, frameTextWidth);
         (string? altText, string? name) = ReadDescription(frame);
 
         if (part is null)
@@ -323,7 +324,7 @@ internal sealed class OdtImageLoader(
     /// A missing or unusable extent yields zero, which means draw the image at
     /// its own size.
     /// </summary>
-    private static (double Width, double Height) ReadExtent(XElement frame, PageGeometry? inlinePage)
+    private static (double Width, double Height) ReadExtent(XElement frame, PageGeometry? inlinePage, double? frameTextWidth)
     {
         double width = ReadLength(frame, "width");
         double height = ReadLength(frame, "height");
@@ -332,7 +333,7 @@ internal sealed class OdtImageLoader(
 
         string? relativeWidth = (string?)frame.Attribute(OdtNamespaces.Style + "rel-width");
         string? relativeHeight = (string?)frame.Attribute(OdtNamespaces.Style + "rel-height");
-        double resolvedWidth = ResolveRelative(relativeWidth, inlinePage.ColumnWidth, width);
+        double resolvedWidth = ResolveRelative(relativeWidth, frameTextWidth ?? inlinePage.ColumnWidth, width);
         double resolvedHeight = ResolveRelative(relativeHeight, inlinePage.ContentHeight, height);
         if (width > 0 && height > 0)
         {

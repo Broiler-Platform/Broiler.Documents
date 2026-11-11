@@ -45,6 +45,10 @@ internal static class DocxCoreBindings
                 continue;
 
             string text = value.Value;
+            // An empty built-in property can coexist with a populated cached
+            // control. Keep the cached display text in that case.
+            if (text.Length == 0 && target.Descendants(Word + "t").Any(run => run.Value.Length > 0))
+                continue;
             if (text.Length > limits.MaxRunLength)
                 continue;
             // Bound the extra nodes and text even if many controls reference

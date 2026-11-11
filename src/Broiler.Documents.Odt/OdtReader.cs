@@ -88,7 +88,7 @@ internal static class OdtReader
             styles,
             images,
             resources,
-            () => OdtMetadata.Read(archive, options.Limits, diagnostics),
+            OdtMetadata.Load(archive, options.Limits, diagnostics),
             ReadSettings(archive, options.Limits, diagnostics),
             options,
             diagnostics);
@@ -152,7 +152,7 @@ internal static class OdtReader
             styles,
             images,
             resources,
-            () => OdtMetadata.Read(root.Element(OdtNamespaces.Office + "meta"), diagnostics),
+            root.Element(OdtNamespaces.Office + "meta"),
             root.Element(OdtNamespaces.Office + "settings"),
             options,
             diagnostics);
@@ -164,7 +164,7 @@ internal static class OdtReader
         OdtStyles styles,
         OdtImageLoader images,
         DocumentConversionContextBuilder resources,
-        Func<DocumentMetadata> readMetadata,
+        XElement? meta,
         XElement? settings,
         DocumentReadOptions options,
         List<DocumentDiagnostic> diagnostics)
@@ -180,7 +180,12 @@ internal static class OdtReader
         styles.LinksOutsidePackage = images.LinksOutsidePackage;
         // The producer is needed before the content: OpenOffice.org 2.x wrote
         // text:display inverted, and the text's visibility depends on it.
-        DocumentMetadata metadata = readMetadata();
+        DocumentMetadata metadata = OdtMetadata.Read(meta, diagnostics);
+        foreach (XElement field in meta?.Elements(OdtNamespaces.Meta + "user-defined") ?? [])
+        {
+            if ((string?)field.Attribute(OdtNamespaces.Meta + "name") is { Length: > 0 } name)
+                styles.UserDefinedFields.TryAdd(name, field.Value);
+        }
         styles.InvertsTextDisplay = OdtMetadata.WrittenByOpenOffice2(metadata.Producer);
         styles.PageFillBounds = OdtMetadata.PageFillBounds(metadata.Producer);
         XElement? master = ResolveMasterPage(content, styles);
@@ -937,7 +942,9 @@ internal static class OdtReader
         // A frame keeps its text in a draw:text-box; a custom shape carries the
         // paragraphs itself.
         XElement textSource = drawing.Element(OdtNamespaces.Draw + "text-box") ?? drawing;
-        RichTextDocument shapeContent = ReadShapeParagraphs(textSource, context, depth);
+        TableCellPadding textPadding = ReadShapePadding(graphic);
+        RichTextDocument shapeContent = ReadShapeParagraphs(textSource, context, depth,
+            Math.Max(1, width - textPadding.Left - textPadding.Right));
         IReadOnlyList<RichTextParagraph> paragraphs = shapeContent.ParagraphCount == 1 &&
             shapeContent.Paragraphs[0].Length == 0 && shapeContent.Tables.Count == 0 ? [] : shapeContent.Paragraphs;
         string? frameName = (string?)drawing.Attribute(OdtNamespaces.Draw + "name");
@@ -966,6 +973,9 @@ internal static class OdtReader
         double y = offsetY + (OdtUnits.TryParseLength((string?)drawing.Attribute(OdtNamespaces.Svg + "y"), out double top)
             ? top
             : 0);
+        double rotation = 0;
+        if (TryReadShapeRotation(drawing, out double angle, out double dx, out double dy))
+            (rotation, x, y) = (angle, offsetX + dx, offsetY + dy);
         (int anchorPage, x, y, bool fromPage) = PlaceOnPage(drawing, styleName, x, y, width, height, context, inheritedAnchor, inheritedAnchorPage);
 
         context.Builder.AddShape(new DocumentShape(
@@ -986,7 +996,7 @@ internal static class OdtReader
             offsetFromPage: fromPage,
             growsToText: grows,
             tables: shapeContent.Tables,
-            textPadding: ReadShapePadding(graphic),
+            textPadding: textPadding,
             textVerticalAlignment: (string?)graphic?.Attribute(OdtNamespaces.Draw + "textarea-vertical-align") switch
             {
                 "middle" => CellVerticalAlignment.Center,
@@ -1011,9 +1021,32 @@ internal static class OdtReader
         {
             IsAsCharacter = ((string?)drawing.Attribute(OdtNamespaces.Text + "anchor-type") ?? inheritedAnchor) == "as-char",
             IsCustomShape = drawing.Name != OdtNamespaces.Draw + "frame",
-            FitsText = drawing.Name == OdtNamespaces.Draw + "custom-shape" && paragraphs.Count > 0,
+            RotationRadians = rotation,
+            FitsText = drawing.Name == OdtNamespaces.Draw + "custom-shape" && paragraphs.Count > 0 &&
+                shapeContent.Tables.Count == 0,
             WrapMargins = ReadWrapMargins(graphic),
         });
+        return true;
+    }
+
+    private static bool TryReadShapeRotation(XElement drawing, out double angle, out double x, out double y)
+    {
+        angle = x = y = 0;
+        string? value = (string?)drawing.Attribute(OdtNamespaces.Draw + "transform");
+        if (value is null)
+            return false;
+
+        var match = System.Text.RegularExpressions.Regex.Match(value,
+            @"^\s*rotate\s*\(\s*([^\s()]+)\s*\)\s*(?:translate\s*\(\s*([^\s(),]+)[\s,]+([^\s(),]+)\s*\))?\s*$",
+            System.Text.RegularExpressions.RegexOptions.NonBacktracking | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+        if (!match.Success || !double.TryParse(match.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out double radians) ||
+            !double.IsFinite(radians))
+            return false;
+        if (match.Groups[2].Success && (!OdtUnits.TryParseLength(match.Groups[2].Value, out x) ||
+            !OdtUnits.TryParseLength(match.Groups[3].Value, out y)))
+            return false;
+
+        angle = -radians;
         return true;
     }
 
@@ -1794,15 +1827,37 @@ internal static class OdtReader
     private static RichTextDocument ReadShapeParagraphs(
         XElement textBox,
         OdtReadContext context,
-        int depth)
+        int depth,
+        double? frameTextWidth = null)
     {
         var builder = new OdtDocumentBuilder(context.Builder.Limits, context.Builder.Diagnostics);
-        var nested = new OdtReadContext(context.Styles, context.Images, builder) { Variables = context.Variables };
+        var nested = new OdtReadContext(context.Styles, context.Images, builder)
+        {
+            Variables = context.Variables,
+            FrameTextWidth = frameTextWidth,
+        };
         // A custom shape holds its geometry alongside its text. The geometry is
         // the shape's form, not content, and walking it as a block reports an
         // unsupported element for something the reader is deliberately not using.
         ReadBlockContent(
-            textBox.Elements().Where(child => child.Name.Namespace == OdtNamespaces.Text || child.Name.Namespace == OdtNamespaces.Table),
+            textBox.Elements()
+                .Where(child => child.Name.Namespace == OdtNamespaces.Text || child.Name.Namespace == OdtNamespaces.Table ||
+                    child.Name == OdtNamespaces.LibreOffice + "table")
+                .Select(child =>
+                {
+                    if (child.Name != OdtNamespaces.LibreOffice + "table")
+                        return child;
+
+                    var table = new XElement(child);
+                    foreach (XElement element in table.DescendantsAndSelf())
+                    {
+                        if (element.Name.Namespace == OdtNamespaces.LibreOffice &&
+                            element.Name.LocalName is "table" or "table-column" or "table-row" or "table-cell" or
+                                "covered-table-cell" or "table-header-rows" or "table-rows" or "table-columns" or "table-header-columns")
+                            element.Name = OdtNamespaces.Table + element.Name.LocalName;
+                    }
+                    return table;
+                }),
             nested,
             list: null,
             depth + 1);
@@ -2588,6 +2643,17 @@ internal static class OdtReader
                 continue;
             }
 
+            if (name == OdtNamespaces.Text + "user-defined" && element.FirstNode is null &&
+                (string?)element.Attribute(OdtNamespaces.Text + "name") is string fieldName &&
+                context.Styles.UserDefinedFields.TryGetValue(fieldName, out string? value))
+            {
+                builder.AppendLiteral(value, style);
+                continue;
+            }
+
+            if (name == OdtNamespaces.Text + "script")
+                continue;
+
             if (name == OdtNamespaces.Text + "ruby")
             {
                 XElement? rubyBase = element.Element(OdtNamespaces.Text + "ruby-base");
@@ -3175,7 +3241,8 @@ internal static class OdtReader
         }
 
         InlineImage? image = context.Images.Read(frame, context.Builder,
-            IsAnchoredInText(frame) && context.TableDepth == 0 ? context.ActivePage ?? PageGeometry.A4 : null);
+            IsAnchoredInText(frame) && context.TableDepth == 0 ? context.ActivePage ?? PageGeometry.A4 : null,
+            context.FrameTextWidth);
         if (image is null)
             return;
 
@@ -3230,10 +3297,11 @@ internal static class OdtReader
             outlineWidth = border.Width;
         }
 
-        double x = offsetX + (OdtUnits.TryParseLength((string?)frame.Attribute(OdtNamespaces.Svg + "x"), out double left)
+        XElement? picture = frame.Element(OdtNamespaces.Draw + "image");
+        double x = offsetX + (OdtUnits.TryParseLength((string?)(frame.Attribute(OdtNamespaces.Svg + "x") ?? picture?.Attribute(OdtNamespaces.Svg + "x")), out double left)
             ? left
             : 0);
-        double y = offsetY + (OdtUnits.TryParseLength((string?)frame.Attribute(OdtNamespaces.Svg + "y"), out double top)
+        double y = offsetY + (OdtUnits.TryParseLength((string?)(frame.Attribute(OdtNamespaces.Svg + "y") ?? picture?.Attribute(OdtNamespaces.Svg + "y")), out double top)
             ? top
             : 0);
         (int anchorPage, x, y, bool fromPage) = PlaceOnPage(frame, styleName, x, y, width, height, context, inheritedAnchor, inheritedAnchorPage);

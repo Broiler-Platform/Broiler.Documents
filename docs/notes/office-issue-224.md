@@ -1,0 +1,4 @@
+# Reference defects in Office conformance issue #224
+
+- **tdf#166201**. The pinned LibreOffice 24.2 PDFs place both drawings near the top left. The upstream tests assert page-relative positions of approximately 10.5 cm for the numeric EMU coordinate and 5 cm for the explicit centimetre coordinate. Both fixing commits are in the LibreOffice 25.8.0.4 tag. [EMU fix](https://github.com/LibreOffice/core/commit/356f916d0e7dbab7f871c3feb19c6e1292c2a2f5) · [Universal measure fix](https://github.com/LibreOffice/core/commit/a48bc1a44010e12da4ed8c3f66a4e255ef8f2513)
+- **tdf#167710**. The pinned reference displays the revision author string `Unknown;` as body text. Broiler's body is empty, as the upstream test expects. The fixing commit is in the LibreOffice 26.2.0.3 tag, and a local LibreOffice 26.2 export also has an empty body. [RTF revision-table fix](https://github.com/LibreOffice/core/commit/b45ba94bf2d927d0306cdd0e885017735ae4b21e)

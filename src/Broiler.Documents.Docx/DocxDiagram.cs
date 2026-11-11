@@ -101,15 +101,20 @@ internal static class DocxDiagram
             Report("docx.diagram.cache", "A SmartArt diagram had no readable embedded drawing cache; its layout was not synthesized.");
             return null;
         }
+        return new Cache(ConvertTree(tree, anchor, builder, theme, Saved), relationships);
+    }
+
+    internal static XElement ConvertTree(XElement tree, XElement anchor, DocxDocumentBuilder builder, DocxTheme theme, XNamespace sourceNamespace)
+    {
+        void Report(string code, string message) => builder.AddDiagnosticOnce(code, message);
         int count = 0;
-        XElement group = Group(tree, true, 0);
-        return new Cache(group, relationships);
+        return Group(tree, true, 0);
 
         XElement Group(XElement source, bool root, int depth)
         {
             XNamespace groupNamespace = DocxNamespaces.WordGroup;
             var result = new XElement(groupNamespace + (root ? "wgp" : "grpSp"));
-            XElement? properties = source.Element(Saved + "grpSpPr");
+            XElement? properties = source.Element(sourceNamespace + "grpSpPr");
             var mapped = new XElement(groupNamespace + "grpSpPr", properties?.Attributes(), properties?.Nodes());
             if (root && mapped.Element(A + "xfrm") is null)
             {
@@ -131,8 +136,8 @@ internal static class DocxDiagram
             }
             foreach (XElement child in source.Elements())
             {
-                if (child.Name == Saved + "grpSp") result.Add(Group(child, false, depth + 1));
-                else if (child.Name == Saved + "sp")
+                if (child.Name == sourceNamespace + "grpSp") result.Add(Group(child, false, depth + 1));
+                else if (child.Name == sourceNamespace + "sp")
                 {
                     if (++count > builder.Limits.MaxParagraphCount)
                     {
@@ -140,7 +145,7 @@ internal static class DocxDiagram
                     }
                     result.Add(Shape(child));
                 }
-                else if (child.Name != Saved + "grpSpPr" && child.Name != Saved + "nvGrpSpPr")
+                else if (child.Name != sourceNamespace + "grpSpPr" && child.Name != sourceNamespace + "nvGrpSpPr")
                     Report("docx.diagram.object", "An unsupported saved diagram object was skipped; supported shapes and text were retained.");
             }
             return result;
@@ -149,7 +154,8 @@ internal static class DocxDiagram
         {
             XNamespace shapeNamespace = DocxNamespaces.WordShape;
             var result = new XElement(shapeNamespace + "wsp");
-            var properties = new XElement(shapeNamespace + "spPr", source.Element(Saved + "spPr")?.Attributes(), source.Element(Saved + "spPr")?.Nodes());
+            XElement? shapeProperties = source.Element(sourceNamespace + "spPr");
+            var properties = new XElement(shapeNamespace + "spPr", shapeProperties?.Attributes(), shapeProperties?.Nodes());
             string? preset = (string?)properties.Element(A + "prstGeom")?.Attribute("prst");
             if (preset is not (null or "rect" or "ellipse" or "line" or "straightConnector1" or "notchedRightArrow"))
                 Report("docx.diagram.geometry", "A saved diagram's unsupported preset geometry was approximated by a rectangle.");
@@ -172,9 +178,10 @@ internal static class DocxDiagram
                 Report("docx.diagram.transform", "A saved diagram's rotated shape was approximated by an axis-aligned box; text rotation is not retained.");
             }
             result.Add(properties);
-            XElement? style = source.Element(Saved + "style");
+            XElement? style = source.Element(sourceNamespace + "style");
             if (style is not null) result.Add(new XElement(shapeNamespace + "style", style.Attributes(), style.Nodes()));
-            XElement? text = source.Element(Saved + "txBody");
+            XElement? text = source.Element(sourceNamespace + "txBody") ??
+                source.Element(sourceNamespace + "txSp")?.Element(sourceNamespace + "txBody");
             if (text is not null)
             {
                 result.Add(new XElement(shapeNamespace + "txbx", new XElement(W + "txbxContent", Paragraphs(text, style, builder, theme))));

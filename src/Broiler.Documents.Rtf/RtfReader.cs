@@ -1215,6 +1215,10 @@ public static class RtfReader
                 case "column": ColumnBreak(); break;
                 case "line": AppendChar(0x2028); break; // soft line break
                 case "tab": AppendBody("\t"); break;
+                case "chpgn":
+                    FlushPending();
+                    Active.Append("1", _state.Char with { PageField = new PageField(PageFieldKind.PageNumber, ListNumberFormat.Decimal) });
+                    break;
                 case "cell":
                     if (InBody)
                         EndCell();

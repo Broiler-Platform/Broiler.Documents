@@ -1173,6 +1173,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 }
                 if (table.KeepWithNext && region is not null && columns.Count > 1)
                     regionUnbalanced = true;
+                double followingOpening = 0;
                 if (table.KeepWithNext && !setup.Continuous && table.ParagraphEnd < document.ParagraphCount &&
                     DocumentTable.StartingAt(document.Tables, table.ParagraphEnd) is null)
                 {
@@ -1187,8 +1188,12 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                             ? next.Lines.Sum(line => line.Height)
                             : next.Lines.Take(Math.Max(1, following.Style.OrphanLines ?? 1))
                                 .Sum(line => line.Height);
-                        double required = totalTableHeight + Math.Max(0, following.Style.SpacingBefore) + nextOpening;
-                        if (totalTableHeight <= contentBottom - pageTop && y + required > contentBottom && ColumnHasContent())
+                        followingOpening = table.SpacingAfter + Math.Max(0, following.Style.SpacingBefore) + nextOpening;
+                        double required = totalTableHeight + followingOpening;
+                        bool keptWithPrevious = paragraphIndex > 0 &&
+                            document.Paragraphs[paragraphIndex - 1].Style.KeepWithNext;
+                        if (required <= contentBottom - pageTop && y + required > contentBottom &&
+                            ColumnHasContent() && (!keptWithPrevious || table.KeepTogether))
                         {
                             regionUnbalanced = true;
                             BreakColumn();
@@ -1288,6 +1293,13 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                     RowBox? row = composedRow;
                     while (row is not null && !truncated)
                     {
+                        if (!table.KeepTogether && rowNumber == composedRows.Count && followingOpening > 0 &&
+                            ColumnHasContent() && !headerOnly &&
+                            y + row.Height + followingOpening > contentBottom &&
+                            composedRows.Take(headerCount).Sum(header => header.Height) + row.Height + followingOpening <= contentBottom - pageTop)
+                            ContinueTable(inHeader, row);
+                        if (truncated)
+                            break;
                         if (y + row.Height > contentBottom - NotesHeight(row.Lines))
                         {
                             bool hasNestedTables = row.Contents.Any(c => c.Cell is not null && c.Cell.Tables.Count > 0);
@@ -2125,7 +2137,10 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 shape.Image,
                 shape.BehindText,
                 shape.ZOrder,
-                cells, shape.Geometry, shape.OutlineWidth));
+                cells, shape.Geometry, shape.OutlineWidth)
+            {
+                RotationRadians = shape.RotationRadians,
+            });
         }
 
         return placed;
@@ -2184,7 +2199,10 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
             (List<LayoutLine> text, List<LayoutCell> cells) = PlaceShapeContent(shape, bounds, setup);
             placed.Add(new LayoutShape(bounds, shape.Fill, shape.Outline, text,
-                shape.Image, shape.BehindText, shape.ZOrder, cells, shape.Geometry, shape.OutlineWidth));
+                shape.Image, shape.BehindText, shape.ZOrder, cells, shape.Geometry, shape.OutlineWidth)
+            {
+                RotationRadians = shape.RotationRadians,
+            });
         }
 
         return placed;

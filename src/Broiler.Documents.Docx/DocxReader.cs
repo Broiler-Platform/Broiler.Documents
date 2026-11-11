@@ -1198,13 +1198,16 @@ internal static class DocxReader
             if (child.Name == DocxNamespaces.Wordprocessing + "fldChar")
             {
                 // A page field Word saved no result for still shows a number.
-                (PageField? empty, string? fallbackText) = builder.Fields.Read(child, context.Styles, runStyle);
+                (PageField? empty, string? fallbackText, bool ruby) = builder.Fields.Read(child, context.Styles, runStyle);
+                if (builder.Fields.SuppressesResult)
+                    continue;
                 if (empty is not null)
                     builder.AppendText(ListNumberer.Format(1, empty.Format), runStyle with { PageField = empty });
                 else if (fallbackText is not null)
                 {
                     builder.AppendText(fallbackText, runStyle);
-                    builder.AddDiagnosticOnce("docx.field.ruby", "An empty-result ruby equation field was read as its base text; phonetic annotation layout is not represented.");
+                    if (ruby)
+                        builder.AddDiagnosticOnce("docx.field.ruby", "An empty-result ruby equation field was read as its base text; phonetic annotation layout is not represented.");
                 }
                 style = builder.Fields.Apply(runStyle);
                 continue;
@@ -1215,6 +1218,9 @@ internal static class DocxReader
                 builder.Fields.Instruction(child.Value);
                 continue;
             }
+
+            if (builder.Fields.SuppressesResult)
+                continue;
 
             if (child.Name == DocxNamespaces.Wordprocessing + "t")
             {
@@ -1552,7 +1558,10 @@ internal static class DocxReader
     private static bool ReadDiagram(XElement drawing, DocxReadContext context)
     {
         XElement? references = drawing.Descendants(DocxDiagram.Diagram + "relIds").FirstOrDefault();
-        if (references is null) return false;
+        XElement? canvas = references is null
+            ? drawing.Descendants(XName.Get("lockedCanvas", "http://schemas.openxmlformats.org/drawingml/2006/lockedCanvas")).FirstOrDefault()
+            : null;
+        if (references is null && canvas is null) return false;
         XElement? anchor = drawing.Element(DocxNamespaces.WordDrawing + "anchor") ?? drawing.Element(DocxNamespaces.WordDrawing + "inline");
         XElement? extent = anchor?.Element(DocxNamespaces.WordDrawing + "extent");
         double width = EmuToPoints((string?)extent?.Attribute("cx")), height = EmuToPoints((string?)extent?.Attribute("cy"));
@@ -1561,7 +1570,9 @@ internal static class DocxReader
             context.Builder.AddDiagnosticOnce("docx.diagram.extent", "A saved diagram had an unsupported outer extent and was skipped.");
             return true;
         }
-        DocxDiagram.Cache? cache = context.Images.ReadDiagram(references, anchor, context.Relationships, context.Builder, context.Styles.Theme);
+        DocxDiagram.Cache? cache = canvas is not null
+            ? new DocxDiagram.Cache(DocxDiagram.ConvertTree(canvas, anchor, context.Builder, context.Styles.Theme, DocxNamespaces.Drawing), context.Relationships)
+            : context.Images.ReadDiagram(references!, anchor, context.Relationships, context.Builder, context.Styles.Theme);
         if (cache is null) return true;
         XElement placement = new(anchor);
         if (context.Builder.InTableCell)
@@ -2374,6 +2385,9 @@ internal static class DocxReader
     /// </remarks>
     private static double HorizontalOffset(XElement anchor, DocxReadContext context)
     {
+        if (SimplePosition(anchor) is XElement simple)
+            return SimpleCoordinate(simple, "x") - (context.PlacementPage?.MarginLeft ?? 0);
+
         double offset = EmuToPoints(PositionOffset(anchor, "positionH"));
         string? from = RelativeFrom(anchor, "positionH");
         if (context.PlacementPage is not PageGeometry page)
@@ -2441,6 +2455,9 @@ internal static class DocxReader
     /// </remarks>
     private static (double Offset, bool FromPage) VerticalOffset(XElement anchor, DocxReadContext context)
     {
+        if (SimplePosition(anchor) is XElement simple)
+            return (SimpleCoordinate(simple, "y"), true);
+
         double offset = EmuToPoints(PositionOffset(anchor, "positionV"));
         string? from = RelativeFrom(anchor, "positionV");
 
@@ -2599,6 +2616,14 @@ internal static class DocxReader
         long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out long emu)
             ? emu / 12700d
             : 0;
+
+    private static XElement? SimplePosition(XElement anchor) =>
+        (string?)anchor.Attribute("simplePos") is "1" or "true"
+            ? anchor.Element(DocxNamespaces.WordDrawing + "simplePos")
+            : null;
+
+    private static double SimpleCoordinate(XElement position, string axis) =>
+        DocxValueReader.TryReadMeasure(position.Attribute(axis), 12700, out int emu) ? emu / 12700d : 0;
 
     private static ShapeFill? ReadFill(XElement? spPr, DocxReadContext context)
     {

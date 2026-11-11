@@ -145,21 +145,20 @@ internal static class OdtMetadata
     }
 
     /// <summary>Reads the package's <c>meta.xml</c>, if it has one.</summary>
-    public static DocumentMetadata Read(
+    public static XElement? Load(
         ZipArchive archive,
         DocumentLimits limits,
         List<DocumentDiagnostic> diagnostics)
     {
         ZipArchiveEntry? entry = OdtPackage.FindEntry(archive, OdtNamespaces.MetaPart);
         if (entry is null)
-            return DocumentMetadata.Empty;
+            return null;
 
-        XElement? meta = OdtPackage
+        return OdtPackage
             .LoadEntryXml(entry, limits, diagnostics, "odt.meta.xml")?
             .Root?
             .Element(OdtNamespaces.Office + "meta");
 
-        return Read(meta, diagnostics);
     }
 
     /// <summary>

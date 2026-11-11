@@ -76,6 +76,21 @@ public sealed class DocxFloatingPictureTests
             run => run.Style.Image is not null);
     }
 
+    [Theory]
+    [InlineData("914400", "457200")]
+    [InlineData("25.4mm", "12.7mm")]
+    public void Uses_Simple_Position_Instead_Of_Relative_Offsets(string x, string y)
+    {
+        string drawing = Anchored()
+            .Replace("simplePos=\"0\"", "simplePos=\"1\"")
+            .Replace("<wp:positionH", $"<wp:simplePos x=\"{x}\" y=\"{y}\"/><wp:positionH");
+
+        DocumentShape shape = Assert.Single(Read(drawing).Document.Shapes);
+
+        Assert.Equal(72, shape.OffsetX, 3);
+        Assert.Equal(36, shape.OffsetY, 3);
+    }
+
     [Fact]
     public void Anchors_A_Floating_Picture_To_The_Paragraph_It_Sits_In()
     {

@@ -318,6 +318,41 @@
       ],
       "evidence": "Upstream bug tdf#172169 addressed line spacing height calculation regressions in LibreOffice Writer. In pinned LibreOffice 24.2, the document renders 13 pages due to pre-fix line spacing, whereas in LibreOffice 26.8 with the fix it renders 14 pages. The semantic text projection has 0 differences across all pages.",
       "reference": "docs/notes/office-issue-213.md"
+    },
+    {
+      "id": "tdf166201-drawing-simple-position",
+      "bug": "tdf#166201",
+      "fixedIn": "25.8",
+      "fixCommits": [
+        "356f916d0e7dbab7f871c3feb19c6e1292c2a2f5",
+        "a48bc1a44010e12da4ed8c3f66a4e255ef8f2513"
+      ],
+      "upstreamTests": [
+        "sw/qa/extras/ooxmlexport/ooxmlexport22.cxx testTdf166201_simplePos",
+        "sw/qa/extras/ooxmlexport/ooxmlexport22.cxx testTdf166201_simplePosCM"
+      ],
+      "axes": ["pixel"],
+      "samples": [
+        "ooxmlexport/data/tdf166201_simplePos.docx",
+        "ooxmlexport/data/tdf166201_simplePosCM.docx"
+      ],
+      "evidence": "The pinned 24.2 PDFs draw both images at the top left. Upstream tests assert page-relative positions of approximately 10.5 cm for the EMU coordinate and 5 cm for the centimetre coordinate.",
+      "reference": "docs/notes/office-issue-224.md"
+    },
+    {
+      "id": "tdf167710-rtf-revision-table-text",
+      "bug": "tdf#167710",
+      "fixedIn": "26.2",
+      "fixCommits": [
+        "b45ba94bf2d927d0306cdd0e885017735ae4b21e"
+      ],
+      "upstreamTests": [
+        "sw/qa/extras/rtfimport/rtfimport2.cxx testTdf167710"
+      ],
+      "axes": ["pixel", "text"],
+      "samples": ["rtfimport/data/tdf167710.rtf"],
+      "evidence": "The pinned 24.2 reference exports Unknown; into the body. The upstream test asserts an empty paragraph because revision-table entries are metadata.",
+      "reference": "docs/notes/office-issue-224.md"
     }
   ]
 }
