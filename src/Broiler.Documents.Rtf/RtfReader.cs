@@ -2209,14 +2209,24 @@ public static class RtfReader
                 }
             }
 
-            if (!valid || depth != 0 || highNibble >= 0 ||
-                DocumentImageFormats.ContentTypeForSignature(bytes.GetBuffer().AsSpan(0, (int)bytes.Length)) is not string contentType)
+            byte[]? encoded = null;
+            string? contentType = null;
+            if (valid && depth == 0 && highNibble < 0)
+            {
+                ReadOnlySpan<byte> data = bytes.GetBuffer().AsSpan(0, (int)bytes.Length);
+                contentType = DocumentImageFormats.ContentTypeForSignature(data);
+                if (contentType is not null)
+                    encoded = bytes.ToArray();
+                else if (RtfEmf.IsEmf(data) && RtfEmf.RenderPng(data) is byte[] png)
+                    (encoded, contentType) = (png, "image/png");
+            }
+            if (encoded is null || contentType is null)
             {
                 ReportEmbedded();
                 return null;
             }
 
-            var resource = BImageResource.FromEncoded(bytes.ToArray(), contentType);
+            var resource = BImageResource.FromEncoded(encoded, contentType);
             var request = new DocumentResourceRequest(resource, DocumentResourceProvenance.ReadFromSource,
                 DocumentResourceDisposition.Embedded, null, "RTF");
             if (!_resources.TryAdmit(request, DocumentResourceOperations.ExtractToModel, out DocumentResourceId id, out string? denial))
