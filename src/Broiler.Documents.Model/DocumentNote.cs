@@ -79,6 +79,13 @@ public sealed class DocumentNote
     /// <summary>The label the author chose, or null for a note that is numbered.</summary>
     public string? CustomMark { get; }
 
+    /// <summary>
+    /// The tables in the note, over <see cref="Paragraphs"/>' indices; their
+    /// cells' paragraphs are among the note's paragraphs, so a consumer that
+    /// knows nothing of tables still has the text.
+    /// </summary>
+    public IReadOnlyList<DocumentTable> Tables { get; init; } = [];
+
     /// <summary>The section collecting this footnote, or null for ordinary placement.</summary>
     public SectionFootnotes? Section { get; init; }
 

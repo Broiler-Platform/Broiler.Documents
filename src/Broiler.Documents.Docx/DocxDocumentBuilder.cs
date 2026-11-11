@@ -239,11 +239,19 @@ internal sealed class DocxDocumentBuilder(
     /// just ended with already does that, and one boundary is one boundary; a
     /// column break held over becomes the page break, which goes further.
     /// </summary>
-    public void HoldPageBreak(bool column = false)
+    public void HoldPageBreak(bool column = false, bool keepsSpaceAbove = true)
     {
         _pageBreakStartsNextParagraph = true;
         _heldBreakIsColumn = column;
+        _heldBreakKeepsSpaceAbove = !column && keepsSpaceAbove;
     }
+
+    /// <summary>
+    /// Whether the held page break is a section's, whose page keeps the next
+    /// paragraph's space above (tdf170003_bottomSpacing.docx), rather than one
+    /// a run wrote.
+    /// </summary>
+    private bool _heldBreakKeepsSpaceAbove;
 
     /// <summary>
     /// Holds a line break written between blocks - a <c>w:br</c> directly in
@@ -340,6 +348,12 @@ internal sealed class DocxDocumentBuilder(
         }
         _markStyle = markStyle;
 
+        // Word 2013 and later (compatibility mode 15) start the page a
+        // paragraph's own w:pageBreakBefore opens at its top, as earlier modes
+        // keep the paragraph's space above there.
+        if (style.PageBreakKeepsSpaceAbove && WordCompatibilityMode >= 15)
+            style = style with { PageBreakKeepsSpaceAbove = false };
+
         // The two spellings mean one break. A paragraph reached by a
         // w:br that also states w:pageBreakBefore starts one page, not two,
         // so this sets the flag rather than counting anything.
@@ -347,9 +361,14 @@ internal sealed class DocxDocumentBuilder(
         {
             style = _heldBreakIsColumn
                 ? style with { ColumnBreakBefore = true }
-                : style with { PageBreakBefore = true };
+                : style with
+                {
+                    PageBreakBefore = true,
+                    PageBreakKeepsSpaceAbove = (style.PageBreakBefore && style.PageBreakKeepsSpaceAbove) || _heldBreakKeepsSpaceAbove,
+                };
             _pageBreakStartsNextParagraph = false;
             _heldBreakIsColumn = false;
+            _heldBreakKeepsSpaceAbove = false;
         }
 
         _paragraphStyle = style;
@@ -614,6 +633,7 @@ internal sealed class DocxDocumentBuilder(
             _pageBreakSeen = false;
             _pageBreakStartsNextParagraph = true;
             _heldBreakIsColumn = _breakIsColumn;
+            _heldBreakKeepsSpaceAbove = false;
         }
 
         if (_paragraphs.Count >= limits.MaxParagraphCount)
@@ -718,6 +738,9 @@ internal sealed class DocxDocumentBuilder(
 
     /// <summary>Whether a page break has been held over to start the next paragraph.</summary>
     public bool HasPendingPageBreak => _pageBreakStartsNextParagraph;
+
+    /// <summary>Whether the paragraph being built holds any text yet.</summary>
+    public bool HasTextInParagraph => _segments.Exists(segment => segment.Text.Length > 0);
 
     /// <summary>Whether any shape is anchored at the given paragraph index.</summary>
     public bool HasShapeAnchoredAt(int index) => _shapes.Exists(s => s.ParagraphIndex == index);
