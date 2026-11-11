@@ -3705,6 +3705,35 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         paragraph.MarkStyle.Hidden && paragraph.Runs.All(run => run.Style.Hidden);
 
     /// <summary>
+    /// The paragraph at <paramref name="index"/> joined with those after it
+    /// while its mark is hidden, and in <paramref name="last"/> the last one
+    /// joined.
+    /// </summary>
+    /// <remarks>
+    /// Writer draws a paragraph whose mark is hidden as one with the paragraph
+    /// after it, as Word does, and the joined paragraph takes the first one's
+    /// alignment, spacing and tabs, even when all its text is hidden (soffice
+    /// 24.2: <c>\qc{\v x\par}\qr\sa600 B\par</c> centres "B" with no space
+    /// below; min-wtf.rtf's header). An empty paragraph with a hidden mark
+    /// starts no join: it is hidden on its own, and the next one keeps its
+    /// own formatting.
+    /// </remarks>
+    private static RichTextParagraph JoinHiddenMarks(IReadOnlyList<RichTextParagraph> paragraphs, int index, out int last)
+    {
+        RichTextParagraph joined = paragraphs[index];
+        last = index;
+        if (!joined.MarkStyle.Hidden || joined.Length == 0)
+            return joined;
+        while (joined.MarkStyle.Hidden && last + 1 < paragraphs.Count)
+        {
+            RichTextParagraph next = paragraphs[++last];
+            joined = joined.Append(next).WithMarkStyle(next.MarkStyle);
+        }
+
+        return joined;
+    }
+
+    /// <summary>
     /// <paramref name="paragraphs"/> with each page field showing its value on
     /// the page numbered <paramref name="pageNumber"/>, the
     /// <paramref name="page"/>th of the document; a page count not known yet
@@ -3857,14 +3886,16 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         double spaceBelowPrevious = 0;
         for (int index = 0; index < paragraphs.Count; index++)
         {
-            RichTextParagraph paragraph = paragraphs[index];
+            RichTextParagraph paragraph = JoinHiddenMarks(paragraphs, index, out int last);
+            int first = index;
+            index = last;
             if (IsWhollyHidden(paragraph))
                 continue;
 
             if (lines.Count > 0)
                 height += _styleDefaults.SpaceAbove(paragraph.Style.SpacingBefore, spaceBelowPrevious);
 
-            foreach (LayoutLine line in ComposeParagraph(paragraph, marker: null, setup, -1 - index, left, width).Lines)
+            foreach (LayoutLine line in ComposeParagraph(paragraph, marker: null, setup, -1 - first, left, width).Lines)
             {
                 line.Top = height;
                 lines.Add(line);
