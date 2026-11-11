@@ -191,4 +191,54 @@ public sealed class DocxIssue238Tests
         Assert.Equal(5, style.SpacingBefore);
         Assert.Equal(5, style.SpacingAfter);
     }
+
+    [Theory]
+    [InlineData("<w:r><w:t>mark</w:t></w:r>", true)]
+    [InlineData("", false)]
+    public void In_Word_2013_Mode_A_Section_Keeps_The_Space_Above_Where_Its_Mark_Paragraph_Stays(string markContent, bool keeps)
+    {
+        // tdf165047_consolidatedTopMargin.docx keeps it under a mark paragraph
+        // with text; tdf124637_sectionMargin.docx's empty marks, which
+        // LibreOffice drops, leave their headings at the top margin.
+        DocumentReadResult result = Read(
+            DocxTestPackage.Paragraph("one") +
+            "<w:p><w:pPr><w:sectPr/></w:pPr>" + markContent + "</w:p>" +
+            "<w:p><w:pPr><w:spacing w:before=\"240\"/></w:pPr><w:r><w:t>heading</w:t></w:r></w:p>",
+            Settings("<w:compatSetting w:name=\"compatibilityMode\" w:uri=\"http://schemas.microsoft.com/office/word\" w:val=\"15\"/>"));
+
+        ParagraphStyle style = result.Document.Paragraphs.Single(p => p.Text == "heading").Style;
+        Assert.True(style.PageBreakBefore);
+        Assert.Equal(keeps, style.PageBreakKeepsSpaceAbove);
+    }
+
+    [Fact]
+    public void Automatic_Spacing_Between_Two_List_Items_Is_Taken_Off()
+    {
+        // tdf133052.docx: writerfilter sets the automatic space above an item
+        // whose paragraph before is numbered to nothing, and below one whose
+        // paragraph after is.
+        const string numbering =
+            "<w:numbering " + DocxTestPackage.BodyNamespaceDeclarations + ">" +
+            "<w:abstractNum w:abstractNumId=\"0\"><w:lvl w:ilvl=\"0\"><w:start w:val=\"1\"/><w:numFmt w:val=\"bullet\"/><w:lvlText w:val=\"o\"/></w:lvl></w:abstractNum>" +
+            "<w:num w:numId=\"1\"><w:abstractNumId w:val=\"0\"/></w:num></w:numbering>";
+        string item(string text) =>
+            "<w:p><w:pPr><w:numPr><w:ilvl w:val=\"0\"/><w:numId w:val=\"1\"/></w:numPr>" + AutoSpacing + "</w:pPr><w:r><w:t>" + text + "</w:t></w:r></w:p>";
+        DocumentReadResult result = Read(
+            DocxTestPackage.Paragraph("intro") + item("a") + item("b") + DocxTestPackage.Paragraph("outro"),
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["word/_rels/document.xml.rels"] =
+                    "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">" +
+                    "<Relationship Id=\"rN\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering\" Target=\"numbering.xml\"/>" +
+                    "</Relationships>",
+                ["word/numbering.xml"] = numbering,
+            });
+
+        ParagraphStyle a = result.Document.Paragraphs.Single(p => p.Text == "a").Style;
+        ParagraphStyle b = result.Document.Paragraphs.Single(p => p.Text == "b").Style;
+        Assert.Equal(14, a.SpacingBefore);
+        Assert.Equal(0, a.SpacingAfter);
+        Assert.Equal(0, b.SpacingBefore);
+        Assert.Equal(14, b.SpacingAfter);
+    }
 }

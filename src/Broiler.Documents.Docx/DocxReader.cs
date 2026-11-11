@@ -852,7 +852,7 @@ internal static class DocxReader
             // the closing section. The next surviving paragraph may be on a
             // different page with different geometry.
             context.Frames?.Finish(context, context.Builder.CurrentParagraphIndex - 1);
-            EndSection(context);
+            EndSection(context, markKept: false);
             return;
         }
 
@@ -907,7 +907,7 @@ internal static class DocxReader
         if (context.Sections is not null && DocxSections.EndsSection(paragraph))
         {
             context.Frames?.Finish(context);
-            EndSection(context);
+            EndSection(context, markKept: true);
         }
     }
 
@@ -977,11 +977,19 @@ internal static class DocxReader
     /// had ended on one, and a page break that paragraph did end on is the same
     /// boundary rather than a second.
     /// </summary>
-    private static void EndSection(DocxReadContext context)
+    /// <remarks>
+    /// The page the section opens keeps its first paragraph's space above
+    /// below compatibility mode 15 (tdf170003_bottomSpacing.docx, mode 14),
+    /// and in mode 15 where the paragraph holding the section mark stays
+    /// (tdf165047_consolidatedTopMargin.docx), not where LibreOffice drops an
+    /// empty one (tdf124637_sectionMargin.docx's headings sit at the top
+    /// margin in the 24.2 reference).
+    /// </remarks>
+    private static void EndSection(DocxReadContext context, bool markKept)
     {
         context.Sections!.Advance(context.Builder.CurrentParagraphIndex);
         if (context.Sections.CurrentStartsPage)
-            context.Builder.HoldPageBreak();
+            context.Builder.HoldPageBreak(keepsSpaceAbove: markKept || context.Builder.WordCompatibilityMode < 15);
     }
 
     /// <summary>
@@ -3165,7 +3173,54 @@ internal static class DocxReader
         style = ApplyAutoSpacing(style, chain, pPr, paragraph, context.Styles.HtmlParagraphAutoSpacing);
         if (context.Band != RunningBand.Body || context.InParagraphFrame)
             style = style with { Border = ReadParagraphBorder(chain, pPr, context.Styles.Theme) };
-        return ApplyList(style, chain, pPr, paragraphStyleId, context.Numbering);
+        style = ApplyList(style, chain, pPr, paragraphStyleId, context.Numbering);
+        return context.Styles.HtmlParagraphAutoSpacing && style.ListKind != ListKind.None && paragraph is not null
+            ? TrimListAutoSpacing(style, chain, pPr, paragraph, paragraphStyleId)
+            : style;
+    }
+
+    /// <summary>
+    /// Takes the automatic space off between two items of a list: the space
+    /// above an item whose paragraph before is numbered too, and the space
+    /// below one whose paragraph after is, as writerfilter's
+    /// <c>finishParagraph</c> does for paragraphs of one numbering
+    /// (tdf#133052, tdf#133363).
+    /// </summary>
+    private static ParagraphStyle TrimListAutoSpacing(
+        ParagraphStyle style, IReadOnlyList<XElement> chain, XElement? pPr, XElement paragraph, string? paragraphStyleId)
+    {
+        (bool? before, bool? after) = AutoSpacingStates(chain, pPr);
+        XNamespace w = DocxNamespaces.Wordprocessing;
+        bool Numbered(XElement? sibling)
+        {
+            if (sibling?.Name != w + "p")
+                return false;
+            XElement? siblingProperties = sibling.Element(w + "pPr");
+            if (siblingProperties?.Element(w + "numPr") is { } numPr)
+                return (string?)numPr.Element(w + "numId")?.Attribute(w + "val") is { } id && id != "0";
+            return paragraphStyleId is not null &&
+                DocxValueReader.WordValue(siblingProperties?.Element(w + "pStyle")) == paragraphStyleId;
+        }
+
+        if (before == true && Numbered(paragraph.ElementsBeforeSelf().LastOrDefault()))
+            style = style with { SpacingBefore = 0 };
+        if (after == true && Numbered(paragraph.ElementsAfterSelf().FirstOrDefault()))
+            style = style with { SpacingAfter = 0 };
+        return style;
+    }
+
+    private static (bool? Before, bool? After) AutoSpacingStates(IReadOnlyList<XElement> chain, XElement? pPr)
+    {
+        bool? before = null, after = null;
+        foreach (XElement? properties in chain.Append(pPr))
+        {
+            if (properties?.Element(DocxNamespaces.Wordprocessing + "spacing") is not { } spacing)
+                continue;
+            before = AutoSpacingState(spacing, "before") ?? before;
+            after = AutoSpacingState(spacing, "after") ?? after;
+        }
+
+        return (before, after);
     }
 
     private static ParagraphBorder? ReadParagraphBorder(IReadOnlyList<XElement> chain, XElement? direct, DocxTheme theme)
@@ -3299,15 +3354,7 @@ internal static class DocxReader
     private static ParagraphStyle ApplyAutoSpacing(
         ParagraphStyle style, IReadOnlyList<XElement> chain, XElement? pPr, XElement? paragraph, bool html)
     {
-        bool? before = null, after = null;
-        foreach (XElement? properties in chain.Append(pPr))
-        {
-            if (properties?.Element(DocxNamespaces.Wordprocessing + "spacing") is not { } spacing)
-                continue;
-            before = AutoSpacingState(spacing, "before") ?? before;
-            after = AutoSpacingState(spacing, "after") ?? after;
-        }
-
+        (bool? before, bool? after) = AutoSpacingStates(chain, pPr);
         if (before != true && after != true)
             return style;
 

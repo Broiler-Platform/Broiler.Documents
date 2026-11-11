@@ -237,11 +237,11 @@ internal sealed class DocxDocumentBuilder(
     /// just ended with already does that, and one boundary is one boundary; a
     /// column break held over becomes the page break, which goes further.
     /// </summary>
-    public void HoldPageBreak(bool column = false)
+    public void HoldPageBreak(bool column = false, bool keepsSpaceAbove = true)
     {
         _pageBreakStartsNextParagraph = true;
         _heldBreakIsColumn = column;
-        _heldBreakKeepsSpaceAbove = !column;
+        _heldBreakKeepsSpaceAbove = !column && keepsSpaceAbove;
     }
 
     /// <summary>
@@ -346,6 +346,12 @@ internal sealed class DocxDocumentBuilder(
         }
         _markStyle = markStyle;
 
+        // Word 2013 and later (compatibility mode 15) start the page a
+        // paragraph's own w:pageBreakBefore opens at its top, as earlier modes
+        // keep the paragraph's space above there.
+        if (style.PageBreakKeepsSpaceAbove && WordCompatibilityMode >= 15)
+            style = style with { PageBreakKeepsSpaceAbove = false };
+
         // The two spellings mean one break. A paragraph reached by a
         // w:br that also states w:pageBreakBefore starts one page, not two,
         // so this sets the flag rather than counting anything.
@@ -362,14 +368,6 @@ internal sealed class DocxDocumentBuilder(
             _heldBreakIsColumn = false;
             _heldBreakKeepsSpaceAbove = false;
         }
-
-        // Word 2013 and later (compatibility mode 15) start the page a
-        // section or w:pageBreakBefore opens at its top, as earlier modes keep
-        // the paragraph's space above there: tdf170003_bottomSpacing.docx
-        // (mode 14) keeps its 50 pt in the 24.2 reference, and
-        // tdf124637_sectionMargin.docx (mode 15) drops its headings' 12 pt.
-        if (style.PageBreakKeepsSpaceAbove && WordCompatibilityMode >= 15)
-            style = style with { PageBreakKeepsSpaceAbove = false };
 
         _paragraphStyle = style;
 
