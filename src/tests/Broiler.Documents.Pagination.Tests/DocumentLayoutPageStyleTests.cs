@@ -43,6 +43,35 @@ public sealed class DocumentLayoutPageStyleTests
     }
 
     [Fact]
+    public void A_Parity_Blank_Page_Does_Not_Use_Up_The_Sections_First_Page_Style()
+    {
+        // tdf127862_pageFillStyle.odt: a right-only page style (pattern) whose
+        // next style is a left-only one (hatch) lands on page 4. The blank page
+        // LibreOffice inserts is not the first of the sequence: page 5 is still
+        // the right page, page 6 the left one.
+        var page = new PageGeometry(200, 100, 10, 10, 10, 10);
+        ShapeFill red = ShapeFill.Solid(Broiler.Graphics.Color.BColor.FromArgb(255, 0, 0));
+        ShapeFill blue = ShapeFill.Solid(Broiler.Graphics.Color.BColor.FromArgb(0, 0, 255));
+        var sequence = new PageStyleSequence([new PageStyle(page, RunningContent.Empty, red),
+            new PageStyle(page, RunningContent.Empty, blue)], 1);
+        var broken = ParagraphStyle.Default with { PageBreakBefore = true };
+        var document = RichTextDocument.FromParagraphs([RichTextParagraph.Plain("one"),
+                RichTextParagraph.Create("two", InlineStyle.Default, broken),
+                RichTextParagraph.Create("three", InlineStyle.Default, broken),
+                RichTextParagraph.Create("right", InlineStyle.Default, broken),
+                RichTextParagraph.Create("left", InlineStyle.Default, broken)]).WithPageGeometry(page)
+            .WithSections([new DocumentSection(0, 3, 1, 0, page),
+                new DocumentSection(3, 2, 1, 0, page, pageStyles: sequence, breakType: SectionBreakType.OddPage)]);
+        using var images = new ImageStore();
+        var pages = new DocumentLayout(new LayoutSettings(), images).Layout(document,
+            new DocumentPageBox(200, 100, 10, 10, 10, 10)).Pages;
+        Assert.Equal(6, pages.Count);
+        Assert.True(pages[3].IsParityBlank);
+        Assert.Equal(red, pages[4].Background);
+        Assert.Equal(blue, pages[5].Background);
+    }
+
+    [Fact]
     public void An_Explicit_Page_Break_Uses_The_Next_Page_Styles_Text_Width()
     {
         var wide = new PageGeometry(300, 100, 10, 10, 10, 10);

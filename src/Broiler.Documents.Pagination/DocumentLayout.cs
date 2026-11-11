@@ -940,6 +940,9 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             {
                 RunningContent savedRunning = _running;
                 _running = RunningContent.Empty;
+                // The page after the blank one is the first of the section's
+                // page styles, so it is the one the sequence starts counting at.
+                ownerFirstPage = pages.Count + 2;
                 BreakPage();
                 LayoutPage blank = pages[^1];
                 blank.IsParityBlank = blank.Lines.Count == 0 && blank.Cells.Count == 0 && blank.Shapes.Count == 0;

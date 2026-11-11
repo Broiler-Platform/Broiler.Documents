@@ -344,6 +344,11 @@ toolkit behind it.
   and lists are composed in the box's own flow. Fixed-height frames clip
   overflow; growing frames measure their table content. Explicit text overflow
   cannot be written (`odt.shape.overflow`).
+- A tiled bitmap fill with no `draw:fill-image-width`/`-height` tiles at the
+  size its picture states: the pixels at its JFIF density or PNG `pHYs`
+  resolution, as LibreOffice does, not at 96 DPI (`tdf127862_pageFillStyle.odt`:
+  a 513-pixel 300-DPI cloud picture tiles at 4.3 cm). A picture stating no
+  resolution keeps its pixels at 96 DPI.
 - A frame anchored to a page by number (`text:anchor-type="page"` with
   `text:anchor-page-number`) is `DocumentShape.AnchorPage`: it stands on that
   page, and the layout makes the pages needed, as LibreOffice does
@@ -354,6 +359,9 @@ toolkit behind it.
   it and the anchor counts that page. Its PDF export then leaves the blank page
   out (`stable-at-page-anchored-fly-position.odt`: frames anchored to pages 3
   and 4 export on pages 2 and 3 of 3); the layout marks it `IsParityBlank`.
+  The page after the blank one is the first of the master's page-style
+  sequence, not its second (`tdf127862_pageFillStyle.odt`: the right page
+  after the blank one is the patterned one, then the hatched left page).
   Its position comes from the area the graphic style names
   (`style:horizontal-rel`/`style:vertical-rel` of `page` or `page-content`,
   `page` when unstated) and from `style:horizontal-pos` and

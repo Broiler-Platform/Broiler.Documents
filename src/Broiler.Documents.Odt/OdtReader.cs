@@ -1747,6 +1747,12 @@ internal static class OdtReader
                             (string?)properties.Attribute(OdtNamespaces.Style + "repeat");
         var repeat = repeatStr switch
             { "stretch" => ImageFillRepeat.Stretch, "no-repeat" => ImageFillRepeat.Single, _ => ImageFillRepeat.Tile };
+        // An unstated tile size is the picture's own: its pixels at the
+        // resolution it states, as LibreOffice reads it, not at 96 DPI.
+        if (repeat != ImageFillRepeat.Stretch && width <= 0 && height <= 0 &&
+            image.TryGetEncoded(out ReadOnlyMemory<byte> encoded, out _) &&
+            OdtImageFormats.StatedSize(encoded.Span) is { } stated)
+            (width, height) = stated;
         return ShapeFill.Solid(BColor.Empty) with { Image = new ImageFill(image, repeat, width, height,
             position.Contains("left", StringComparison.Ordinal) ? 0 : position.Contains("right", StringComparison.Ordinal) ? 1 : 0.5,
             position.Contains("top", StringComparison.Ordinal) ? 0 : position.Contains("bottom", StringComparison.Ordinal) ? 1 : 0.5) };

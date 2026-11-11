@@ -154,6 +154,33 @@ public sealed class OdtPageBackgroundTests
     }
 
     [Fact]
+    public void A_Tiled_Bitmap_Fill_Takes_The_Resolution_Its_Picture_States()
+    {
+        // tdf127862_pageFillStyle.odt: a 513-pixel JPEG at 300 DPI tiles the
+        // page at 4.3 cm in LibreOffice, not at its pixels read as 96 DPI.
+        byte[] png = OdtTestPackage.OnePixelPng;
+        byte[] phys = [0x00, 0x00, 0x00, 0x09, 0x70, 0x48, 0x59, 0x73,
+            0x00, 0x00, 0x2E, 0x23, 0x00, 0x00, 0x2E, 0x23, 0x01, 0x00, 0x00, 0x00, 0x00];
+        byte[] stated = [.. png[..33], .. phys, .. png[33..]];
+        string styles =
+            "<office:styles/>" +
+            "<office:automatic-styles>" +
+            "<style:page-layout style:name=\"pm1\"><style:page-layout-properties " + Page + " " +
+            "draw:fill=\"bitmap\" style:repeat=\"repeat\">" +
+            "<style:background-image><office:binary-data>" + Convert.ToBase64String(stated) +
+            "</office:binary-data></style:background-image>" +
+            "</style:page-layout-properties></style:page-layout>" +
+            "</office:automatic-styles>" +
+            "<office:master-styles><style:master-page style:name=\"Standard\" style:page-layout-name=\"pm1\"/></office:master-styles>";
+        DocumentReadResult result = OdtTestPackage.ReadStyled(OdtTestPackage.Paragraph("body"), styles);
+
+        ImageFill image = Assert.IsType<ImageFill>(Assert.IsType<ShapeFill>(result.Document.PageBackground).Image);
+        Assert.Equal(ImageFillRepeat.Tile, image.Repeat);
+        Assert.Equal(72.0 / 300, image.Width, 3);
+        Assert.Equal(72.0 / 300, image.Height, 3);
+    }
+
+    [Fact]
     public void An_Axial_Shape_Fill_Survives_A_Round_Trip()
     {
         var fill = new ShapeFill(BColor.FromArgb(255, 0, 0), BColor.FromArgb(0, 0, 255), 90, Axial: true);
