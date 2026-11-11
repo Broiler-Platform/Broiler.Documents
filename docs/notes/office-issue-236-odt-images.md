@@ -22,8 +22,30 @@ Text actions (TEXT, TEXTARRAY, STRETCHTEXT) are skipped, as `EmfRasterizer` skip
 text. This removes axis labels, legends' series names and data labels from
 charts. Drawing them would need the page's font resolution inside a codec-level
 rasteriser. Bitmap actions (one BMPSCALE in the corpus) are skipped too. Clip
-regions are ignored. A hairline (`LineInfo` width 0) is drawn at 1 pt, so it is
-still visible once the picture is scaled down onto the page.
+regions are ignored. EMF+ records carried in COMMENT actions are not played
+either. A hairline (`LineInfo` width 0) is drawn at 0.5 pt. That is one device
+pixel at the runner's 144 dpi, which is what LibreOffice draws. At lower render
+resolutions the page's image scaling can thin such a line out.
+
+## Follow-up: `htmlexport/data/tdf161979_metafile.fodt`
+
+A full-corpus run showed the first version of this change taking this sample
+from passing to 78.86% similarity, against an 80% threshold. The file holds two
+`image/x-vclgraphic` pictures as SVM `office:binary-data`:
+
+- Image1 is in `MapInch` at a 1/2540 scale: two diagonal hairlines. Before the
+  change it drew as the marked missing-picture box. Now it draws as two lines,
+  in the place LibreOffice draws them.
+- Image2 holds only EMF+ records in COMMENT actions. LibreOffice plays them (a
+  cloud, an arrow and a spreadsheet drop target). broilerdoc does not, so it
+  keeps the marked box, as before.
+
+The regression came from the hairline width. The first version drew hairlines
+at 1 pt (2 px at 144 dpi), twice as heavy as LibreOffice's one-pixel lines.
+They are now 0.5 pt. On this machine, where fonts shift the whole page, the
+sample scores 68.80% before the change, 67.15% with 1 pt hairlines and 69.38%
+with 0.5 pt. The rest of the sample's gap is Image2's EMF+ drawing, which
+needs an EMF+ player. That is not in scope here.
 
 ## Verification
 
@@ -43,11 +65,15 @@ still visible once the picture is scaled down onto the page.
 - `SvmRasterizerTests` (Broiler.Documents.Tests): colours of a filled polygon
   and a hairline; a `MapRelative` map mode composed onto a twip page; null for
   a metafile with nothing drawable or a bare header; a truncated action stops
-  the read without throwing.
+  the read without throwing; tdf161979's `MapInch` 1/2540 hairlines land where
+  stated; a metafile of EMF+ comments alone yields null and keeps the mark.
+- After the hairline change, the 46-sample run plus `tdf161979_metafile.fodt`
+  still passes the same 30 samples, including `tdf130242`, `embedded_chart` and
+  `ole1-pres-data-wmf`. None regressed.
 - `OdtIssue236Tests` (Broiler.Documents.Odt.Tests): an SVM chart replacement
   becomes a PNG picture at the frame's size, with no `odt.image.format`; an
   EMF OLE replacement is rasterised; a metafile with nothing drawable keeps the
   marked missing-picture box.
-- Projects run, all passing: Broiler.Documents.Tests (324),
+- Projects run, all passing: Broiler.Documents.Tests (326 after the follow-up),
   Broiler.Documents.Pagination.Tests (417), Broiler.Documents.Odt.Tests (669),
   Broiler.Documents.Rtf.Tests (640), Broiler.Documents.Docx.Tests (964).

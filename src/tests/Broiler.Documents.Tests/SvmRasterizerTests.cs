@@ -52,6 +52,40 @@ public sealed class SvmRasterizerTests
     }
 
     [Fact]
+    public void An_Inch_Map_Mode_Scaled_To_Hundredths_Of_A_Millimetre_Places_Its_Lines()
+    {
+        // tdf161979_metafile.fodt's first picture: MapInch with a 1/2540 scale,
+        // so logical units are 1/100 mm; two diagonal hairlines on a 1076 x 1789
+        // canvas. Only the lines are drawn; the rest stays transparent.
+        var svm = new SvmBuilder(unit: 7, width: 1076, height: 1789, scaleNum: 1, scaleDen: 2540);
+        svm.LineColor(0, set: true);
+        svm.PolyLine((788, 288), (49, 1789));
+        svm.PolyLine((1076, 49), (337, 1550));
+
+        (int width, int height, byte[] rgba) = DecodePng(Assert.IsType<byte[]>(SvmRasterizer.RenderPng(svm.ToArray())));
+
+        // 1076 x 1789 hundredths of a millimetre at 2 px per point.
+        Assert.InRange(width, 61, 62);
+        Assert.InRange(height, 101, 102);
+        // The first line's midpoint, (418.5, 1038.5), is inked; the top-left corner is not.
+        int x = (int)(418.5 / 1076 * width), y = (int)(1038.5 / 1789 * height);
+        Assert.True(Enumerable.Range(-1, 3).Any(d => rgba[((y + d) * width + x) * 4 + 3] > 0), "the line is drawn");
+        Assert.Equal(0, rgba[3]);
+    }
+
+    [Fact]
+    public void A_Metafile_Of_Emf_Plus_Comments_Alone_Yields_Null()
+    {
+        // tdf161979_metafile.fodt's second picture carries its drawing only as
+        // EMF+ records in COMMENT actions, which this subset does not play, so
+        // the picture keeps the missing-format mark rather than drawing blank.
+        var svm = new SvmBuilder(unit: 0, width: 6219, height: 1893);
+        svm.Comment("EMF_PLUS_HEADER_INFO");
+        svm.Comment("EMF_PLUS");
+        Assert.Null(SvmRasterizer.RenderPng(svm.ToArray()));
+    }
+
+    [Fact]
     public void A_Metafile_With_Nothing_Drawable_Or_Not_A_Metafile_Yields_Null()
     {
         var svm = new SvmBuilder(unit: 0, width: 100, height: 100);
@@ -108,10 +142,19 @@ public sealed class SvmRasterizerTests
     internal sealed class SvmBuilder
     {
         private readonly MemoryStream _actions = new();
-        private readonly int _unit, _width, _height;
+        private readonly int _unit, _width, _height, _scaleNum, _scaleDen;
         private int _count;
 
-        public SvmBuilder(int unit, int width, int height) => (_unit, _width, _height) = (unit, width, height);
+        public SvmBuilder(int unit, int width, int height, int scaleNum = 1, int scaleDen = 1) =>
+            (_unit, _width, _height, _scaleNum, _scaleDen) = (unit, width, height, scaleNum, scaleDen);
+
+        public void Comment(string text) => Action(512, w =>
+        {
+            w.Write((ushort)text.Length);
+            w.Write(System.Text.Encoding.ASCII.GetBytes(text));
+            w.Write(0);   // value
+            w.Write(0u);  // data size
+        });
 
         public void LineColor(int rgb, bool set) => Action(132, w => { w.Write((uint)rgb); w.Write((byte)(set ? 1 : 0)); });
 
@@ -148,7 +191,7 @@ public sealed class SvmRasterizerTests
             using (var h = new BinaryWriter(header, System.Text.Encoding.ASCII, leaveOpen: true))
             {
                 h.Write(0u); // compression mode
-                WriteMapMode(h, _unit, 0, 0, 1, 1);
+                WriteMapMode(h, _unit, 0, 0, _scaleNum, _scaleDen);
                 h.Write(_width);
                 h.Write(_height);
                 h.Write((uint)_count);

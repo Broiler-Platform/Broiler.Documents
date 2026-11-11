@@ -95,9 +95,11 @@ internal static class SvmRasterizer
         int pixelsWide = Math.Max(1, (int)Math.Ceiling(widthPt * scale));
         int pixelsHigh = Math.Max(1, (int)Math.Ceiling(heightPt * scale));
         double sx = pixelsWide / frameWidth, sy = pixelsHigh / frameHeight;
-        // A hairline is one device pixel wherever the metafile is played; drawn at
-        // a point here, it still shows once the picture is scaled down onto a page.
-        double hairline = scale;
+        // A hairline is one device pixel wherever the metafile is played. Half a
+        // point is one pixel at the 144 dpi the conformance runner compares at;
+        // a full point drew tdf161979_metafile.fodt's hairlines twice as heavy
+        // as LibreOffice does.
+        double hairline = 0.5 * scale;
 
         var line = new BColor(0, 0, 0);
         var fill = new BColor(255, 255, 255);
