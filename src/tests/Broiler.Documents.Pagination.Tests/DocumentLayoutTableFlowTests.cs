@@ -54,6 +54,21 @@ public sealed class DocumentLayoutTableFlowTests
         Assert.Equal(2, Assert.Single(Layout(document, continuous: true).Pages).Lines.Count);
     }
 
+    [Theory]
+    [InlineData(false, 8)]
+    [InlineData(true, 2)]
+    public void A_kept_table_longer_than_a_page_starts_on_a_new_page(bool keepWithNext, int firstPageLines)
+    {
+        // tdf119054.docx: Word and LibreOffice start a keep-with-next table that
+        // does not fit where it is on a new page, even one longer than a page.
+        RichTextDocument document = RichTextDocument.FromParagraphs([Para(2), Para(10), Para(1)])
+            .WithTables([new DocumentTable(1, 1, [new TableRow([new TableCell(1, 1, 0)])], [180],
+                cellPadding: 0, keepWithNext: keepWithNext)]);
+        LayoutResult result = Layout(document);
+        Assert.Equal(firstPageLines, result.Pages[0].Lines.Count);
+        Assert.Equal(13, result.Pages.Sum(page => page.Lines.Count));
+    }
+
     private static RichTextParagraph Para(int lines) => RichTextParagraph.Create(
         string.Join("\u2028", Enumerable.Repeat("x", lines)), InlineStyle.Default,
         ParagraphStyle.Default with { LineHeightRule = LineHeightRule.Exact, LineHeight = 10 });

@@ -488,6 +488,9 @@ internal sealed class DocxDocumentBuilder(
 
     public bool HasPageBreakBefore(int index) => index < _paragraphs.Count && _paragraphs[index].Style.PageBreakBefore;
 
+    /// <summary>Whether the paragraph at the given index keeps with the next, directly or by style.</summary>
+    public bool HasKeepWithNext(int index) => index >= 0 && index < _paragraphs.Count && _paragraphs[index].Style.KeepWithNext;
+
     /// <summary>Whether a page break has been held over to start the next paragraph.</summary>
     public bool HasPendingPageBreak => _pageBreakStartsNextParagraph;
 

@@ -1212,7 +1212,9 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                         double required = totalTableHeight + followingOpening;
                         bool keptWithPrevious = paragraphIndex > 0 &&
                             document.Paragraphs[paragraphIndex - 1].Style.KeepWithNext;
-                        if (required <= contentBottom - pageTop && y + required > contentBottom &&
+                        // A kept table longer than a page still starts on a new
+                        // one, as Word and LibreOffice place it (tdf119054.docx).
+                        if (y + required > contentBottom &&
                             ColumnHasContent() && (!keptWithPrevious || table.KeepTogether))
                         {
                             regionUnbalanced = true;
