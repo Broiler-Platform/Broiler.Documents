@@ -231,6 +231,13 @@ internal static class DocxTableReader
         }
 
 
+        // Word keeps a table whose every paragraph keeps with the next with the
+        // paragraph after it, and starts it on a new page when it does not fit
+        // where it is, even when it is longer than a page (tdf119054.docx).
+        int tableEnd = context.Builder.CurrentParagraphIndex;
+        bool keepWithNext = !inCell && tableEnd > start &&
+            Enumerable.Range(start, tableEnd - start).All(context.Builder.HasKeepWithNext);
+
         context.Builder.AddTable(new DocumentTable(
             start,
             context.Builder.CurrentParagraphIndex - start,
@@ -242,6 +249,7 @@ internal static class DocxTableReader
             widthPercent: ReadPreferredWidth(TableProperty(styleTableParts, properties, "tblW"), percent: true),
             alignment: ReadAlignment(DocxValueReader.WordValue(TableProperty(styleTableParts, properties, "jc"))),
             leftIndent: leftIndent,
+            keepWithNext: keepWithNext,
             pageBreakBefore: pageBreak, columnBreakBefore: columnBreak));
 
         context.Builder.NoteTable();
