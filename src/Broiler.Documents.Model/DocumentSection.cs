@@ -137,6 +137,14 @@ public sealed class DocumentSection(
     /// </summary>
     public int? PageNumberStart { get; } = pageNumberStart is >= 0 ? pageNumberStart : null;
 
+    /// <summary>
+    /// How the pages this section starts write their numbers where a page field
+    /// names no format of its own (<see cref="PageField.FollowsPageFormat"/>):
+    /// DOCX's <c>w:pgNumType w:fmt</c>, which LibreOffice imports as the page
+    /// style's numbering. Null writes them in decimal.
+    /// </summary>
+    public ListNumberFormat? PageNumberFormat { get; init; }
+
     /// <summary>Footnote collections whose original sections end at this boundary.</summary>
     public IReadOnlyList<SectionFootnotes> FootnotesEnding { get; init; } = [];
 
@@ -180,7 +188,7 @@ public sealed class DocumentSection(
             return this;
 
         (int index, int count) = DocumentTable.ShiftRange(ParagraphIndex, ParagraphCount, at, removed, inserted, affinity);
-        return count <= 0 ? null : new DocumentSection(index, count, ColumnCount, ColumnGap, Page, RunningContent, Background, PageStyles, Hidden, DontBalanceColumns, BreakType, LeftIndent, RightIndent, PageNumberStart) { FootnotesEnding = FootnotesEnding };
+        return count <= 0 ? null : new DocumentSection(index, count, ColumnCount, ColumnGap, Page, RunningContent, Background, PageStyles, Hidden, DontBalanceColumns, BreakType, LeftIndent, RightIndent, PageNumberStart) { FootnotesEnding = FootnotesEnding, PageNumberFormat = PageNumberFormat };
     }
 
     /// <summary>
@@ -205,7 +213,7 @@ public sealed class DocumentSection(
             BreakType,
             LeftIndent,
             RightIndent,
-            PageNumberStart) { FootnotesEnding = FootnotesEnding };
+            PageNumberStart) { FootnotesEnding = FootnotesEnding, PageNumberFormat = PageNumberFormat };
     }
 
     /// <summary>
@@ -216,6 +224,6 @@ public sealed class DocumentSection(
         (int index, int count) = DocumentTable.RelocateRange(ParagraphIndex, ParagraphCount, sourceStart, sourceCount, destinationIndex);
         return count <= 0
             ? null
-            : new DocumentSection(index, count, ColumnCount, ColumnGap, Page, RunningContent, Background, PageStyles, Hidden, DontBalanceColumns, BreakType, LeftIndent, RightIndent, PageNumberStart) { FootnotesEnding = FootnotesEnding };
+            : new DocumentSection(index, count, ColumnCount, ColumnGap, Page, RunningContent, Background, PageStyles, Hidden, DontBalanceColumns, BreakType, LeftIndent, RightIndent, PageNumberStart) { FootnotesEnding = FootnotesEnding, PageNumberFormat = PageNumberFormat };
     }
 }

@@ -68,6 +68,9 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     // number it took, the sections that have restarted it, and the document's
     // page count once a first pass has found it, for a page-count field.
     private (int Page, int Number) _numbering = (1, 1);
+
+    /// <summary>How the page being laid out writes its number: its section's format.</summary>
+    private ListNumberFormat? _pageNumberFormat;
     private readonly HashSet<DocumentSection> _restartedNumbering = [];
     private int? _pageCount;
 
@@ -217,6 +220,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     private LayoutResult LayoutOnce(RichTextDocument document, DocumentPageBox setup)
     {
         _numbering = (1, 1);
+        _pageNumberFormat = null;
         _restartedNumbering.Clear();
 
         // A document that hides its changes is laid out as it reads with its
@@ -379,6 +383,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             // count at, once: a section runs onto later pages as their owner too.
             if (section?.PageNumberStart is int restart && _restartedNumbering.Add(section))
                 _numbering = (pages.Count + 1, restart);
+            _pageNumberFormat = section?.PageNumberFormat;
             _running = setup.Continuous ? RunningContent.Empty : section?.RunningContent ?? _documentRunning;
             _firstPage = sharesFirst ? 0 : pages.Count + 1;
         }
@@ -4191,7 +4196,9 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                     : run.Style.PageField is PageField field && field.Kind == PageFieldKind.PageNumber && field.Adjust != 0 &&
                         (page + field.Adjust < 1 || (_pageCount is int count && page + field.Adjust > count))
                         ? ""
-                        : run.Style.PageField?.Text(pageNumber, _pageCount);
+                        : run.Style.PageField is PageField { FollowsPageFormat: true } follows && _pageNumberFormat is ListNumberFormat format
+                            ? (follows with { Format = format }).Text(pageNumber, _pageCount)
+                            : run.Style.PageField?.Text(pageNumber, _pageCount);
                 if (text is not null && text != paragraph.Text.Substring(start, run.Length))
                 {
                     paragraph = paragraph.RemoveRange(start, run.Length);
