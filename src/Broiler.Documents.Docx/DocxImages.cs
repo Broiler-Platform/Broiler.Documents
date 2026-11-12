@@ -240,7 +240,28 @@ internal sealed class DocxImageLoader(ZipArchive archive, DocumentLimits limits,
             return null;
         }
 
-        return Load(relationshipId, relationships, width, height, altText, name, diagnostics);
+        return Load(relationshipId, relationships, width, height, altText, name, diagnostics, ReadVmlPresentation(imageData));
+    }
+
+    /// <summary>
+    /// Word's "Washout" recolouring of a VML picture, which is what its picture
+    /// watermarks use: <c>gain="19661f" blacklevel="22938f"</c> on the
+    /// <c>v:imagedata</c>. LibreOffice imports exactly that pair as its
+    /// watermark colour mode (luminance +50%, contrast -70%) and leaves any
+    /// other gain or black level alone, so the picture is drawn as pale as
+    /// LibreOffice draws it (<c>pictureWatermark.docx</c>).
+    /// </summary>
+    private static ImagePresentation? ReadVmlPresentation(XElement imageData)
+    {
+        const string WashoutGain = "19661f";
+        const string WashoutBlackLevel = "22938f";
+        if (!string.Equals(((string?)imageData.Attribute("gain"))?.Trim(), WashoutGain, StringComparison.Ordinal) ||
+            !string.Equals(((string?)imageData.Attribute("blacklevel"))?.Trim(), WashoutBlackLevel, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        return new ImagePresentation { Brightness = 0.5, Contrast = -0.7 };
     }
 
     /// <summary>
