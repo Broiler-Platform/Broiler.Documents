@@ -453,6 +453,11 @@ internal sealed class DocxImageLoader(ZipArchive archive, DocumentLimits limits,
             // An EMF is rasterized to the subset EmfRasterizer draws, as RTF does.
             (data, contentType) = (png, "image/png");
         }
+        else if (contentType is null && WmfRasterizer.IsWmf(data) && WmfRasterizer.RenderPng(data) is byte[] metafile)
+        {
+            // A WMF is drawn through the same subset, its records read as their EMF counterparts.
+            (data, contentType) = (metafile, "image/png");
+        }
 
         if (contentType is null)
         {
