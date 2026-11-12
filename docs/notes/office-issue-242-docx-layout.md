@@ -37,14 +37,29 @@ filler pushing the table to the foot of an A4 page, a cell merged down three
   past the row; the paragraph after the table follows the 17-point row;
 - `hRule="atLeast"` and no height: the same split, the last row growing to
   hold the rest;
-- room for one row only: one line on page 1, the next on page 2.
+- room for one row only: one line on page 1, the next on page 2;
+- two auto-height rows, five lines merged over them, room for about four lines:
+  both rows start on page 1 and the merged cell's lines fill it to the foot
+  (three lines), the other two carry on at the top of page 2; with three rows
+  and six lines, four lines on page 1;
+- three 20-point `atLeast` (or exact) rows, room for 52 points: two rows and the
+  two lines beside them on page 1, though a third line would fit the page; the
+  third row, whose 20 points do not fit, starts page 2 with the rest;
+- the same files saved as ODT by 24.2 and converted again lay out the same, so
+  the rule is Writer's, not the DOCX import's (it settles the clash with the
+  odt-layout cluster's "a group that fits a page moves whole", which had no
+  reference behind it).
 
 `SplitMergedRows` does this where the group would otherwise move: the rows that
 fit stay with each merged cell's lines that end beside them, and the rest of
 the cell moves into the first row left over, which draws the cell's box for the
-rows it still spans (`CellLines.SpanRows`) and grows if its rows may. It does
-nothing for header rows, a table kept together, rows kept with the next, or a
-merged cell none of whose lines would stay. The unit test
+rows it still spans (`CellLines.SpanRows`) and grows if its rows may. Where
+that row may break, its own cells fit beside the rows above and every merged
+cell running into it ends in it, it is made breakable and starts on the page
+too, so the row split below cuts the merged cell's rest at the page's foot. It
+does nothing for header rows, a table kept together, rows kept with the next,
+or a merged cell none of whose lines would stay; a group taller than a page is
+the odt-layout cluster's `StackOversizedSpans`. The unit test
 `A_Merged_Group_Moves_To_The_Next_Page_When_It_Fits_There` asserted the old
 behaviour without a reference; it now asserts the measured one
 (`A_Merged_Group_Breaks_Between_Its_Rows_At_The_Page_Foot`).
@@ -117,6 +132,12 @@ fonts, `--jobs 2`:
 - Merged rows: every input with a vertical merge (DOCX `w:vMerge`, ODT
   `number-rows-spanned` above 1, RTF `\clvmgf`, 61): text 56 → 56, pixel
   42 → 43 passed; only `tdf128959.docx` changed.
+- After merging the other clusters (`bc16958`) and making a second row start
+  on the page (above): the 61 merged-cell inputs with
+  `tdf127316_autoEscapement2.odt` (62) score exactly as on `bc16958`: text
+  57, pixel 45 passed, `tdf128959.docx`, `fdo114306.odt` and
+  `tdf127316_autoEscapement2.odt` passing; against run 155, pixel 42 → 45 and
+  `tdf127118.docx` 50.9 → 54.0 %.
 - Page number format and contextual spacing: the DOCX inputs with a non-decimal
   `w:fmt` and a `PAGE` field, and those whose styles part has a style stating
   spacing below a later-listed ancestor with `w:contextualSpacing` (7), with the

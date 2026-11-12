@@ -93,8 +93,14 @@ public sealed class DocumentLayoutIssue242OdtLayoutTests
     }
 
     [Fact]
-    public void Rows_Tied_By_A_Merged_Cell_That_Fit_A_Page_Still_Move_Whole()
+    public void Rows_Tied_By_A_Merged_Cell_That_Fit_A_Page_Break_Where_The_Page_Ends()
     {
+        // soffice 24.2, cut-down DOCX and ODT alike: a cell merged over two
+        // auto-height rows breaks with them at the page's foot, though the two
+        // rows would fit the next page whole. The first row stays; the second
+        // starts on the page, as its own text fits, and the merged cell's lines
+        // fill the page down to its foot (A0 to A2); the rest (A3, A4) carries
+        // on at the top of the next page (docs/notes/office-issue-242-docx-layout.md).
         var paragraphs = new List<RichTextParagraph> { Para("lead"), Para("lead"), Para("lead"), Para("lead"), Para("lead") };
         paragraphs.AddRange(Enumerable.Range(0, 5).Select(i => Para("A" + i)));
         paragraphs.Add(Para("B1"));
@@ -106,6 +112,9 @@ public sealed class DocumentLayoutIssue242OdtLayoutTests
         LayoutResult result = Layout(RichTextDocument.FromParagraphs(paragraphs).WithTables([table]), new DocumentPageBox(200, 100, 10, 10, 10, 10));
 
         Assert.Equal(2, result.Pages.Count);
-        Assert.Equal([5, 6, 7, 8, 9, 10, 11], result.Pages[1].Lines.Select(line => line.ParagraphIndex).Order());
+        Assert.Equal([0, 1, 2, 3, 4, 5, 6, 7, 10, 11], result.Pages[0].Lines.Select(line => line.ParagraphIndex).Order());
+        Assert.All(result.Pages[0].Lines, line => Assert.True(line.Top + line.Height <= 90.001));
+        Assert.Equal([8, 9], result.Pages[1].Lines.Select(line => line.ParagraphIndex).Order());
+        Assert.Equal(10, result.Pages[1].Lines.Min(line => line.Top), 3);
     }
 }

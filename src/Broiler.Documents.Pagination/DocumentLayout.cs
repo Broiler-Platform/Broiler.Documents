@@ -2755,6 +2755,20 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         if (moves.Count == 0)
             return false;
 
+        // The first row left over starts on this page too where it may break,
+        // its own cells fit beside the rows above and every merged cell that
+        // runs into it ends in it: Writer then cuts it at the page's foot, and
+        // the merged cells' lines fill the page down to there rather than only
+        // beside the rows above (soffice 24.2: a cell merged over two auto-height
+        // rows with five lines, three of them on page 1 beside the second row).
+        RowBox next = rows[split];
+        TableRow nextRow = table.Rows[split];
+        double own = next.Contents.Where(content => content.Cell is { RowSpan: <= 1, IsRowSpanContinuation: false })
+            .Select(content => content.Height).DefaultIfEmpty(0).Max();
+        bool starts = !nextRow.ExactHeight && nextRow.CanSplit && nextRow.Cells.All(cell => cell.Tables.Count == 0) &&
+            Math.Max(own, next.MinimumHeight) <= room - used + 0.01 &&
+            moves.All(move => move.Row + move.Content.Span == split + 1);
+
         foreach ((int m, CellLines content, double kept, double cut) in moves)
         {
             RowBox master = rows[m];
@@ -2828,6 +2842,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 follow.Boxes.Add(new CellBox(box.Left, box.Width, box.Cell) { ExtraHeight = below });
             }
         }
+        if (starts)
+            next.CanSplit = true;
         return true;
     }
 
@@ -3561,7 +3577,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         public List<CellLines> Contents { get; } = [];
 
         /// <summary>True when the row may break across a page; see <see cref="TableRow.CanSplit"/>.</summary>
-        public bool CanSplit { get; init; }
+        public bool CanSplit { get; set; }
 
         /// <summary>
         /// True for a box that holds several rows tied together by cells that
