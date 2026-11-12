@@ -6,7 +6,9 @@ namespace Broiler.Documents.Rtf.Tests;
 
 public sealed class RtfLegacyDrawingTests
 {
-    private static DocumentReadResult Read(string body) => RtfReader.Read(Encoding.ASCII.GetBytes("{\\rtf1\\paperw12240\\paperh15840\\margl1440\\margt1440 " + body + "}"));
+    // The closing \par gives the body a paragraph mark: a document of drawings
+    // alone opens on Writer's default page, not the one it states.
+    private static DocumentReadResult Read(string body) => RtfReader.Read(Encoding.ASCII.GetBytes("{\\rtf1\\paperw12240\\paperh15840\\margl1440\\margt1440 " + body + "\\par}"));
     private static string Drawing(string properties = "", string primitive = "dprect") =>
         "{\\*\\do\\dobxpage\\dobypage\\" + primitive + "\\dpx2000\\dpy3000\\dpxsize1000\\dpysize500" + properties + "}";
 

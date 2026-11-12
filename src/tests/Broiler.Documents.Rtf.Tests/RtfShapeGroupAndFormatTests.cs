@@ -108,9 +108,9 @@ public sealed class RtfShapeGroupAndFormatTests
     public void Shape_Horizontal_Alignment_Uses_Its_Reference_Width(int reference, int alignment, double x) =>
         Assert.Equal(x, Assert.Single(Read(Shape(P("posrelh", reference) + P("posh", alignment))).Document.Shapes).OffsetX);
 
+    // posrelv 0 (the margin) is measured from the paragraph, as LibreOffice
+    // 24.2 does, so only the page gives an alignment a fixed height (#242).
     [Theory]
-    [InlineData(0, 2, 370)]
-    [InlineData(0, 3, 690)]
     [InlineData(1, 2, 370)]
     [InlineData(1, 3, 740)]
     public void Shape_Vertical_Alignment_Uses_Its_Fixed_Height(int reference, int alignment, double y) =>
