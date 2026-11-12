@@ -29,7 +29,6 @@ htmlexport/data/tdf160390.fodt
 htmlexport/data/tdf160867_image_with_link.fodt
 htmlexport/data/tdf161979_metafile.fodt
 htmlexport/data/tdf162282.odt
-htmlexport/data/transparent-image.odt
 htmlexport/data/ul_with_disc.fodt
 htmlimport/data/PageAndParagraphFilled.html
 htmlimport/data/nested-list-mixed-type.html
@@ -59,14 +58,12 @@ layout/data/hideSection.fodt
 layout/data/horizontal_multilevel.odt
 layout/data/inline-textbox-position.docx
 layout/data/input_field_name.fodt
-layout/data/legend-itemorder-min.docx
 layout/data/linked_frames_section_bug.odt
 layout/data/merge_hidden_redline.docx
 layout/data/merge_hidden_redline_lineheight.rtf
 layout/data/min-wtf.rtf
 layout/data/multiline-field-in-columnar-section.fodt
 layout/data/nested-sections.fodt
-layout/data/outside_long_data_label.docx
 layout/data/quo_vadis_footnote.fodt
 layout/data/ref_page_get_field.fodt
 layout/data/shape-anchored-in-follow.docx
@@ -92,16 +89,11 @@ layout/data/tdf127304.odt
 layout/data/tdf128959.docx
 layout/data/tdf128966-2-min.odt
 layout/data/tdf128996.docx
-layout/data/tdf129054.docx
 layout/data/tdf129357.fodt
 layout/data/tdf134235.docx
 layout/data/tdf134298.ott
 layout/data/tdf134685.docx
-layout/data/tdf134866.docx
 layout/data/tdf135991.odt
-layout/data/tdf137116.docx
-layout/data/tdf137154.docx
-layout/data/tdf138018.docx
 layout/data/tdf138773.docx
 layout/data/tdf139336_ColumnsWithFootnoteDoNotOccupyEntirePage.docx
 layout/data/tdf142694-1.odt
@@ -126,7 +118,6 @@ layout/data/tdf165354_spread-left-page.fodt
 layout/data/tdf167326.fodt
 layout/data/tdf167526.docx
 layout/data/tdf167541.fodt
-layout/data/tdf167583.fodt
 layout/data/tdf168858_single_hidden_section.fodt
 layout/data/tdf168873-paragraph-reflow.fodt
 layout/data/tdf169399.fodt
@@ -141,9 +132,7 @@ layout/data/tdf172932-grow-all-scripts.fodt
 layout/data/tdf40260.odt
 layout/data/tdf54465_ColumnsWithFootnoteDoNotOccupyEntirePage_Old.odt
 layout/data/tdf69647_text.docx
-layout/data/tdf75659.docx
 layout/data/tdf85610.fodt
-layout/data/tdf88752.fodt
 layout/data/three_sections.fodt
 layout/data/toc-inline-heading-order.fodt
 layout/data/underline-in-wrap-area.fodt
@@ -182,7 +171,6 @@ odfexport/data/relh-page.odt
 odfexport/data/sender-initials.fodt
 odfexport/data/shapes-hyperlink.odt
 odfexport/data/spellout-numberingtypes.odt
-odfexport/data/table-in-frame-in-table-in-header-base.odt
 odfexport/data/tdf100492.odt
 odfexport/data/tdf114287.odt
 odfexport/data/tdf118502.odt
@@ -192,8 +180,6 @@ odfexport/data/tdf131621.ott
 odfexport/data/tdf132599_auto.fodt
 odfexport/data/tdf132599_page.fodt
 odfexport/data/tdf132599_spread-left-page.fodt
-odfexport/data/tdf133507_contextualSpacingSection.odt
-odfexport/data/tdf134987.docx
 odfexport/data/tdf135144.docx
 odfexport/data/tdf135338_firstLeftPageFooter.odt
 odfexport/data/tdf136645.odt
@@ -215,7 +201,6 @@ odfexport/data/tdf166011.fodt
 odfexport/data/tdf166011ee.fodt
 odfexport/data/tdf71583.odt
 odfexport/data/tdf75837.fodt
-odfexport/data/tdf77961.odt
 odfexport/data/textbox-rounded-corners.odt
 odfexport/data/textframe-vertadjust.odt
 odfexport/data/user-field-decl-fly.odt
@@ -251,7 +236,6 @@ ooxmlexport/data/AnchorId.docx
 ooxmlexport/data/CT-with-frame.docx
 ooxmlexport/data/FDO74105.docx
 ooxmlexport/data/FDO74106.docx
-ooxmlexport/data/FDO74774.docx
 ooxmlexport/data/FDO76248.docx
 ooxmlexport/data/FDO77715.docx
 ooxmlexport/data/FDO78292.docx
@@ -279,13 +263,10 @@ ooxmlexport/data/dml-groupshape-sdt.docx
 ooxmlexport/data/dml-shape-relsize.docx
 ooxmlexport/data/fdo53985.docx
 ooxmlexport/data/fdo60957-2.docx
-ooxmlexport/data/fdo61343.docx
-ooxmlexport/data/fdo65833.docx
 ooxmlexport/data/fdo66688.docx
 ooxmlexport/data/fdo66781.docx
 ooxmlexport/data/fdo70457.docx
 ooxmlexport/data/fdo73596_RunInStyle.docx
-ooxmlexport/data/fdo74401.docx
 ooxmlexport/data/fdo76098.docx
 ooxmlexport/data/fdo76249.docx
 ooxmlexport/data/fdo76586.docx
@@ -316,8 +297,6 @@ ooxmlexport/data/floattable-anchorpos.docx
 ooxmlexport/data/floattable-nested-cell-start.odt
 ooxmlexport/data/floattable-nested.odt
 ooxmlexport/data/formula-result.fodt
-ooxmlexport/data/groupshape-picture.docx
-ooxmlexport/data/groupshape-smarttag.docx
 ooxmlexport/data/gutter-top.docx
 ooxmlexport/data/kde302504-1.odt
 ooxmlexport/data/layout-flow-alt-alone.docx
@@ -326,7 +305,6 @@ ooxmlexport/data/listWithLgl.docx
 ooxmlexport/data/list_notcounted_indent.fodt
 ooxmlexport/data/math-bold-italic-export.fodt
 ooxmlexport/data/mathtype.docx
-ooxmlexport/data/mso-spt180.docx
 ooxmlexport/data/multi_space_url.fodt
 ooxmlexport/data/n652364.docx
 ooxmlexport/data/n779642.docx
@@ -356,10 +334,7 @@ ooxmlexport/data/special_styles.docx
 ooxmlexport/data/table-start-2-sdt.docx
 ooxmlexport/data/tblr-height.docx
 ooxmlexport/data/tbrl-textbox.docx
-ooxmlexport/data/tdf100751_arrowBothFlip.docx
 ooxmlexport/data/tdf103001.docx
-ooxmlexport/data/tdf103975_notPageBreakB.docx
-ooxmlexport/data/tdf103975_notPageBreakC.docx
 ooxmlexport/data/tdf103975_notPageBreakD.docx
 ooxmlexport/data/tdf103975_notPageBreakE.docx
 ooxmlexport/data/tdf104061_tableSectionColumns.docx
@@ -377,7 +352,6 @@ ooxmlexport/data/tdf108350_noFontdefaults.docx
 ooxmlexport/data/tdf112118.docx
 ooxmlexport/data/tdf112169.odt
 ooxmlexport/data/tdf112446_frameStyle.docx
-ooxmlexport/data/tdf114308.docx
 ooxmlexport/data/tdf117988.docx
 ooxmlexport/data/tdf118169.docx
 ooxmlexport/data/tdf118242.odt
@@ -408,7 +382,6 @@ ooxmlexport/data/tdf123621.docx
 ooxmlexport/data/tdf123636_newlinePageBreak.docx
 ooxmlexport/data/tdf123636_newlinePageBreak3.docx
 ooxmlexport/data/tdf123705.docx
-ooxmlexport/data/tdf123873.docx
 ooxmlexport/data/tdf124398_groupshapeChart.docx
 ooxmlexport/data/tdf124637_sectionMargin.docx
 ooxmlexport/data/tdf124678_no_leading_paragraph.odt
@@ -481,8 +454,6 @@ ooxmlexport/data/tdf153526_commentInNumbering.docx
 ooxmlexport/data/tdf153891.docx
 ooxmlexport/data/tdf153964_firstIndentAfterBreak14.docx
 ooxmlexport/data/tdf153964_numberingAfterBreak14.docx
-ooxmlexport/data/tdf153964_topMarginAfterBreak14.docx
-ooxmlexport/data/tdf153964_topMarginAfterBreak15.docx
 ooxmlexport/data/tdf155707.docx
 ooxmlexport/data/tdf156105_percentSuffix.odt
 ooxmlexport/data/tdf159158_zOrder_1and0equalB.docx
@@ -505,11 +476,9 @@ ooxmlexport/data/tdf166102.fodt
 ooxmlexport/data/tdf166141_linkedStyles.docx
 ooxmlexport/data/tdf166141_linkedStyles2.docx
 ooxmlexport/data/tdf166511.docx
-ooxmlexport/data/tdf166544_noTopMargin_fields.docx
 ooxmlexport/data/tdf166850_24.2.7.2.fodt
 ooxmlexport/data/tdf167843_tblLook_firstRow_tblHeader.docx
 ooxmlexport/data/tdf168017.docx
-ooxmlexport/data/tdf168607_tabstopZero.docx
 ooxmlexport/data/tdf169101_datePicker.docx
 ooxmlexport/data/tdf170003_bottomSpacing.docx
 ooxmlexport/data/tdf170602_exportContext.docx
@@ -539,7 +508,6 @@ ooxmlexport/data/tdf95848.docx
 ooxmlexport/data/tdf95848_2.docx
 ooxmlexport/data/tdf97090.docx
 ooxmlexport/data/tdf97371.docx
-ooxmlexport/data/tdf97618_testVmlShapeTextWordWrap.docx
 ooxmlexport/data/tdf99090_pgbrkAfterTable.docx
 ooxmlexport/data/tdf99140.docx
 ooxmlexport/data/testOuterShdw.docx
@@ -550,9 +518,7 @@ ooxmlexport/data/watermark-shapetype.docx
 ooxmlimport/data/WordArt.docx
 ooxmlimport/data/bnc779620.docx
 ooxmlimport/data/fdo43641.docx
-ooxmlimport/data/groupshape-fontname.docx
 ooxmlimport/data/groupshape-line.docx
-ooxmlimport/data/ink.docx
 ooxmlimport/data/n751017.docx
 ooxmlimport/data/n751077.docx
 ooxmlimport/data/n773061.docx
@@ -681,9 +647,6 @@ rtfexport/data/tdf141964_numId0.rtf
 rtfexport/data/tdf151370.rtf
 rtfexport/data/tdf152784_1.rtf
 rtfexport/data/tdf153195.rtf
-rtfexport/data/tdf153613_anchoredAfterPgBreak.rtf
-rtfexport/data/tdf153613_anchoredAfterPgBreak4.rtf
-rtfexport/data/tdf153613_anchoredAfterPgBreak5.rtf
 rtfexport/data/tdf156030.rtf
 rtfexport/data/tdf158586_lostFrame.rtf
 rtfexport/data/tdf158586_pageBreak0.rtf
@@ -784,8 +747,6 @@ uiwriter/data/tdf104032.odt
 uiwriter/data/tdf104492.docx
 uiwriter/data/tdf104649.docx
 uiwriter/data/tdf105625.fodt
-uiwriter/data/tdf106736-grid.odt
-uiwriter/data/tdf107362.odt
 uiwriter/data/tdf108791_comments_with_tracked_changes.fodt
 uiwriter/data/tdf111969_field.fodt
 uiwriter/data/tdf111969_fieldB.fodt
@@ -808,16 +769,13 @@ uiwriter/data/tdf129805.docx
 uiwriter/data/tdf130685.odt
 uiwriter/data/tdf131728.docx
 uiwriter/data/tdf132596.docx
-uiwriter/data/tdf132911.odt
 uiwriter/data/tdf133967.odt
 uiwriter/data/tdf133990.odt
 uiwriter/data/tdf134021.docx
 uiwriter/data/tdf134227.docx
 uiwriter/data/tdf134965.odt
 uiwriter/data/tdf135056.odt
-uiwriter/data/tdf135061.odt
 uiwriter/data/tdf135412.docx
-uiwriter/data/tdf139638.odt
 uiwriter/data/tdf139843.odt
 uiwriter/data/tdf141175.odt
 uiwriter/data/tdf143176.fodt
@@ -825,7 +783,6 @@ uiwriter/data/tdf143320.odt
 uiwriter/data/tdf146449.odt
 uiwriter/data/tdf147180.fodt
 uiwriter/data/tdf147199.docx
-uiwriter/data/tdf149089.odt
 uiwriter/data/tdf155685.docx
 uiwriter/data/tdf157131.docx
 uiwriter/data/tdf157132.odt
