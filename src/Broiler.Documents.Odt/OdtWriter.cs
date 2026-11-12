@@ -1551,6 +1551,18 @@ public static class OdtWriter
         return properties;
     }
 
+    /// <summary>A baseline shift as ODF's <c>style:text-position</c>, the form the reader reads.</summary>
+    private static string TextPosition(BaselineShift shift)
+    {
+        string position = shift.Position switch
+        {
+            BaselinePosition.AutoSuperscript => "super",
+            BaselinePosition.AutoSubscript => "sub",
+            _ => (shift.Offset * 100).ToString("0.###", CultureInfo.InvariantCulture) + "%",
+        };
+        return position + " " + (shift.Scale * 100).ToString("0.###", CultureInfo.InvariantCulture) + "%";
+    }
+
     private static XElement BuildTextProperties(InlineStyle style, OdtWriteContext context)
     {
         var properties = new XElement(OdtNamespaces.Style + "text-properties");
@@ -1576,6 +1588,9 @@ public static class OdtWriter
             properties.Add(new XAttribute(OdtNamespaces.Fo + "text-transform", "uppercase"));
         else if (style.Capitalization == TextCapitalization.SmallCaps)
             properties.Add(new XAttribute(OdtNamespaces.Fo + "font-variant", "small-caps"));
+
+        if (style.Shift is BaselineShift shift && !shift.IsNone)
+            properties.Add(new XAttribute(OdtNamespaces.Style + "text-position", TextPosition(shift)));
 
         if (!string.IsNullOrWhiteSpace(style.FontFamily))
         {

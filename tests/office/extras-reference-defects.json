@@ -1,7 +1,7 @@
 {
   "$schema": "extras-reference-defects.schema.json",
   "schemaVersion": 1,
-  "updated": "2026-11-11",
+  "updated": "2026-11-12",
   "policy": {
     "records": "Samples of LibreOffice's sw/qa/extras corpus that the LibreOffice the references come from draws with a LibreOffice defect a later LibreOffice release fixed. The corpus is LibreOffice's master tree and the references come from the release reference-data workflow pins, which is older, so a sample added with an upstream fix tests that fix and the pinned release draws it the way the fix corrected.",
     "rule": "While the reference LibreOffice's major.minor is older than a row's fixedIn, the checks the row names (pixel, text) are not compared for its samples: each is reported as skipped with the bug and the note that shows it, and the sample is listed under Known Reference Defects. broilerdoc still reads, dumps and renders it and has to end each in a documented exit code, and every check the row does not name runs and ranks as usual. A row stops applying by itself once references come from a fixed release.",
@@ -465,6 +465,17 @@
       "samples": ["ooxmlexport/data/tdf168607_tabstopZero.docx"],
       "evidence": "The settings state w:defaultTabStop 65536, a default tab distance Word reads as zero. LibreOffice 24.2 imports it as 65536 twips, a 3,277 pt tab distance, so each of the ten 72 pt tabs after the centred '10' breaks the line, and the pinned PDF runs the paragraph over three pages, '10' alone on page two and 'Tabstops' on page three. The fix ('writerfilter: import PROP_TAB_STOP_DISTANCE 0', then 'as uInt16', master 2025-08) came with this sample and a test asserting one page before and after a round trip. broilerdoc draws one page.",
       "reference": "docs/notes/office-issue-240-docx-layout.md"
+    },
+    {
+      "id": "tdf165094-hidden-paragraph-page-style-break",
+      "bug": "tdf#165094",
+      "fixedIn": "25.8",
+      "fixCommits": ["67308193f6ee8a21b20043fbd3e831a8c455f40a"],
+      "upstreamTests": ["sw/qa/extras/layout/layout5.cxx testTdf165094"],
+      "axes": ["pixel"],
+      "samples": ["layout/data/tdf165094.fodt"],
+      "evidence": "Forty-five paragraphs fill most of page one; then a hidden paragraph names the Style1 page style with page number 5, and a table follows. The pinned 24.2 PDF has one page: the table follows paragraph 45 under the first page's 'first' header, and the page style change is lost. The fix ('do not skip empty page because of wrong page descriptor', master 2025-05-26, first released in 25.8) explains that Writer's initial layout put an automatic break before paragraph 26 and the manual break before the hidden paragraph, and that moving the content back skipped the page with the new style in SwFrame::WrongPageDesc, so the break was ignored. It came with this sample, whose table text says it must be after the page break, on a page with style Style1 and number 5, and a layout test that asserts it. broilerdoc draws the fixed layout: two pages, the table on the second under the 'first (Style1)' header. Cut-down copies converted with LibreOffice 24.2.7.2 show the defect depends on the page style: with a plain fo:break-before on the hidden paragraph instead, 24.2 does break the page. The text export holds the same text either way.",
+      "reference": "docs/notes/office-issue-242-odt-layout.md"
     }
   ]
 }

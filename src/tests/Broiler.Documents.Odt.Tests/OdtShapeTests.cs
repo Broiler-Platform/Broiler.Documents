@@ -461,7 +461,10 @@ public sealed class OdtShapeTests
         Assert.DoesNotContain(result.Diagnostics, d => d.Code == "odt.block.unsupported");
         Assert.Equal(2, result.Document.Shapes.Count);
         DocumentShape first = result.Document.Shapes[0];
-        Assert.Equal(60, first.OffsetX);
+        // 60 pt from the page's left edge, held from the text area of
+        // Writer's default page (2 cm margins) the document falls back to.
+        double margin = 2 * 72 / 2.54;
+        Assert.Equal(60 - margin, first.OffsetX, 1);
         Assert.Equal(80, first.OffsetY);
         Assert.Equal(1, first.AnchorPage);
         Assert.False(first.OffsetFromPage);

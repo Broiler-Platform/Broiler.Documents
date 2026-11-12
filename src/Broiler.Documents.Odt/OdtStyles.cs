@@ -101,9 +101,29 @@ internal sealed class OdtStyles : IOdtImageDiagnostics
 
         string size = level switch { 1 => "130%", 2 => "115%", 3 => "101%", 4 => "95%", _ => "85%" };
         string above = level switch { 1 => "12pt", 2 => "10pt", 3 => "7pt", _ => "6pt" };
+        // Its parent is Writer's built-in Heading where the document has none:
+        // the default heading face, Liberation Sans, at 14 pt, kept with the
+        // next paragraph (IndexElementsInHiddenSections.fodt).
+        var heading = new StyleKey(ParagraphFamily, "Heading");
+        if (!_styles.ContainsKey(heading))
+        {
+            _styles[heading] = new StyleDefinition(
+                "Heading",
+                _styles.ContainsKey(new StyleKey(ParagraphFamily, DefaultParagraphStyleName)) ? DefaultParagraphStyleName : null,
+                new XElement(OdtNamespaces.Style + "paragraph-properties",
+                    new XAttribute(OdtNamespaces.Fo + "margin-top", "12pt"),
+                    new XAttribute(OdtNamespaces.Fo + "margin-bottom", "6pt"),
+                    new XAttribute(OdtNamespaces.Fo + "keep-with-next", "always")),
+                new XElement(OdtNamespaces.Style + "text-properties",
+                    new XAttribute(OdtNamespaces.Fo + "font-family", "Liberation Sans"),
+                    new XAttribute(OdtNamespaces.Fo + "font-size", "14pt")),
+                null,
+                null);
+            _builtInHeadings++;
+        }
         _styles[key] = new StyleDefinition(
             name,
-            _styles.ContainsKey(new StyleKey(ParagraphFamily, "Heading")) ? "Heading" : null,
+            "Heading",
             new XElement(OdtNamespaces.Style + "paragraph-properties",
                 new XAttribute(OdtNamespaces.Fo + "margin-top", above),
                 new XAttribute(OdtNamespaces.Fo + "margin-bottom", "6pt")),
