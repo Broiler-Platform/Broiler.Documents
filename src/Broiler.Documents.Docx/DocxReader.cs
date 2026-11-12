@@ -232,6 +232,17 @@ internal static class DocxReader
 
             if (name == DocxNamespaces.Wordprocessing + "tbl")
             {
+                if (context.Frames is not null &&
+                    DocxFrameAccumulator.ReadTableProperties(element, context) is DocxFrameProperties tableFrame)
+                {
+                    if (context.Frames.ActiveProperties.HasValue && context.Frames.ActiveProperties.Value != tableFrame)
+                        context.Frames.Finish(context);
+
+                    context.Frames.StartOrContinue(tableFrame, context);
+                    DocxTableReader.Read(element, context.ForFrame(context.Frames.ActiveBuilder!), depth + 1, ReadBlockContent);
+                    continue;
+                }
+
                 context.Frames?.Finish(context);
                 DocxTableReader.Read(element, context, depth + 1, ReadBlockContent);
                 continue;
