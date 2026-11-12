@@ -11,6 +11,12 @@ namespace Broiler.Documents.Rtf;
 /// Child relative coordinates remain local until every parent scale/origin is applied.</summary>
 internal static class RtfShapeGroups
 {
+    /// <summary>
+    /// The shape property the expansion gives each child of a group that
+    /// LibreOffice imports as a drawing shape rather than a text frame.
+    /// </summary>
+    public const string DrawShapeProperty = "broilerGroupDrawShape";
+
     private sealed record Shape(int Start, int End, int Instructions, int InstructionEnd,
         Dictionary<string, long> Properties, Dictionary<string, int> Controls);
     private sealed record Frame(double Left, double Top, double Right, double Bottom,
@@ -155,6 +161,10 @@ internal static class RtfShapeGroups
                 parent?.Behind ?? (p.TryGetValue("fBehindDocument", out long behind) ? (int)behind : c.GetValueOrDefault("shpfblwtxt")),
                 parent?.Wrap ?? c.GetValueOrDefault("shpwr", 3), parent?.Side ?? c.GetValueOrDefault("shpwrk", 3), rotation);
             var result = new List<RtfToken>();
+            // LibreOffice imports a group's text boxes as drawing shapes, unless
+            // one of them holds a table, when the group's children are text
+            // frames (groupshape.rtf against fdo66040.rtf).
+            bool drawShapes = !HasTable(group.Start, group.End);
             var children = Children(group.Instructions, group.InstructionEnd)
                 .Where(i => Head(i, ends[i]) is "shp" or "shpgrp").Select(Read).Where(s => s is not null).Select(s => s!)
                 .OrderBy(s => s.Controls.TryGetValue("shpz", out int value) ? value : s.Properties.GetValueOrDefault("dhgt")).ToArray();
@@ -195,12 +205,23 @@ internal static class RtfShapeGroups
                         AddProperty(result, "posh", 0); AddProperty(result, "posv", 0);
                         if (frame.Rotation != 0)
                             AddProperty(result, "rotation", frame.Rotation + (int)(child.Properties.GetValueOrDefault("rotation") % (360 * 65536)));
+                        if (drawShapes)
+                            AddProperty(result, DrawShapeProperty, 1);
                     }
                     result.Add(tokens[i]);
                 }
             }
             if (children.Length == 0) { Report("An RTF drawing group had no supported shape children; its existing fallback was retained."); return null; }
             return result;
+        }
+        bool HasTable(int start, int end)
+        {
+            for (int i = start; i < end; i++)
+            {
+                if (tokens[i].Type == RtfTokenType.ControlWord && tokens[i].Keyword is "intbl" or "cell" or "row")
+                    return true;
+            }
+            return false;
         }
         bool Bounds(Dictionary<string, long> properties, Frame frame, out double left, out double top, out double right, out double bottom)
         {

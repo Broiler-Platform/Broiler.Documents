@@ -23,9 +23,25 @@ internal static class DocxVmlShapeWalker
     private static (double X, double Y) Rotate(double x, double y, double angle) =>
         (x * Math.Cos(angle) - y * Math.Sin(angle), x * Math.Sin(angle) + y * Math.Cos(angle));
 
-    internal static double Rotation(string? degrees) =>
-        double.TryParse(degrees, NumberStyles.Float, CultureInfo.InvariantCulture, out double value) && double.IsFinite(value)
-            ? (value % 360) * Math.PI / 180 : 0;
+    /// <summary>
+    /// Set on a shape the walker yields from inside a group. LibreOffice reads
+    /// a grouped text box as a drawing shape, not as a Writer frame
+    /// (groupshape-fontname.docx's canvas fallback), so the reader marks it
+    /// <see cref="DocumentShape.IsCustomShape"/>.
+    /// </summary>
+    internal static readonly XName Grouped = XNamespace.Get("urn:broiler:docx:vml-walker") + "grouped";
+
+    internal static double Rotation(string? degrees)
+    {
+        // A VML angle may be written in fixed-point degrees, 65536 to the
+        // degree, with an "fd" suffix (tdf168017.docx: rotation:-2041671fd).
+        string? text = degrees?.Trim();
+        double scale = 1;
+        if (text is not null && text.EndsWith("fd", StringComparison.OrdinalIgnoreCase))
+            (text, scale) = (text[..^2], 1d / 65536);
+        return double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out double value) && double.IsFinite(value * scale)
+            ? (value * scale % 360) * Math.PI / 180 : 0;
+    }
 
     public static IEnumerable<XElement> Shapes(XElement picture, PageGeometry? page, int maxDepth, Action<string, string> report)
     {
@@ -137,6 +153,7 @@ internal static class DocxVmlShapeWalker
                     foreach (string key in new[] { "mso-position-horizontal-relative", "mso-position-vertical-relative", "z-index" })
                         if (!style.ContainsKey(key) && frame.Style.TryGetValue(key, out string? value)) style[key] = value;
                     shape.SetAttributeValue("style", string.Join(";", style.Select(p => p.Key + ":" + p.Value)));
+                    shape.SetAttributeValue(Grouped, "t");
                 }
                 yield return shape;
             }
@@ -165,7 +182,7 @@ internal static class DocxVmlShapeWalker
             var style = DocxVml.ReadStyle((string?)result.Attribute("style"));
             foreach (XAttribute attr in element.Attributes())
                 if (!attr.IsNamespaceDeclaration && (attr.Name.LocalName != "style" || ReferenceEquals(element, source)))
-                    result.SetAttributeValue(attr.Name, attr.Value);
+                    result.SetAttributeValue(attr.Name, attr.Name == "adj" ? MergeAdjust((string?)result.Attribute("adj"), attr.Value) : attr.Value);
             if (ReferenceEquals(element, source))
                 foreach (var pair in DocxVml.ReadStyle((string?)element.Attribute("style"))) style[pair.Key] = pair.Value;
             if (style.Count > 0) result.SetAttributeValue("style", string.Join(";", style.Select(p => p.Key + ":" + p.Value)));
@@ -188,6 +205,22 @@ internal static class DocxVmlShapeWalker
         if (source.Name.LocalName == "shape" && (string?)result.Attribute(XName.Get("spt", "urn:schemas-microsoft-com:office:office")) == "3")
             result.Name = DocxNamespaces.Vml + "oval";
         return result;
+    }
+
+    /// <summary>
+    /// A shape's adjust values over its type's: a field the shape leaves empty
+    /// (<c>adj=",254405"</c>) keeps the type's default (fdo73215's elbow).
+    /// </summary>
+    private static string MergeAdjust(string? inherited, string own)
+    {
+        if (string.IsNullOrEmpty(inherited) || !own.Contains(','))
+            return own;
+        string[] defaults = inherited.Split(',');
+        string[] fields = own.Split(',');
+        for (int i = 0; i < fields.Length && i < defaults.Length; i++)
+            if (fields[i].Trim().Length == 0)
+                fields[i] = defaults[i];
+        return string.Join(",", fields);
     }
 
     private static double Align(string? position, double slack) => position switch

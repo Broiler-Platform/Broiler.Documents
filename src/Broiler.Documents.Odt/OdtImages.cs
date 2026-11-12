@@ -34,7 +34,7 @@ internal sealed class OdtImageLoader(
     private readonly OdtManifest _manifest = manifest;
     private readonly DocumentLimits _limits = limits;
     private readonly DocumentConversionContextBuilder _resources = resources;
-    private enum LoadResult { Success, Missing, Limit, Format, External }
+    private enum LoadResult { Success, Missing, Limit, Format, External, Blank }
     private readonly Dictionary<string, (PicturePart? Part, LoadResult Result)> _parts = new(StringComparer.OrdinalIgnoreCase);
     private static readonly Lazy<BImageResource> AudioPreview = new(CreateAudioPreview);
     private static readonly Lazy<BImageResource> ObjectPreview = new(CreateObjectPreview);
@@ -91,7 +91,7 @@ internal sealed class OdtImageLoader(
                 }
             }
 
-            if (lastResult is LoadResult.Missing or LoadResult.External or LoadResult.Format && width > 0 && height > 0)
+            if (lastResult is LoadResult.Missing or LoadResult.External or LoadResult.Format or LoadResult.Blank && width > 0 && height > 0)
             {
                 // A picture the package does not hold - an entry that is absent, or a
                 // relative link out of the package that LibreOffice resolves against
@@ -99,9 +99,10 @@ internal sealed class OdtImageLoader(
                 // LibreOffice: its replacement graphic is not part of the printed or
                 // exported page. The box keeps its place and draws nothing. A URL or
                 // an undecodable format keeps the mark, because LibreOffice draws a
-                // picture there that this codec does not.
+                // picture there that this codec does not. A replacement metafile
+                // that draws nothing at all is as empty in LibreOffice.
                 var placeholder = InlineImage.CreateMissingPayload(width, height, altText, name,
-                    marked: lastResult != LoadResult.Missing);
+                    marked: lastResult is not (LoadResult.Missing or LoadResult.Blank));
                 if (!_resources.TryAdmit(
                         new DocumentResourceRequest(
                             placeholder.Resource,
@@ -340,6 +341,12 @@ internal sealed class OdtImageLoader(
         if (contentType is null && RasterizeMetafile(data) is byte[] png)
             (data, contentType) = (png, "image/png");
 
+        if (contentType is null && SvmRasterizer.IsBlank(data))
+        {
+            result = LoadResult.Blank;
+            return null;
+        }
+
         if (contentType is null)
         {
             // SVG and WMF land here, as do metafiles that draw nothing the
@@ -427,6 +434,12 @@ internal sealed class OdtImageLoader(
         string? contentType = DocumentImageFormats.ContentTypeForSignature(data);
         if (contentType is null && RasterizeMetafile(data) is byte[] png)
             (data, contentType) = (png, "image/png");
+
+        if (contentType is null && SvmRasterizer.IsBlank(data))
+        {
+            result = LoadResult.Blank;
+            return null;
+        }
 
         if (contentType is null)
         {

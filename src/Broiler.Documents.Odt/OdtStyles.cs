@@ -247,6 +247,13 @@ internal sealed class OdtStyles : IOdtImageDiagnostics
     public bool EmptyDbFieldHidesParagraph { get; set; }
 
     /// <summary>
+    /// True when the document's settings ask for Word's text grid metrics
+    /// (<c>MsWordCompGridMetrics</c>), under which Writer starts a page's grid at
+    /// the top of its body rather than centring it (tdf#165089).
+    /// </summary>
+    public bool WordGridMetrics { get; set; }
+
+    /// <summary>
     /// The fill and line colours a drawing shape gets when neither it nor the
     /// default graphic style states one, for a document from an older producer;
     /// null for a current one. See <see cref="OdtMetadata.LegacyShapeColors"/>.
@@ -549,7 +556,8 @@ internal sealed class OdtStyles : IOdtImageDiagnostics
                 style.Element(OdtNamespaces.Style + "paragraph-properties"),
                 style.Element(OdtNamespaces.Style + "text-properties"),
                 (string?)style.Attribute(OdtNamespaces.Style + "master-page-name"),
-                (string?)style.Attribute(OdtNamespaces.Style + "data-style-name"));
+                (string?)style.Attribute(OdtNamespaces.Style + "data-style-name"),
+                style.Parent?.Name == OdtNamespaces.Office + "automatic-styles");
 
             XElement? graphic = style.Element(OdtNamespaces.Style + "graphic-properties");
             if (graphic is not null)
@@ -911,6 +919,22 @@ internal sealed class OdtStyles : IOdtImageDiagnostics
     /// <summary>A style is identified by family and name; the families share one name space.</summary>
     private readonly record struct StyleKey(string Family, string Name);
 
+    /// <summary>
+    /// The named paragraph style a paragraph styled <paramref name="styleName"/>
+    /// is in: the style itself, or for an automatic style the named style it
+    /// derives from, as Writer holds a paragraph's automatic attributes over its
+    /// paragraph style (<c>SwTextFormatColl</c>). <c>Standard</c> where it names
+    /// none.
+    /// </summary>
+    public string NamedParagraphStyle(string? styleName)
+    {
+        if (styleName is null)
+            return "Standard";
+        if (_styles.TryGetValue(new StyleKey(ParagraphFamily, styleName), out StyleDefinition? style) && style.Automatic)
+            return style.ParentStyleName ?? "Standard";
+        return styleName;
+    }
+
     public bool HasGeneralNumberFormat(string? styleName)
     {
         XElement? format = DataFormatFor("table-cell", styleName);
@@ -935,7 +959,8 @@ internal sealed class OdtStyles : IOdtImageDiagnostics
         XElement? ParagraphProperties,
         XElement? TextProperties,
         string? MasterPageName,
-        string? DataStyleName);
+        string? DataStyleName,
+        bool Automatic = false);
 
     private sealed record DefaultStyle(XElement? ParagraphProperties, XElement? TextProperties);
 

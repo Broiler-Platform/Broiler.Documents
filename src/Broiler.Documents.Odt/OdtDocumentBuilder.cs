@@ -269,11 +269,89 @@ internal sealed class OdtDocumentBuilder(DocumentLimits limits, List<DocumentDia
             offset += segment.Text.Length;
         }
 
+        if (_spacingContext is { } spacing)
+            _spacingContexts[_paragraphs.Count] = spacing;
+        _spacingContext = null;
         _paragraphs.Add(paragraph);
         _segments.Clear();
         _length = 0;
         _paragraphStyle = ParagraphStyle.Default;
         _markStyle = InlineStyle.Default;
+    }
+
+    // The named paragraph style of each body paragraph, and whether it asks
+    // for contextual spacing, by paragraph index.
+    private readonly Dictionary<int, (string Style, bool Contextual)> _spacingContexts = [];
+    private (string Style, bool Contextual)? _spacingContext;
+
+    // The paragraph indices a text:section starts or ends at, styled or not.
+    private readonly HashSet<int> _sectionEdges = [];
+
+    /// <summary>Records that a section runs from paragraph <paramref name="start"/> up to <paramref name="end"/>.</summary>
+    public void NoteSectionEdges(int start, int end)
+    {
+        _sectionEdges.Add(start);
+        _sectionEdges.Add(end);
+    }
+
+    /// <summary>
+    /// Records the named paragraph style of the paragraph being read and
+    /// whether it states <c>style:contextual-spacing</c>, for
+    /// <see cref="ApplyContextualSpacing"/>.
+    /// </summary>
+    public void SetSpacingContext(string namedStyle, bool contextual) =>
+        _spacingContext = (namedStyle, contextual);
+
+    /// <summary>
+    /// Applies ODF's <c>style:contextual-spacing</c>, Writer's "Don't add space
+    /// between paragraphs of the same style", between neighbouring paragraphs
+    /// of one named paragraph style (<c>SwFlowFrame::CalcUpperSpace</c> and
+    /// <c>CalcLowerSpace</c>): a paragraph with it loses its space below where
+    /// the next paragraph has its style, and its space above where the one
+    /// before has its style and the setting too. Paragraphs either side of a
+    /// section's edge or in different table cells are not neighbours; Writer
+    /// keeps the space there (tdf133507_contextualSpacingSection.odt).
+    /// </summary>
+    private void ApplyContextualSpacing(List<RichTextParagraph> paragraphs)
+    {
+        if (!_spacingContexts.Values.Any(context => context.Contextual))
+            return;
+
+        for (int index = 1; index < paragraphs.Count; index++)
+        {
+            if (!_spacingContexts.TryGetValue(index - 1, out var before) ||
+                !_spacingContexts.TryGetValue(index, out var current) ||
+                !string.Equals(before.Style, current.Style, StringComparison.Ordinal) ||
+                (!before.Contextual && !current.Contextual) ||
+                _sectionEdges.Contains(index) ||
+                !ReferenceEquals(CellOf(_tables, index - 1), CellOf(_tables, index)))
+                continue;
+
+            if (before.Contextual)
+                paragraphs[index - 1] = paragraphs[index - 1].WithParagraphStyle(paragraphs[index - 1].Style with { SpacingAfter = 0 });
+            if (before.Contextual && current.Contextual)
+                paragraphs[index] = paragraphs[index].WithParagraphStyle(paragraphs[index].Style with { SpacingBefore = 0 });
+        }
+    }
+
+    /// <summary>The innermost table cell holding paragraph <paramref name="index"/>, or null for the body.</summary>
+    private static TableCell? CellOf(IReadOnlyList<DocumentTable> tables, int index)
+    {
+        foreach (DocumentTable table in tables)
+        {
+            if (index < table.ParagraphIndex || index >= table.ParagraphEnd)
+                continue;
+            foreach (TableRow row in table.Rows)
+            {
+                foreach (TableCell cell in row.Cells)
+                {
+                    if (index >= cell.ParagraphIndex && index < cell.ParagraphEnd)
+                        return CellOf(cell.Tables, index) ?? cell;
+                }
+            }
+        }
+
+        return null;
     }
 
     public bool ParagraphHasKeepWithNext(int index) =>
@@ -314,6 +392,7 @@ internal sealed class OdtDocumentBuilder(DocumentLimits limits, List<DocumentDia
             section.ColumnCount > 1 && !section.DontBalanceColumns))
             FinishParagraph();
 
+        ApplyContextualSpacing(_paragraphs);
         RichTextDocument document = _paragraphs.Count == 0
             ? RichTextDocument.Empty
             : RichTextDocument.FromParagraphs(_paragraphs);

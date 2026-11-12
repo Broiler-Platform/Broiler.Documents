@@ -130,6 +130,7 @@ public sealed class DocumentPagePainter
         {
             DrawCells(list, page.Cells);
             DrawParagraphShading(list, page.Lines);
+            DrawParagraphBorders(list, page.Lines);
             foreach (LayoutLine line in page.Lines)
                 DrawLine(list, line, resolveImage);
         }
@@ -147,6 +148,7 @@ public sealed class DocumentPagePainter
             // Body text & inline table cells
             DrawCells(list, page.InlineCells);
             DrawParagraphShading(list, page.InlineLines);
+            DrawParagraphBorders(list, page.InlineLines);
             foreach (LayoutLine line in page.InlineLines)
                 DrawLine(list, line, resolveImage);
 
@@ -275,6 +277,17 @@ public sealed class DocumentPagePainter
                 DrawSegment(list, bottom, left, shape.Outline, thickness);
                 DrawSegment(list, left, top, shape.Outline, thickness);
             }
+            else if (shape.RotationRadians != 0)
+            {
+                // A stroked rectangle is not turned by the transform it is drawn
+                // under, so a rotated box's outline is drawn as its four edges
+                // (tdf76446.docx).
+                BPoint topLeft = new(bounds.Left, bounds.Top), topRight = new(bounds.Right, bounds.Top);
+                DrawSegment(list, topLeft, topRight, shape.Outline, thickness);
+                DrawSegment(list, topRight, lowerRight, shape.Outline, thickness);
+                DrawSegment(list, lowerRight, lowerLeft, shape.Outline, thickness);
+                DrawSegment(list, lowerLeft, topLeft, shape.Outline, thickness);
+            }
             else list.StrokeRect(shape.Bounds, shape.Outline, thickness);
         }
 
@@ -292,14 +305,110 @@ public sealed class DocumentPagePainter
         {
             DrawCells(list, shape.Cells);
             DrawParagraphShading(list, shape.Lines);
-            foreach (LayoutLine line in shape.Lines)
-                DrawLine(list, line, resolveImage);
+            if (!DrawStretchedText(list, shape, resolveImage))
+            {
+                foreach (LayoutLine line in shape.Lines)
+                    DrawLine(list, line, resolveImage);
+            }
         }
         finally
         {
             if (turned)
                 list.PopTransform();
         }
+    }
+
+    /// <summary>
+    /// Paints WordArt text (<see cref="LayoutShape.StretchesTextToBox"/>) stretched
+    /// to its box, as Word and LibreOffice fit a VML text path's glyphs to the
+    /// shape: each line's ink from the box's left edge to its right, and the ink
+    /// of all the lines from its top to its bottom. The glyph outlines are then
+    /// stroked in <see cref="LayoutShape.TextOutline"/>. False, with nothing
+    /// drawn, when the glyphs' outlines are not known, so the lines are drawn as
+    /// they were laid out.
+    /// </summary>
+    private bool DrawStretchedText(BRenderList list, LayoutShape shape, Func<InlineImage, BImageHandle?> resolveImage)
+    {
+        if (!shape.StretchesTextToBox || shape.Lines.Count == 0 || shape.TextFlow != ShapeTextFlow.Horizontal ||
+            _settings.TextMeasurer is not Fonts.PaginationFontAdapter adapter)
+            return false;
+
+        var lines = new List<(LayoutLine Line, List<BPoint[]> Contours, double Left, double Right)>();
+        double top = double.PositiveInfinity, bottom = double.NegativeInfinity;
+        foreach (LayoutLine line in shape.Lines)
+        {
+            List<BPoint[]> contours = [];
+            double left = double.PositiveInfinity, right = double.NegativeInfinity;
+            foreach (LayoutPiece piece in line.Pieces)
+            {
+                if (piece.IsImage || piece.Text.Length == 0)
+                    continue;
+                if (adapter.FontService.ResolveFace(piece.Font.FamilyName, piece.Bold, piece.Italic) is not { TrueType: { } font } face ||
+                    face.UnitsPerEm <= 0)
+                    return false;
+
+                double scale = piece.Font.Size / face.UnitsPerEm;
+                double x = piece.X, baseline = line.Top + line.Baseline - piece.Rise;
+                for (int i = 0; i < piece.Text.Length;)
+                {
+                    int codepoint = char.ConvertToUtf32(piece.Text, i);
+                    string character = char.ConvertFromUtf32(codepoint);
+                    i += character.Length;
+                    foreach (var contour in font.GetGlyphContours(font.GetGlyphIndex(codepoint)))
+                    {
+                        BPoint[] points = [.. contour.Select(point => new BPoint(x + point.X * scale, baseline - point.Y * scale))];
+                        foreach (BPoint point in points)
+                        {
+                            left = Math.Min(left, point.X);
+                            right = Math.Max(right, point.X);
+                            top = Math.Min(top, point.Y);
+                            bottom = Math.Max(bottom, point.Y);
+                        }
+                        if (points.Length > 1)
+                            contours.Add(points);
+                    }
+                    x += face.GetAdvancePoints(character, piece.Font.Size);
+                }
+            }
+            if (contours.Count > 0)
+                lines.Add((line, contours, left, right));
+        }
+        if (lines.Count == 0 || bottom - top <= 0)
+            return false;
+
+        BRect box = shape.Bounds;
+        double scaleY = box.Height / (bottom - top);
+        foreach ((LayoutLine line, List<BPoint[]> contours, double left, double right) in lines)
+        {
+            double scaleX = right - left > 0 ? box.Width / (right - left) : 1;
+            var matrix = new BMatrix3x2(scaleX, 0, 0, scaleY, box.Left - left * scaleX, box.Top - top * scaleY);
+            list.PushTransform(matrix);
+            try
+            {
+                DrawLine(list, line, resolveImage);
+            }
+            finally
+            {
+                list.PopTransform();
+            }
+
+            if (shape.TextOutline.IsEmpty || shape.TextOutline.A == 0)
+                continue;
+            double width = shape.TextOutlineWidth > 0 ? shape.TextOutlineWidth : HairlineWidth;
+            foreach (BPoint[] contour in contours)
+            {
+                for (int i = 0; i < contour.Length; i++)
+                {
+                    BPoint start = contour[i], end = contour[(i + 1) % contour.Length];
+                    DrawSegment(list,
+                        new BPoint(box.Left + (start.X - left) * scaleX, box.Top + (start.Y - top) * scaleY),
+                        new BPoint(box.Left + (end.X - left) * scaleX, box.Top + (end.Y - top) * scaleY),
+                        shape.TextOutline, width);
+                }
+            }
+        }
+
+        return true;
     }
 
     /// <summary>
@@ -395,6 +504,61 @@ public sealed class DocumentPagePainter
                 list.FillRect(box, color);
 
             open = null;
+        }
+    }
+
+    /// <summary>
+    /// Paints the borders of body paragraphs: one box round each run of lines
+    /// of a paragraph, and of the neighbours that join it, in one column. The
+    /// box stands outside the text by each edge's distance and line, from the
+    /// indent (the hanging first line's, where it hangs) to the right indent.
+    /// </summary>
+    private static void DrawParagraphBorders(BRenderList list, IReadOnlyList<LayoutLine> lines)
+    {
+        List<LayoutCell>? boxes = null;
+        LayoutLine? first = null, last = null;
+        double left = 0, right = 0;
+
+        foreach (LayoutLine line in lines)
+        {
+            if (line.Border is not { } border)
+                continue;
+
+            double lineLeft = line.IndentLeft;
+            double lineRight = line.IndentLeft + line.IndentWidth;
+            bool continues = first is not null && last is not null && Equals(first.Border, border) &&
+                (line.ParagraphIndex == last.ParagraphIndex || (line.ParagraphIndex == last.ParagraphIndex + 1 && line.BorderJoinsPrevious)) &&
+                Math.Abs(lineRight - right) < 0.01 && line.Top >= last.Top + last.Height - 0.01;
+            if (!continues)
+            {
+                Flush();
+                first = line;
+                left = lineLeft;
+                right = lineRight;
+            }
+
+            left = Math.Min(left, Math.Min(lineLeft, line.Pieces.Count > 0 ? line.Pieces[0].X : lineLeft));
+            last = line;
+        }
+
+        Flush();
+        if (boxes is not null)
+            DrawCells(list, boxes);
+
+        void Flush()
+        {
+            if (first?.Border is { } border && last is not null)
+            {
+                CellBorders edges = border.Edges;
+                double top = first.Top - first.LeadingSkip - border.Spacing.Top - (edges.Top.IsVisible ? edges.Top.Width : 0);
+                double bottom = last.Top + last.Height + border.Spacing.Bottom + (edges.Bottom.IsVisible ? edges.Bottom.Width : 0);
+                double boxLeft = left - border.Spacing.Left - (edges.Left.IsVisible ? edges.Left.Width : 0);
+                double boxRight = right + border.Spacing.Right + (edges.Right.IsVisible ? edges.Right.Width : 0);
+                if (bottom > top && boxRight > boxLeft)
+                    (boxes ??= []).Add(new LayoutCell(new BRect(boxLeft, top, boxRight - boxLeft, bottom - top), BColor.Empty, edges));
+            }
+
+            first = last = null;
         }
     }
 

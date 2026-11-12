@@ -153,6 +153,20 @@ public sealed record DocumentStyleDefaults
     /// </remarks>
     public int WidowOrphanLines { get; init; }
 
+    /// <summary>
+    /// Whether the borders of body paragraphs stand outside their indents and
+    /// take room above and below the text, as Word places them and
+    /// LibreOffice's DOCX import keeps them: the text does not move across,
+    /// the border's line and distance are added above the first line and
+    /// below the last, and neighbours with the same border share one box.
+    /// </summary>
+    /// <remarks>
+    /// Set by the DOCX reader. An ODT paragraph's border stands inside its
+    /// margins and moves the text in, which the layout does not model yet,
+    /// so its body borders are still neither drawn nor given room.
+    /// </remarks>
+    public bool LaysOutBodyParagraphBorders { get; init; }
+
     /// <summary>Keep a heading with the opening lines of its splittable successor.</summary>
     public bool KeepWithNextOpeningLines { get; init; }
 
@@ -196,7 +210,7 @@ public sealed record DocumentStyleDefaults
     public bool IsDefault =>
         FontSizePoints == FallbackFontSizePoints && FontFamily is null && !WidensSpaceRuns && !ShrinksJustifiedLines &&
         !TabsOverMargin && !UndecoratedLinks && WidowOrphanLines == 0 && !PreserveOpeningParagraphSpacing &&
-        !KeepWithNextOpeningLines && !CollapsesParagraphSpacing;
+        !KeepWithNextOpeningLines && !CollapsesParagraphSpacing && !LaysOutBodyParagraphBorders;
 
     /// <summary>
     /// What <see cref="WidensSpaceRuns"/> adds to the width of

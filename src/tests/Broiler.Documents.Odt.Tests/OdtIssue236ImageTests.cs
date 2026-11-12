@@ -64,7 +64,7 @@ public sealed class OdtIssue236ImageTests
 
     /// <summary>
     /// A VCLMTF in 1/100 mm, 2000 x 1000, with one filled rectangle when
-    /// <paramref name="fillRgb"/> is given and only a fill colour otherwise.
+    /// <paramref name="fillRgb"/> is given and a fill colour and a text action otherwise.
     /// </summary>
     private static byte[] Svm(int? fillRgb)
     {
@@ -85,6 +85,11 @@ public sealed class OdtIssue236ImageTests
             // RECT left, top, right, bottom
             Action(103, [.. BitConverter.GetBytes(0), .. BitConverter.GetBytes(0),
                 .. BitConverter.GetBytes(1000), .. BitConverter.GetBytes(1000)]);
+        }
+        else
+        {
+            // TEXT at (0, 0): drawn by LibreOffice, skipped by the rasterizer.
+            Action(112, [.. BitConverter.GetBytes(0), .. BitConverter.GetBytes(0), 1, 0, (byte)'x', 0, 0, 0, 0]);
         }
 
         using var stream = new MemoryStream();

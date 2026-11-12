@@ -69,6 +69,53 @@ internal static class SvmRasterizer
     public static bool IsSvm(ReadOnlySpan<byte> data) =>
         data.Length >= 12 && data[..6].SequenceEqual("VCLMTF"u8);
 
+    /// <summary>
+    /// True for a well-formed metafile whose actions only set state - colours,
+    /// fonts, map modes, clip regions, push and pop - and so draw nothing at
+    /// all, as the replacement LibreOffice stores for an empty embedded
+    /// spreadsheet does (<c>fdo68839.odt</c>). False for one with any action
+    /// that can draw, including text, bitmaps and comments (which may carry
+    /// EMF+), even where <see cref="RenderPng"/> does not draw it.
+    /// </summary>
+    public static bool IsBlank(ReadOnlySpan<byte> data)
+    {
+        if (!IsSvm(data))
+            return false;
+
+        var header = new Reader(data[6..]);
+        header.U16();
+        uint headerLength = header.U32();
+        if (!header.Ok || headerLength > (uint)(data.Length - 12))
+            return false;
+        header.U32(); // compression mode
+        if (ReadMapMode(ref header, current: null) is null)
+            return false;
+        header.I32();
+        header.I32();
+        uint actionCount = header.U32();
+        if (!header.Ok)
+            return false;
+
+        int offset = 12 + (int)headerLength;
+        for (uint action = 0; action < actionCount; action++)
+        {
+            if (action >= MaxActions || offset + 8 > data.Length)
+                return false;
+            ushort type = BinaryPrimitives.ReadUInt16LittleEndian(data[offset..]);
+            uint length = BinaryPrimitives.ReadUInt32LittleEndian(data[(offset + 4)..]);
+            if (length > (uint)(data.Length - offset - 8) || !SetsStateOnly(type))
+                return false;
+            offset += 8 + (int)length;
+        }
+
+        return true;
+    }
+
+    // NULL; CLIPREGION to RASTEROP (128-141); REFPOINT, TEXTLINECOLOR (144, 145);
+    // LAYOUTMODE, TEXTLANGUAGE, OVERLINECOLOR (149-151).
+    private static bool SetsStateOnly(ushort type) =>
+        type is 0 or (>= 128 and <= 141) or 144 or 145 or (>= 149 and <= 151);
+
     public static byte[]? RenderPng(ReadOnlySpan<byte> data)
     {
         if (!IsSvm(data))

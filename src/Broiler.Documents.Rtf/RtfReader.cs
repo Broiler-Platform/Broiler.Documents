@@ -162,6 +162,12 @@ public static class RtfReader
         // The paragraph PageBreak ended to hold the frames anchored before a
         // \page, or -1.
         private int _shapesBeforePageBreak = -1;
+        // Whether the page break waiting in the body came from \page rather
+        // than a section break.
+        private bool _pageControlBreak;
+        // The positions in _shapes of the shapes written in the body's own
+        // paragraphs, outside any frame.
+        private readonly HashSet<int> _flowShapes = [];
         private bool _bodySectionPending;
         private bool _bodySectionHasProperties;
         private BodySectionBreak _sectionBreak = BodySectionBreak.Page;
@@ -218,6 +224,8 @@ public static class RtfReader
         // The shape's shapeType: 1 a rectangle, which Word takes when none is
         // given, 20 a line.
         private long _shapeType = 1;
+        // A group's child that LibreOffice imports as a drawing shape.
+        private bool _shapeGroupDrawShape;
         private double _shapeRotation;
         private double _shapeLineWidth = 0.75;
         private bool _shapeFlipVertical;
@@ -2116,6 +2124,7 @@ public static class RtfReader
             _shapeLeftFromPage = false;
             _shapeFitsText = false;
             _shapeType = 1;
+            _shapeGroupDrawShape = false;
             _shapeRotation = 0;
             _shapeLineWidth = 0.75;
             _shapeFlipVertical = false;
@@ -2235,6 +2244,9 @@ public static class RtfReader
                     break;
                 case "fGtext":
                     _shapeGtext = number != 0;
+                    break;
+                case RtfShapeGroups.DrawShapeProperty:
+                    _shapeGroupDrawShape = number != 0;
                     break;
                 case "posrelv":
                     // 3 is the line, which the model holds as its paragraph.
@@ -2507,6 +2519,7 @@ public static class RtfReader
                 outlineWidth: _shapeLineWidth)
             {
                 RotationRadians = _shapeRotation,
+                IsCustomShape = _shapeGroupDrawShape,
             };
             if (running)
             {
@@ -2515,7 +2528,11 @@ public static class RtfReader
                 shapes.Add(shape);
             }
             else
+            {
+                if (host == RtfDestination.Normal && !_state.Frame.IsFrame)
+                    _flowShapes.Add(_shapes.Count);
                 _shapes.Add(shape);
+            }
         }
 
         /// <summary>
@@ -2770,10 +2787,58 @@ public static class RtfReader
                 {
                     FinishTable();
                     ApplyBodySectionBreak();
+                    if (HoldsBreakForNextParagraph())
+                        return;
                 }
             }
 
             CloseParagraph();
+        }
+
+        /// <summary>
+        /// Ends a paragraph that holds nothing after a <c>\page</c> but shapes
+        /// anchored to it, and keeps the break for the paragraph after it.
+        /// </summary>
+        /// <remarks>
+        /// Writer keeps a page break waiting until text follows it in the
+        /// paragraph (tdf#153613, writerfilter's deferred page break): floating
+        /// objects followed by nothing up to the paragraph mark stay on the page
+        /// before the break, and the break starts the next paragraph. When the
+        /// break interrupted text (<c>x\page{\shp...}\par</c>), that paragraph is
+        /// not split: the shapes anchor to the text before the break. Returns
+        /// whether the paragraph was dealt with here.
+        /// </remarks>
+        private bool HoldsBreakForNextParagraph()
+        {
+            if (!_pageControlBreak || !_builder.PageBreakPending || _builder.HasPendingText || _state.Frame.IsFrame)
+                return false;
+            int index = _builder.ParagraphCount;
+            bool any = false;
+            for (int i = 0; i < _shapes.Count; i++)
+            {
+                if (_shapes[i].IsPageAnchored || _shapes[i].ParagraphIndex != index)
+                    continue;
+                // A frame's shapes wait for the next unframed paragraph; they
+                // were not written in this one (fdo55504-1-min.rtf).
+                if (!_flowShapes.Contains(i))
+                    return false;
+                any = true;
+            }
+            if (!any)
+                return false;
+
+            if (_builder.SplitByPageBreak == index - 1)
+            {
+                for (int i = 0; i < _shapes.Count; i++)
+                {
+                    if (!_shapes[i].IsPageAnchored && _shapes[i].ParagraphIndex == index)
+                        _shapes[i] = _shapes[i].WithParagraphIndex(index - 1);
+                }
+                return true;
+            }
+
+            _builder.EndParagraphBeforeBreak(_state.Para, _state.Char with { LinkHref = null, Image = null });
+            return true;
         }
 
         /// <summary>
@@ -2845,6 +2910,7 @@ public static class RtfReader
                 }
                 if (!_builder.BreakPage(_state.Para))
                     ReportEmptyPage();
+                _pageControlBreak = true;
                 return;
             }
             if (!Active.BreakPage(_state.Para))
@@ -3050,6 +3116,7 @@ public static class RtfReader
 
                 if (!_builder.BreakPage(_state.Para))
                     ReportEmptyPage();
+                _pageControlBreak = false;
             }
             else if (_bodySectionBreak == BodySectionBreak.Column)
                 _builder.BreakColumn(_state.Para);
@@ -3214,6 +3281,7 @@ public static class RtfReader
         public bool BreakPage(ParagraphStyle style)
         {
             bool displaced = PageBreakPending && _current.Length == 0;
+            SplitByPageBreak = _current.Length > 0 ? _paragraphs.Count : -1;
             if (_current.Length > 0 || (_paragraphs.Count == 0 && !PageBreakPending))
                 EndParagraph(style);
 
@@ -3241,6 +3309,23 @@ public static class RtfReader
 
             _paragraphs.Add(_current.WithParagraphStyle(Spend(style)).WithMarkStyle(mark));
             _current = RichTextParagraph.Create(string.Empty, InlineStyle.Default, style);
+        }
+
+        /// <summary>
+        /// The paragraph a <c>\page</c> ended in the middle of its text, or -1
+        /// when the break came between paragraphs.
+        /// </summary>
+        public int SplitByPageBreak { get; private set; } = -1;
+
+        /// <summary>Ends the paragraph and leaves a waiting page break to the next one.</summary>
+        public void EndParagraphBeforeBreak(ParagraphStyle style, InlineStyle mark)
+        {
+            bool column = ColumnBreakPending;
+            PageBreakPending = false;
+            ColumnBreakPending = false;
+            EndParagraph(style, mark);
+            PageBreakPending = true;
+            ColumnBreakPending = column;
         }
 
         public void EndPendingParagraph(ParagraphStyle style)

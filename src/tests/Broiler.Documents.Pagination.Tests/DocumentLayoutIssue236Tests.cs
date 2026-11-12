@@ -28,7 +28,7 @@ public sealed class DocumentLayoutIssue236Tests
         LayoutLine line = Assert.Single(page.Lines);
         LayoutPiece leaderTab = Assert.Single(line.Pieces, piece => piece.IsTab && piece.TabLeader == "_");
         Assert.Equal(310, leaderTab.X + leaderTab.Width, 3); // the stop, past the 10 pt margin
-        Assert.NotEmpty(commands.OfType<BRenderCommand.DrawText>().Where(command => command.Text.Text == "_"));
+        Assert.Contains(commands.OfType<BRenderCommand.DrawText>(), command => command.Text.Text == "_");
     }
 
     [Fact]

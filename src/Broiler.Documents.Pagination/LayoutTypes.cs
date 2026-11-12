@@ -135,6 +135,13 @@ public sealed class LayoutLine : IPaginatedLineArtifact
     /// </remarks>
     public double LeadingSkip { get; internal set; }
 
+    /// <summary>
+    /// How far a line in a table cell was moved below the top of its paragraph,
+    /// past an object anchored there that left it no room beside it. The
+    /// paragraph's objects stay at the paragraph's top, <see cref="Top"/> less this.
+    /// </summary>
+    internal double AnchorSkip { get; set; }
+
     public double Height { get; internal set; }
 
     /// <summary>Visible height within a fixed table row, relative to Top; null leaves the line unclipped.</summary>
@@ -151,6 +158,12 @@ public sealed class LayoutLine : IPaginatedLineArtifact
 
     /// <summary>Distance from <see cref="Top"/> down to the baseline, in points.</summary>
     public double Baseline { get; }
+
+    /// <summary>
+    /// True when the line is set on its page's text grid, so it starts on one of
+    /// the grid's rows.
+    /// </summary>
+    internal bool OnGrid { get; init; }
 
     /// <summary>Which model paragraph this line came from. Carried through for diagnostics.</summary>
     public int ParagraphIndex { get; internal set; }
@@ -180,6 +193,24 @@ public sealed class LayoutLine : IPaginatedLineArtifact
     /// <summary>How wide the paragraph's shading is: from its indent to its column's edge.</summary>
     public double BackgroundWidth { get; internal set; }
 
+    /// <summary>
+    /// The border drawn round the body paragraph this line belongs to, or null
+    /// for none; set only where the body flow laid out the room for it.
+    /// </summary>
+    public ParagraphBorder? Border { get; internal set; }
+
+    /// <summary>
+    /// Whether this line opens a paragraph whose border joins the one above it:
+    /// the two share one box, as Writer draws neighbours with the same border.
+    /// </summary>
+    public bool BorderJoinsPrevious { get; internal set; }
+
+    /// <summary>Where the paragraph's indented text area starts across.</summary>
+    public double IndentLeft { get; internal set; }
+
+    /// <summary>How wide the paragraph's indented text area is.</summary>
+    public double IndentWidth { get; internal set; }
+
     /// <summary>Adds a piece drawn on the line after the ones it was laid out with.</summary>
     internal void AddPiece(LayoutPiece piece) => _pieces.Add(piece);
 
@@ -189,6 +220,7 @@ public sealed class LayoutLine : IPaginatedLineArtifact
             return;
 
         BackgroundLeft += dx;
+        IndentLeft += dx;
         TextAreaLeft += dx;
         if (ClipRight is double right)
             ClipRight = right + dx;
@@ -246,6 +278,18 @@ public sealed class LayoutShape : IPaginatedShapeArtifact
     /// and the painter turns it a quarter about the box's centre onto the box.
     /// </summary>
     public ShapeTextFlow TextFlow { get; init; }
+
+    /// <summary>
+    /// True when the shape's text is WordArt the painter stretches to fill
+    /// <see cref="Bounds"/>: each line's glyphs across it, all the lines down it.
+    /// </summary>
+    public bool StretchesTextToBox { get; init; }
+
+    /// <summary>The colour WordArt glyph outlines are stroked in, or empty for none.</summary>
+    public BColor TextOutline { get; init; }
+
+    /// <summary>How wide <see cref="TextOutline"/> is stroked, in points.</summary>
+    public double TextOutlineWidth { get; init; }
 
     /// <summary>
     /// The box turned text is laid out in: <paramref name="bounds"/> with its
