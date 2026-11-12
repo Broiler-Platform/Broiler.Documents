@@ -11,7 +11,7 @@ using Broiler.Graphics.Rendering;
 namespace Broiler.Documents.Docx;
 
 /// <summary>Renders the plot of a clustered column or an area chart from its embedded numeric cache.</summary>
-internal static class DocxChartPreview
+internal static partial class DocxChartPreview
 {
     private static readonly XNamespace C = DocxNamespaces.DrawingChart;
     private static readonly BColor[] SeriesColors =
@@ -28,7 +28,11 @@ internal static class DocxChartPreview
             return RenderArea(chart!, plot, area, width, height, theme ?? DocxTheme.Empty);
         if (plot?.Element(C + "pieChart") is XElement pie)
             return RenderPie(root, chart!, plot, pie, width, height, theme ?? DocxTheme.Empty);
+        if (plot?.Element(C + "bar3DChart") is XElement bars3D)
+            return RenderBars(root, chart!, plot, bars3D, width, height, theme ?? DocxTheme.Empty);
         XElement? bars = plot?.Element(C + "barChart");
+        if (bars is not null && Value(bars, "barDir") == "bar")
+            return RenderBars(root, chart!, plot!, bars, width, height, theme ?? DocxTheme.Empty);
         if (bars is not null && Value(bars, "barDir") == "col" && Value(bars, "grouping") is "stacked" or "percentStacked")
             return RenderStackedColumns(root, chart!, plot!, bars, width, height, theme ?? DocxTheme.Empty);
         if (bars is null || Value(bars, "barDir") != "col" ||
@@ -562,16 +566,19 @@ internal static class DocxChartPreview
     /// <summary>
     /// The automatic value axis Excel and LibreOffice choose: it starts at zero
     /// unless every value lies within a sixth of the largest (then half the data
-    /// range below the smallest), takes a twentieth of the range as headroom,
+    /// range below the smallest), takes a twentieth of the range as headroom (2D only,
+    /// <paramref name="expand"/>),
     /// and uses the finest 1-2-5 step that splits it into at most ten intervals.
     /// </summary>
     internal static (double Minimum, double Maximum, double Step) AutoScale(double minimum, double maximum,
-        double? fixedMinimum = null, double? fixedMaximum = null)
+        double? fixedMinimum = null, double? fixedMaximum = null, bool expand = true)
     {
         double range = maximum - minimum;
         double low = minimum > 0 ? (minimum * 6 >= maximum * 5 - 1e-9 * maximum ? Math.Max(0, minimum - range / 2) : 0) : minimum;
         double high = maximum < 0 ? (maximum * 6 <= minimum * 5 - 1e-9 * minimum ? Math.Min(0, maximum + range / 2) : 0) : maximum;
-        double headroom = (high - low) / 20;
+        // A 3D chart's axis is not widened: LibreOffice expands only a 2D
+        // chart's automatic axis when the data come close to its ends.
+        double headroom = expand ? (high - low) / 20 : 0;
         if (high > 0)
             high += headroom;
         if (low < 0)
