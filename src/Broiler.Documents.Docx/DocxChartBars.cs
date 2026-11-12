@@ -24,68 +24,122 @@ internal static partial class DocxChartPreview
     private static readonly BColor DefaultLine = new(179, 179, 179);
     private static readonly BColor WallLine = new(134, 134, 134);
 
-    private sealed record BarSeries(Dictionary<int, double> Values, BColor Color, Dictionary<int, BColor> Points, string Name);
+    private sealed record BarSeries(Dictionary<int, double> Values, BColor Color, Dictionary<int, BColor> Points, string Name)
+    {
+        /// <summary>Whether the series is drawn as a line (a <c>c:lineChart</c>'s) rather than as bars.</summary>
+        public bool Line { get; init; }
+
+        /// <summary>A line series' width in points.</summary>
+        public double LineWidth { get; init; }
+
+        /// <summary>The value axis the series is measured on: 0 the primary, 1 the secondary.</summary>
+        public int Axis { get; init; }
+    }
 
     /// <summary>The plot geometry of a bar chart in points.</summary>
     internal readonly record struct BarLayout(double Left, double Top, double Right, double Bottom, double DepthX, double DepthY);
 
-    private static byte[]? RenderBars(XElement root, XElement chart, XElement plot, XElement bars, double width, double height, DocxTheme theme)
+    /// <summary>
+    /// Draws a chart of clustered bars or columns, flat or 3D, optionally with
+    /// standard lines over the same categories (a combination chart, each group
+    /// on the value axis its <c>c:axId</c> names), or of lines alone.
+    /// </summary>
+    private static byte[]? RenderBars(XElement root, XElement chart, XElement plot, double width, double height, DocxTheme theme)
     {
-        bool threeD = bars.Name == C + "bar3DChart";
-        bool horizontal = Value(bars, "barDir") == "bar";
-        if (ChartTypeCount(plot) != 1 || plot.Descendants(C + "logBase").Any() || (threeD && horizontal) ||
-            Value(bars, "grouping") is not (null or "clustered") ||
+        List<XElement> groups = plot.Elements().Where(element => element.Name.LocalName.EndsWith("Chart", StringComparison.Ordinal)).ToList();
+        List<XElement> barGroups = groups.Where(group => group.Name == C + "barChart" || group.Name == C + "bar3DChart").ToList();
+        XElement? bars = barGroups.FirstOrDefault();
+        bool threeD = bars?.Name == C + "bar3DChart";
+        bool horizontal = bars is not null && Value(bars, "barDir") == "bar";
+        if (groups.Count == 0 || barGroups.Count > 1 || plot.Descendants(C + "logBase").Any() || (threeD && (horizontal || groups.Count != 1)) ||
+            (bars is not null && Value(bars, "grouping") is not (null or "clustered")) ||
+            groups.Any(group => group.Name != C + "lineChart" && group != bars) ||
+            groups.Any(group => group.Name == C + "lineChart" && Value(group, "grouping") is not (null or "standard")) ||
+            (horizontal && groups.Count != 1) ||
             plot.Elements().Any(axis => axis.Element(C + "scaling")?.Element(C + "orientation")?.Attribute("val")?.Value == "maxMin"))
             return null;
 
+        // The value axes: the first is the primary, a second one the secondary.
+        List<XElement> valueAxes = plot.Elements(C + "valAx").Take(2).ToList();
+        int AxisOf(XElement group)
+        {
+            var ids = group.Elements(C + "axId").Select(id => (string?)id.Attribute("val")).ToHashSet();
+            return Math.Max(0, valueAxes.FindIndex(axis => ids.Contains(Value(axis, "axId"))));
+        }
+
         var series = new List<BarSeries>();
         int categories = 0;
-        double minimum = double.MaxValue, maximum = double.MinValue;
-        foreach (XElement item in bars.Elements(C + "ser"))
+        var minimum = new[] { double.MaxValue, double.MaxValue };
+        var maximum = new[] { double.MinValue, double.MinValue };
+        foreach (XElement group in bars is null ? groups : groups.Where(group => group != bars).Prepend(bars))
         {
-            if (series.Count == 16 || ReadValues(item) is not Dictionary<int, double> values)
-                return null;
-            foreach ((int index, double number) in values)
+            bool line = group.Name == C + "lineChart";
+            int axis = AxisOf(group);
+            foreach (XElement item in group.Elements(C + "ser"))
             {
-                categories = Math.Max(categories, index + 1);
-                minimum = Math.Min(minimum, number);
-                maximum = Math.Max(maximum, number);
+                if (series.Count == 16 || ReadValues(item) is not Dictionary<int, double> values)
+                    return null;
+                foreach ((int index, double number) in values)
+                {
+                    categories = Math.Max(categories, index + 1);
+                    minimum[axis] = Math.Min(minimum[axis], number);
+                    maximum[axis] = Math.Max(maximum[axis], number);
+                }
+                int order = int.TryParse(Value(item, "idx"), NumberStyles.None, CultureInfo.InvariantCulture, out int seriesIndex)
+                    ? Math.Min(seriesIndex, 1000) : series.Count;
+                BColor color;
+                double lineWidth = 0;
+                if (line)
+                {
+                    // A line series is drawn in its a:ln, 2.25 pt wide unless it says otherwise.
+                    XElement? stroke = item.Element(C + "spPr")?.Element(A + "ln");
+                    if (stroke?.Element(A + "noFill") is not null)
+                        color = BColor.Empty;
+                    else if (!DocxDrawingColor.TryRead(stroke?.Element(A + "solidFill"), theme, out color))
+                        color = AccentColor(order, theme);
+                    lineWidth = int.TryParse((string?)stroke?.Attribute("w"), NumberStyles.None, CultureInfo.InvariantCulture, out int emu)
+                        ? Math.Min(emu, 20 * 12700) / 12700.0 : 2.25;
+                }
+                else if (!TryFill(item.Element(C + "spPr"), theme, out color))
+                    color = AccentColor(order, theme);
+                var points = new Dictionary<int, BColor>();
+                foreach (XElement dataPoint in item.Elements(C + "dPt"))
+                    if (int.TryParse(Value(dataPoint, "idx"), NumberStyles.None, CultureInfo.InvariantCulture, out int index) &&
+                        TryFill(dataPoint.Element(C + "spPr"), theme, out BColor pointColor))
+                        points.TryAdd(index, pointColor);
+                series.Add(new BarSeries(values, color, points, SeriesName(item) ?? "Series " + (series.Count + 1).ToString(CultureInfo.InvariantCulture))
+                {
+                    Line = line,
+                    LineWidth = lineWidth,
+                    Axis = axis,
+                });
             }
-            int order = int.TryParse(Value(item, "idx"), NumberStyles.None, CultureInfo.InvariantCulture, out int seriesIndex)
-                ? Math.Min(seriesIndex, 1000) : series.Count;
-            if (!TryFill(item.Element(C + "spPr"), theme, out BColor color))
-                color = AccentColor(order, theme);
-            var points = new Dictionary<int, BColor>();
-            foreach (XElement dataPoint in item.Elements(C + "dPt"))
-                if (int.TryParse(Value(dataPoint, "idx"), NumberStyles.None, CultureInfo.InvariantCulture, out int index) &&
-                    TryFill(dataPoint.Element(C + "spPr"), theme, out BColor pointColor))
-                    points.TryAdd(index, pointColor);
-            series.Add(new BarSeries(values, color, points, SeriesName(item) ?? "Series " + (series.Count + 1).ToString(CultureInfo.InvariantCulture)));
         }
-        List<Dictionary<int, string>> levels = CategoryLevels(bars.Element(C + "ser"));
+        List<Dictionary<int, string>> levels = CategoryLevels(groups.SelectMany(group => group.Elements(C + "ser")).FirstOrDefault());
         if (levels.Count > 0 && levels[0].Count > 0)
             categories = Math.Max(categories, levels[0].Keys.Max() + 1);
         if (series.Count == 0 || categories == 0 || categories > 256)
             return null;
-        if (minimum > maximum)
-            (minimum, maximum) = (0, 0);
 
-        XElement? valueAxis = plot.Element(C + "valAx");
-        XElement? scaling = valueAxis?.Element(C + "scaling");
-        (double axisMinimum, double axisMaximum, double step) = AutoScale(minimum, maximum,
-            Number(scaling?.Element(C + "min")), Number(scaling?.Element(C + "max")), expand: !threeD);
-        if (Number(valueAxis?.Element(C + "majorUnit")) is double unit && unit > 0)
-            step = unit;
-        if (!(axisMaximum - axisMinimum > 1e-100) || !(step > 0) || (axisMaximum - axisMinimum) / step > 1000)
-            return null;
+        // Each value axis is scaled to the series measured on it.
+        var axes = new (double Minimum, double Maximum, double Step)[2];
+        for (int axis = 0; axis < 2; axis++)
+        {
+            if (minimum[axis] > maximum[axis])
+                (minimum[axis], maximum[axis]) = axis == 1 ? (minimum[0], maximum[0]) : (0, 0);
+            if (!TryScale(valueAxes.ElementAtOrDefault(axis), minimum[axis], maximum[axis], !threeD, 10, out axes[axis]))
+                return null;
+        }
 
-        int gap = int.TryParse(Value(bars, "gapWidth"), NumberStyles.None, CultureInfo.InvariantCulture, out int parsedGap)
+        int barCount = Math.Max(1, series.Count(item => !item.Line));
+        int gap = bars is not null && int.TryParse(Value(bars, "gapWidth"), NumberStyles.None, CultureInfo.InvariantCulture, out int parsedGap)
             ? Math.Clamp(parsedGap, 0, 500) : 150;
-        int overlap = int.TryParse(Value(bars, "overlap"), NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out int parsedOverlap)
+        int overlap = bars is not null && int.TryParse(Value(bars, "overlap"), NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out int parsedOverlap)
             ? Math.Clamp(parsedOverlap, -100, 100) : 0;
         List<string> names = series.Select(item => item.Name).ToList();
-        BarLayout layout = LayoutBars(root, chart, plot, names, levels, categories, series.Count, horizontal, threeD,
-            axisMinimum, axisMaximum, step, gap, width, height);
+        XElement? valueAxis = valueAxes.FirstOrDefault();
+        BarLayout layout = LayoutBars(root, chart, plot, names, levels, categories, barCount, horizontal, threeD,
+            axes[0].Minimum, axes[0].Maximum, axes[0].Step, gap, width, height);
         // LibreOffice allows no more intervals than the axis has room for
         // labels (VCartesianAxis::estimateMaximumAutoMainIncrementCount).
         if (Number(valueAxis?.Element(C + "majorUnit")) is null && Shown(valueAxis))
@@ -95,19 +149,17 @@ internal static partial class DocxChartPreview
             double needed = 1.2 * size;
             if (horizontal)
             {
-                int ticks = (int)Math.Min(1000, Math.Round((axisMaximum - axisMinimum) / step));
+                int ticks = (int)Math.Min(1000, Math.Round((axes[0].Maximum - axes[0].Minimum) / axes[0].Step));
                 for (int tick = 0; tick <= ticks; tick++)
-                    needed = Math.Max(needed, TextWidth(FormatTick(axisMinimum + step * tick), size));
+                    needed = Math.Max(needed, TextWidth(FormatTick(axes[0].Minimum + axes[0].Step * tick), size));
             }
             int most = (int)Math.Clamp(Math.Floor(length / needed), 2, 10);
             if (most < 10)
             {
-                (axisMinimum, axisMaximum, step) = AutoScale(minimum, maximum,
-                    Number(scaling?.Element(C + "min")), Number(scaling?.Element(C + "max")), expand: !threeD, maxIntervals: most);
-                if (!(axisMaximum - axisMinimum > 1e-100) || !(step > 0) || (axisMaximum - axisMinimum) / step > 1000)
+                if (!TryScale(valueAxis, minimum[0], maximum[0], !threeD, most, out axes[0]))
                     return null;
-                layout = LayoutBars(root, chart, plot, names, levels, categories, series.Count, horizontal, threeD,
-                    axisMinimum, axisMaximum, step, gap, width, height);
+                layout = LayoutBars(root, chart, plot, names, levels, categories, barCount, horizontal, threeD,
+                    axes[0].Minimum, axes[0].Maximum, axes[0].Step, gap, width, height);
             }
         }
 
@@ -121,20 +173,22 @@ internal static partial class DocxChartPreview
             return null;
 
         // Values run along the plot's height for columns and its width for bars.
-        float Along(double value)
+        float AlongAxis(int axis, double value)
         {
-            double share = (Math.Clamp(value, axisMinimum, axisMaximum) - axisMinimum) / (axisMaximum - axisMinimum);
+            (double low, double high, _) = axes[axis];
+            double share = (Math.Clamp(value, low, high) - low) / (high - low);
             return horizontal ? left + (float)share * (right - left) : bottom - (float)share * (bottom - top);
         }
+        float Along(double value) => AlongAxis(0, value);
 
         // LibreOffice's slot arithmetic (CategoryPositionHelper): each category
         // holds the series' slots, separated by the overlap and flanked by the gap.
         float category = (horizontal ? bottom - top : right - left) / categories;
         double inner = -overlap / 100.0, outer = gap / 100.0;
-        float slot = (float)(category / (series.Count + outer + inner * (series.Count - 1)));
+        float slot = (float)(category / (barCount + outer + inner * (barCount - 1)));
         float pitch = (float)(slot * (1 + inner));
-        float cluster = slot + pitch * (series.Count - 1);
-        float baseline = Along(Math.Clamp(0, axisMinimum, axisMaximum));
+        float cluster = slot + pitch * (barCount - 1);
+        float baseline = Along(Math.Clamp(0, axes[0].Minimum, axes[0].Maximum));
 
         using var bitmap = new BBitmap(pixelsWide, pixelsHigh);
         using (var canvas = bitmap.OpenCanvas())
@@ -147,17 +201,17 @@ internal static partial class DocxChartPreview
             if (!TryLine(gridlines?.Element(C + "spPr")?.Element(A + "ln"), theme, scale, out BColor grid, out float gridWidth))
                 (grid, gridWidth) = (threeD ? WallLine : DefaultLine, (float)Math.Max(1, 0.75 * scale));
             bool hidden = gridlines?.Element(C + "spPr")?.Element(A + "ln")?.Element(A + "noFill") is not null;
-            int intervals = (int)Math.Round((axisMaximum - axisMinimum) / step);
+            int intervals = (int)Math.Round((axes[0].Maximum - axes[0].Minimum) / axes[0].Step);
             if (threeD)
             {
-                Draw3DWalls(canvas, left, top, right, bottom, depthX, depthY, intervals, step, axisMinimum, Along,
+                Draw3DWalls(canvas, left, top, right, bottom, depthX, depthY, intervals, axes[0].Step, axes[0].Minimum, Along,
                     gridlines is not null && !hidden ? grid : BColor.Empty, gridWidth, (float)Math.Max(1, 0.75 * scale), scale);
             }
             else if (gridlines is not null && !hidden)
             {
                 for (int tick = 0; tick <= intervals; tick++)
                 {
-                    float at = Along(axisMinimum + step * tick);
+                    float at = Along(axes[0].Minimum + axes[0].Step * tick);
                     if (horizontal)
                         Rule(canvas, new PointF(at, top), new PointF(at, bottom), grid, gridWidth, scale);
                     else
@@ -165,33 +219,51 @@ internal static partial class DocxChartPreview
                 }
             }
 
-            string shape = Value(bars, "shape") ?? "box";
-            double depthGap = int.TryParse(Value(bars, "gapDepth"), NumberStyles.None, CultureInfo.InvariantCulture, out int parsedDepth)
+            string shape = bars is null ? "box" : Value(bars, "shape") ?? "box";
+            double depthGap = bars is not null && int.TryParse(Value(bars, "gapDepth"), NumberStyles.None, CultureInfo.InvariantCulture, out int parsedDepth)
                 ? Math.Clamp(parsedDepth, 0, 500) / 100.0 : 1.5;
             for (int index = 0; index < categories; index++)
             {
-                for (int i = 0; i < series.Count; i++)
+                int slotIndex = 0;
+                foreach (BarSeries item in series.Where(item => !item.Line))
                 {
-                    if (!series[i].Values.TryGetValue(index, out double number))
+                    int i = slotIndex++;
+                    if (!item.Values.TryGetValue(index, out double number))
                         continue;
-                    BColor color = series[i].Points.TryGetValue(index, out BColor pointColor) ? pointColor : series[i].Color;
+                    BColor color = item.Points.TryGetValue(index, out BColor pointColor) ? pointColor : item.Color;
                     if (color.IsEmpty)
                         continue;
                     float start = index * category + (category - cluster) / 2 + i * pitch;
-                    float end = Along(number);
+                    float end = AlongAxis(item.Axis, number);
+                    float from = AlongAxis(item.Axis, Math.Clamp(0, axes[item.Axis].Minimum, axes[item.Axis].Maximum));
                     if (horizontal)
-                    {
-                        float y = bottom - start - slot;
-                        canvas.FillRect(new RectangleF(Math.Min(baseline, end), y, Math.Abs(end - baseline), slot), color);
-                    }
+                        canvas.FillRect(new RectangleF(Math.Min(from, end), bottom - start - slot, Math.Abs(end - from), slot), color);
                     else if (threeD)
-                    {
-                        Draw3DColumn(canvas, left + start, slot, baseline, end, depthX, depthY, depthGap, shape, color);
-                    }
+                        Draw3DColumn(canvas, left + start, slot, from, end, depthX, depthY, depthGap, shape, color);
                     else
+                        canvas.FillRect(new RectangleF(left + start, Math.Min(from, end), slot, Math.Abs(end - from)), color);
+                }
+            }
+
+            // Lines join their points at the categories' centres (or, for
+            // crossBetween="midCat", the plot's edges); a missing value breaks them.
+            bool between = bars is not null || Value(valueAxis ?? plot, "crossBetween") is not "midCat";
+            float X(int index) => between || categories == 1
+                ? left + (index + 0.5f) * category
+                : left + index * (right - left) / (categories - 1);
+            foreach (BarSeries item in series.Where(item => item.Line && !item.Color.IsEmpty))
+            {
+                var run = new List<PointF>();
+                for (int index = 0; index <= categories; index++)
+                {
+                    if (index < categories && item.Values.TryGetValue(index, out double number))
                     {
-                        canvas.FillRect(new RectangleF(left + start, Math.Min(baseline, end), slot, Math.Abs(end - baseline)), color);
+                        run.Add(new PointF(X(index), AlongAxis(item.Axis, number)));
+                        continue;
                     }
+                    if (run.Count > 1)
+                        canvas.DrawPathStroke([.. run], item.Color, (float)Math.Max(1, item.LineWidth * scale));
+                    run.Clear();
                 }
             }
 
@@ -218,6 +290,17 @@ internal static partial class DocxChartPreview
         return DocxVmlPath.EncodePng(bitmap);
     }
 
+    /// <summary>The automatic (or stated) scale of a value axis over the values measured on it.</summary>
+    private static bool TryScale(XElement? axis, double minimum, double maximum, bool expand, int maxIntervals,
+        out (double Minimum, double Maximum, double Step) result)
+    {
+        XElement? scaling = axis?.Element(C + "scaling");
+        result = AutoScale(minimum, maximum, Number(scaling?.Element(C + "min")), Number(scaling?.Element(C + "max")), expand, maxIntervals);
+        if (Number(axis?.Element(C + "majorUnit")) is double unit && unit > 0)
+            result.Step = unit;
+        return result.Maximum - result.Minimum > 1e-100 && result.Step > 0 && (result.Maximum - result.Minimum) / result.Step <= 1000;
+    }
+
     /// <summary>
     /// Where LibreOffice puts the plot of a bar chart, in points: a manual inner
     /// layout as stated; otherwise the chart less a 2% margin, the title, the
@@ -235,8 +318,14 @@ internal static partial class DocxChartPreview
         double marginX = width * 0.02, marginY = height * 0.02;
         double left = marginX, right = width - marginX, top = marginY, bottom = height - marginY;
         if (Titled(chart))
-            top += 2.5 * textScale * (TextSize(chart.Element(C + "title")?.Element(C + "txPr")) ??
-                TextSize(chart.Element(C + "title")?.Element(C + "tx")?.Element(C + "rich")) ?? 18);
+        {
+            // A title stated as rich text breaks at about four fifths of the chart's width.
+            XElement? rich = chart.Element(C + "title")?.Element(C + "tx")?.Element(C + "rich");
+            double size = textScale * (TextSize(chart.Element(C + "title")?.Element(C + "txPr")) ?? TextSize(rich) ?? 18);
+            int lines = rich is null ? 1 : Math.Max(1, rich.Elements(A + "p")
+                .Sum(paragraph => WrappedLines(string.Concat(paragraph.Descendants(A + "t").Select(text => text.Value)), size, 0.8 * width)));
+            top += 2.5 * size + (Math.Min(lines, 5) - 1) * 1.2 * size;
+        }
 
         if (chart.Element(C + "legend") is XElement legendElement && Value(legendElement, "overlay") is not ("1" or "true"))
         {
@@ -498,9 +587,22 @@ internal static partial class DocxChartPreview
                 at += 1.4 * size;
             }
         }
-        foreach ((double keyX, double keyY, BColor color) in keys)
-            if (!color.IsEmpty)
+        // A line series' key is a stroke of its line through the key's middle.
+        List<BarSeries> ordered = entries.ToList();
+        for (int i = 0; i < keys.Count; i++)
+        {
+            (double keyX, double keyY, BColor color) = keys[i];
+            if (color.IsEmpty)
+                continue;
+            if (ordered[i].Line)
+            {
+                double thickness = Math.Max(1 / scale, Math.Min(ordered[i].LineWidth, key));
+                canvas.FillRect(new RectangleF((float)((keyX - key / 2) * scale), (float)((keyY + (key - thickness) / 2) * scale),
+                    (float)(2 * key * scale), (float)(thickness * scale)), color);
+            }
+            else
                 canvas.FillRect(new RectangleF((float)(keyX * scale), (float)(keyY * scale), (float)(key * scale), (float)(key * scale)), color);
+        }
     }
 
     /// <summary>The line an axis draws: its <c>c:spPr</c> line, LibreOffice's grey when it states none.</summary>

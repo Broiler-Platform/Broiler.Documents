@@ -120,6 +120,35 @@ public sealed class DocxIssue242ChartTests
     }
 
     [Fact]
+    public void A_Line_Over_Columns_Is_Measured_On_Its_Own_Value_Axis()
+    {
+        // tdf138773.docx: a column group and a line group, the line on a
+        // secondary value axis (here fixed at 0 to 4) by its c:axId.
+        (int width, int height, byte[] rgba) = RenderChart(
+            """
+            <c:chart><c:autoTitleDeleted val="1"/><c:plotArea>
+              <c:barChart><c:barDir val="col"/><c:grouping val="clustered"/>
+                <c:ser><c:idx val="0"/><c:spPr><a:solidFill><a:srgbClr val="0000FF"/></a:solidFill></c:spPr>
+                  <c:val><c:numLit><c:pt idx="0"><c:v>1</c:v></c:pt><c:pt idx="1"><c:v>2</c:v></c:pt></c:numLit></c:val></c:ser>
+                <c:axId val="1"/><c:axId val="2"/></c:barChart>
+              <c:lineChart><c:grouping val="standard"/>
+                <c:ser><c:idx val="1"/><c:spPr><a:ln w="38100"><a:solidFill><a:srgbClr val="FF0000"/></a:solidFill></a:ln></c:spPr>
+                  <c:val><c:numLit><c:pt idx="0"><c:v>1</c:v></c:pt><c:pt idx="1"><c:v>1</c:v></c:pt></c:numLit></c:val></c:ser>
+                <c:axId val="3"/><c:axId val="4"/></c:lineChart>
+              <c:catAx><c:axId val="1"/><c:delete val="1"/></c:catAx>
+              <c:valAx><c:axId val="2"/><c:delete val="1"/></c:valAx>
+              <c:valAx><c:axId val="4"/><c:scaling><c:max val="4"/><c:min val="0"/></c:scaling><c:delete val="1"/></c:valAx>
+              <c:catAx><c:axId val="3"/><c:delete val="1"/></c:catAx>
+            </c:plotArea></c:chart>
+            """);
+
+        // A quarter of the way up the plot, not the 45% the primary axis would give.
+        int lineRow = FindRow(rgba, width, height, (255, 0, 0));
+        Assert.InRange(lineRow, height * 0.66, height * 0.82);
+        Assert.Equal((255, 0, 0), Pixel(rgba, width, width / 2, lineRow));
+    }
+
+    [Fact]
     public void Strict_Colour_Percentages_Modulate_Like_Transitional_Values()
     {
         XNamespace a = "http://schemas.openxmlformats.org/drawingml/2006/main";

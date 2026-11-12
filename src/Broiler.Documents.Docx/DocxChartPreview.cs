@@ -28,14 +28,15 @@ internal static partial class DocxChartPreview
             return RenderArea(chart!, plot, area, width, height, theme ?? DocxTheme.Empty);
         if (plot?.Element(C + "pieChart") is XElement pie)
             return RenderPie(root, chart!, plot, pie, width, height, theme ?? DocxTheme.Empty);
-        if (plot?.Element(C + "bar3DChart") is XElement bars3D)
-            return RenderBars(root, chart!, plot, bars3D, width, height, theme ?? DocxTheme.Empty);
         XElement? bars = plot?.Element(C + "barChart");
-        if (bars is not null && Value(bars, "barDir") == "bar")
-            return RenderBars(root, chart!, plot!, bars, width, height, theme ?? DocxTheme.Empty);
-        if (bars is not null && Value(bars, "grouping") is null or "clustered" &&
-            RenderBars(root, chart!, plot!, bars, width, height, theme ?? DocxTheme.Empty) is byte[] columns)
-            return columns;
+        if (plot is not null && (plot.Element(C + "bar3DChart") is not null || plot.Element(C + "lineChart") is not null ||
+            bars is not null && Value(bars, "grouping") is null or "clustered"))
+        {
+            if (RenderBars(root, chart!, plot, width, height, theme ?? DocxTheme.Empty) is byte[] drawn)
+                return drawn;
+            if (bars is null || Value(bars, "barDir") == "bar")
+                return null;
+        }
         if (bars is not null && Value(bars, "barDir") == "col" && Value(bars, "grouping") is "stacked" or "percentStacked")
             return RenderStackedColumns(root, chart!, plot!, bars, width, height, theme ?? DocxTheme.Empty);
         if (bars is null || Value(bars, "barDir") != "col" ||
