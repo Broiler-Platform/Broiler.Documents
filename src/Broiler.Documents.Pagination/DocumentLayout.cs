@@ -4628,6 +4628,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             line.IndentWidth = columnWidth;
             line.TextAreaLeft = columnLeft - indent;
             line.TextAreaWidth = columnWidthOverride ?? setup.ContentWidthPoints;
+            if (style.RightToLeft && dropPieces is null)
+                MirrorRightToLeft(line);
             lines.Add(line);
         }
 
@@ -4636,6 +4638,106 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 textLeft + (bands.Count > 0 ? bands[0].Left : firstIndent + dropIndent));
 
         return new ParagraphLines(lines);
+    }
+
+    /// <summary>
+    /// Sets a right-to-left paragraph's line, composed from the left, from the
+    /// right of its text area: the line is mirrored, which puts its start, its
+    /// indents and its alignment on the other side, as LibreOffice sets a
+    /// <c>w:bidi</c> paragraph, and runs the words from the right. A stretch of
+    /// left-to-right text - Latin words, numbers, and the spaces between them -
+    /// keeps its own order inside the room it takes, as the Unicode
+    /// bidirectional algorithm orders it at the word level.
+    /// </summary>
+    /// <remarks>
+    /// The glyphs of a word are drawn as they always are; joining and
+    /// reordering the letters inside a right-to-left word is the text drawing's
+    /// business, not the line's.
+    /// </remarks>
+    private static void MirrorRightToLeft(LayoutLine line)
+    {
+        double axis = 2 * line.TextAreaLeft + line.TextAreaWidth;
+        IReadOnlyList<LayoutPiece> pieces = line.Pieces;
+        var starts = new double[pieces.Count];
+        for (int i = 0; i < pieces.Count; i++)
+        {
+            starts[i] = pieces[i].X;
+            pieces[i].X = axis - (pieces[i].X + pieces[i].Width);
+        }
+
+        // Each piece's direction: strong right-to-left, strong left-to-right, a
+        // number, or neutral. A number after left-to-right text is part of it
+        // (UAX #9 W7); a neutral between two left-to-right pieces joins them.
+        var kinds = new int[pieces.Count];
+        int lastStrong = 1;
+        for (int i = 0; i < pieces.Count; i++)
+        {
+            int kind = pieces[i].IsImage || pieces[i].IsTab ? 0 : DirectionOf(pieces[i].Text);
+            if (kind == 3)
+                kind = lastStrong == 2 ? 2 : 3;
+            if (kind is 1 or 2)
+                lastStrong = kind;
+            kinds[i] = kind;
+        }
+
+        bool LeftToRight(int i) => kinds[i] is 2 or 3;
+        int index = 0;
+        while (index < pieces.Count)
+        {
+            if (!LeftToRight(index))
+            {
+                index++;
+                continue;
+            }
+
+            int end = index;
+            for (int next = index + 1; next < pieces.Count; next++)
+            {
+                if (LeftToRight(next))
+                {
+                    end = next;
+                    continue;
+                }
+
+                if (kinds[next] != 0)
+                    break;
+            }
+
+            // The stretch's pieces keep their places relative to each other,
+            // inside the room the mirror gave the stretch.
+            if (end > index)
+            {
+                double left = pieces.Skip(index).Take(end - index + 1).Min(piece => piece.X);
+                for (int i = index; i <= end; i++)
+                    pieces[i].X = left + (starts[i] - starts[index]);
+            }
+
+            index = end + 1;
+        }
+
+        line.IndentLeft = axis - (line.IndentLeft + line.IndentWidth);
+        if (line.BackgroundWidth > 0)
+            line.BackgroundLeft = axis - (line.BackgroundLeft + line.BackgroundWidth);
+    }
+
+    /// <summary>
+    /// 1 for text whose first strong character is right-to-left, 2 for
+    /// left-to-right, 3 for text with no strong character but a digit, 0 for
+    /// neutral text.
+    /// </summary>
+    private static int DirectionOf(string text)
+    {
+        bool digit = false;
+        foreach (char c in text)
+        {
+            if (c is >= '\u0590' and <= '\u08FF' or >= '\uFB1D' and <= '\uFDFF' or >= '\uFE70' and <= '\uFEFF')
+                return char.IsDigit(c) ? 3 : 1;
+            if (char.IsLetter(c))
+                return 2;
+            digit |= char.IsDigit(c);
+        }
+
+        return digit ? 3 : 0;
     }
 
     /// <summary>

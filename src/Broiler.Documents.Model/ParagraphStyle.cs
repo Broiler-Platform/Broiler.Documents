@@ -152,6 +152,15 @@ public readonly record struct ParagraphStyle
     /// <summary>Keep this paragraph on the same page or column as the next, when the group fits.</summary>
     public bool KeepWithNext { get; init; }
 
+    /// <summary>
+    /// True for a right-to-left paragraph (DOCX <c>w:bidi</c>): its lines run
+    /// from the right, so its start is the right edge. <see cref="Alignment"/>
+    /// and the indents are logical: <see cref="TextAlignment.Left"/> and
+    /// <see cref="LeftIndent"/> name the start, as LibreOffice reads Word's
+    /// <c>w:jc="left"</c> and <c>w:ind w:left</c> in such a paragraph.
+    /// </summary>
+    public bool RightToLeft { get; init; }
+
     /// <summary>Keep all lines on one page or column when the paragraph fits there.</summary>
     public bool KeepTogether { get; init; }
 

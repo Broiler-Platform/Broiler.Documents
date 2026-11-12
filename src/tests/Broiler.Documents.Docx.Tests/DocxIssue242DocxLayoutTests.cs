@@ -82,4 +82,18 @@ public sealed class DocxIssue242DocxLayoutTests
 
         Assert.Equal(0, paragraphs[1].Style.SpacingBefore, 3);
     }
+
+    [Fact]
+    public void A_Bidi_Paragraph_Is_Read_As_Right_To_Left()
+    {
+        IReadOnlyList<RichTextParagraph> paragraphs = DocxTestPackage.ReadBody(
+            "<w:p><w:pPr><w:bidi w:val=\"1\"/><w:jc w:val=\"left\"/></w:pPr><w:r><w:t>a</w:t></w:r></w:p>" +
+            "<w:p><w:pPr><w:bidi w:val=\"0\"/></w:pPr><w:r><w:t>b</w:t></w:r></w:p>" +
+            DocxTestPackage.Paragraph("c")).Document.Paragraphs;
+
+        Assert.True(paragraphs[0].Style.RightToLeft);
+        Assert.Equal(TextAlignment.Left, paragraphs[0].Style.Alignment);
+        Assert.False(paragraphs[1].Style.RightToLeft);
+        Assert.False(paragraphs[2].Style.RightToLeft);
+    }
 }

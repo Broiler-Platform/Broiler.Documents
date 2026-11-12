@@ -82,4 +82,48 @@ public sealed class DocumentLayoutIssue242DocxLayoutTests
         Assert.Equal(36, after.Bounds.Height, 3);
         Assert.Equal(72 + 36, result.Pages[1].Lines.Single(line => line.ParagraphIndex == 6).Top, 3);
     }
+
+    private static IReadOnlyList<LayoutPiece> Words(LayoutLine line) =>
+        [.. line.Pieces.Where(piece => !string.IsNullOrWhiteSpace(piece.Text))];
+
+    private static LayoutLine RightToLeftLine(string text, TextAlignment alignment = TextAlignment.Left, float leftIndent = 0)
+    {
+        RichTextDocument document = RichTextDocument.FromParagraphs([RichTextParagraph.Create(text, InlineStyle.Default,
+            ParagraphStyle.Default with { RightToLeft = true, Alignment = alignment, LeftIndent = leftIndent })]);
+        return Assert.Single(Assert.Single(Layout(document).Pages).Lines);
+    }
+
+    [Fact]
+    public void A_Right_To_Left_Paragraph_Starts_At_The_Right()
+    {
+        // tdf104649.docx: w:bidi with w:jc="left" is set flush right, and a
+        // left indent stands in from the right (LibreOffice 24.2).
+        LayoutLine line = RightToLeftLine("Test");
+        LayoutPiece word = Assert.Single(Words(line));
+        Assert.Equal(540, word.X + word.Width, 3);
+
+        LayoutLine indented = RightToLeftLine("Test", leftIndent: 72);
+        LayoutPiece moved = Assert.Single(Words(indented));
+        Assert.Equal(540 - 72, moved.X + moved.Width, 3);
+
+        LayoutLine right = RightToLeftLine("Test", TextAlignment.Right);
+        Assert.Equal(72, Assert.Single(Words(right)).X, 3);
+    }
+
+    [Fact]
+    public void Right_To_Left_Words_Run_From_The_Right_And_Left_To_Right_Ones_Keep_Their_Order()
+    {
+        // "\u0645\u0642\u062F\u0645\u0647 \u0645\u062A\u0631\u062C\u0645 3": the first word is the rightmost, the page number the leftmost.
+        IReadOnlyList<LayoutPiece> arabic = Words(RightToLeftLine("\u0645\u0642\u062F\u0645\u0647 \u0645\u062A\u0631\u062C\u0645 3"));
+        Assert.Equal(3, arabic.Count);
+        Assert.True(arabic[0].X > arabic[1].X);
+        Assert.True(arabic[1].X > arabic[2].X);
+
+        // Latin words in a right-to-left paragraph are one left-to-right
+        // stretch, set at the right in their own order: "aaa bbb ccc".
+        IReadOnlyList<LayoutPiece> latin = Words(RightToLeftLine("aaa bbb ccc"));
+        Assert.True(latin[0].X < latin[1].X);
+        Assert.True(latin[1].X < latin[2].X);
+        Assert.Equal(540, latin[2].X + latin[2].Width, 3);
+    }
 }

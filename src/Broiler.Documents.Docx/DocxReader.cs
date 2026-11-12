@@ -3595,6 +3595,8 @@ internal static class DocxReader
         // away the shading its style gave.
         if (pPr.Element(DocxNamespaces.Wordprocessing + "keepNext") is XElement keepNext)
             style = style with { KeepWithNext = ReadOnOff(keepNext) };
+        if (pPr.Element(DocxNamespaces.Wordprocessing + "bidi") is XElement bidi)
+            style = style with { RightToLeft = ReadOnOff(bidi) };
         if (pPr.Element(DocxNamespaces.Wordprocessing + "keepLines") is XElement keepLines)
             style = style with { KeepTogether = ReadOnOff(keepLines) };
         if (pPr.Element(DocxNamespaces.Wordprocessing + "widowControl") is XElement widowControl)
