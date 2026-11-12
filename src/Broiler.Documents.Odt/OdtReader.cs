@@ -1144,8 +1144,15 @@ internal static class OdtReader
         }
 
         // A frame keeps its text in a draw:text-box; a custom shape carries the
-        // paragraphs itself.
-        XElement textSource = drawing.Element(OdtNamespaces.Draw + "text-box") ?? drawing;
+        // paragraphs itself. A picture frame inside a draw:g is a drawing
+        // object (SdrGrafObj), and the paragraphs of its draw:image are the
+        // graphic's own text, drawn over the picture from its top left
+        // (tdf128820.fodt's "json"). A Writer picture frame outside a group
+        // has no text, and LibreOffice drops those paragraphs.
+        XElement? groupPicture = drawing.Name == OdtNamespaces.Draw + "frame" && drawing.Parent?.Name == OdtNamespaces.Draw + "g"
+            ? drawing.Element(OdtNamespaces.Draw + "image")
+            : null;
+        XElement textSource = textBox ?? groupPicture ?? drawing;
         TableCellPadding textPadding = ReadShapePadding(graphic);
         var pageRelativeShapes = new HashSet<DocumentShape>(ReferenceEqualityComparer.Instance);
         RichTextDocument shapeContent = ReadShapeParagraphs(textSource, context, depth,
@@ -1168,6 +1175,7 @@ internal static class OdtReader
         // Image frames must still go through the image admission path.
         if (drawing.Element(OdtNamespaces.Draw + "image") is not null && paragraphs.Count == 0)
             return false;
+        InlineImage? groupImage = groupPicture is not null ? context.Images.Read(drawing, context.Builder) : null;
 
         // Nothing to grow to, and nothing to draw at no height.
         if (height == 0 && paragraphs.Count == 0 && !linked)
@@ -1193,7 +1201,7 @@ internal static class OdtReader
             fill,
             outline,
             paragraphs,
-            image: null,
+            image: groupImage is null ? null : AdjustImage(groupImage, graphic),
             behindText: behindText,
             wrap: wrap,
             wrapSide: wrapSide,
@@ -1228,7 +1236,7 @@ internal static class OdtReader
             printable: Prints(graphic))
         {
             IsAsCharacter = ((string?)drawing.Attribute(OdtNamespaces.Text + "anchor-type") ?? inheritedAnchor) == "as-char",
-            IsCustomShape = drawing.Name != OdtNamespaces.Draw + "frame",
+            IsCustomShape = drawing.Name != OdtNamespaces.Draw + "frame" || groupPicture is not null,
             RotationRadians = rotation,
             // A text box keeps its width and grows down to its text, where a
             // drawn shape with words in it fits itself about them - unless its
@@ -2530,6 +2538,49 @@ internal static class OdtReader
     }
 
     /// <summary>
+    /// The top left of a group's members' boxes, from their <c>svg:x</c> and
+    /// <c>svg:y</c> (a line's or connector's end points), through nested
+    /// groups. Null when a member gives no position this way - a turned
+    /// member placed by <c>draw:transform</c>, say - or there is no member.
+    /// </summary>
+    private static (double Left, double Top)? GroupTopLeft(XElement group, int depth = 0)
+    {
+        if (depth > 16)
+            return null;
+        double left = double.PositiveInfinity, top = double.PositiveInfinity;
+        foreach (XElement member in group.Elements())
+        {
+            if (member.Name.Namespace != OdtNamespaces.Draw)
+                continue;
+            if (member.Name.LocalName == "g")
+            {
+                if (GroupTopLeft(member, depth + 1) is not (double l, double t))
+                    return null;
+                (left, top) = (Math.Min(left, l), Math.Min(top, t));
+                continue;
+            }
+            if (member.Name.LocalName is "line" or "connector")
+            {
+                if (!Length(member, "x1", out double x1) || !Length(member, "y1", out double y1) ||
+                    !Length(member, "x2", out double x2) || !Length(member, "y2", out double y2))
+                    return null;
+                (left, top) = (Math.Min(left, Math.Min(x1, x2)), Math.Min(top, Math.Min(y1, y2)));
+                continue;
+            }
+            if (member.Name.LocalName is not ("frame" or "custom-shape" or "rect" or "ellipse" or "circle" or "polygon" or "polyline" or "path"))
+                continue;
+            if (member.Attribute(OdtNamespaces.Draw + "transform") is not null ||
+                !Length(member, "x", out double x) || !Length(member, "y", out double y))
+                return null;
+            (left, top) = (Math.Min(left, x), Math.Min(top, y));
+        }
+        return double.IsFinite(left) && double.IsFinite(top) ? (left, top) : null;
+
+        static bool Length(XElement element, string name, out double value) =>
+            OdtUnits.TryParseLength((string?)element.Attribute(OdtNamespaces.Svg + name), out value);
+    }
+
+    /// <summary>
     /// Walks ODF text block content. Paragraphs are the only shape
     /// <see cref="RichTextDocument"/> can represent, so lists, tables, sections,
     /// and indexes are flattened into their paragraphs in document order rather
@@ -2555,6 +2606,14 @@ internal static class OdtReader
 
         string? anchorType = (string?)group.Attribute(OdtNamespaces.Text + "anchor-type") ?? inheritedAnchor;
         int anchorPage = int.TryParse((string?)group.Attribute(OdtNamespaces.Text + "anchor-page-number"), NumberStyles.Integer, CultureInfo.InvariantCulture, out int ap) ? ap : inheritedAnchorPage;
+
+        // A group anchored as a character stands in its line by its bounding
+        // box: LibreOffice puts the box's top left where the character is, so
+        // the members keep their places relative to that corner, not to the
+        // page coordinates they were saved with (tdf128820.fodt's frame at
+        // 1 cm, 1 cm draws at the start of the line).
+        if ((string?)group.Attribute(OdtNamespaces.Text + "anchor-type") == "as-char" && GroupTopLeft(group) is (double left, double top))
+            (totalX, totalY) = (parentX - left, parentY - top);
 
         foreach (XElement child in group.Elements())
         {
