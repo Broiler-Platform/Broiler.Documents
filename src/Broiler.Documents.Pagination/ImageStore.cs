@@ -163,7 +163,7 @@ public sealed class ImageStore : IDisposable
         // presentation returns the same bitmap, so the ordinary picture pays
         // nothing; anything else hands back a second one and the decoded original
         // has no further use.
-        if (entry.Bitmap is not null && !image.Presentation.IsDefault)
+        if (entry.Bitmap is not null && image.Presentation.ChangesPixels)
         {
             BBitmap presented = image.Presentation.Apply(entry.Bitmap);
             if (!ReferenceEquals(presented, entry.Bitmap))

@@ -4741,6 +4741,11 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     {
         InlineImage image = style.Image!;
         (double width, double height) = _images.MeasurePoints(image);
+        // The line holds the room the picture's effects take around it as well
+        // (LibreOffice's margins from wp:effectExtent).
+        TableCellPadding extent = image.Presentation.EffectExtent;
+        width += Math.Max(0, extent.Left) + Math.Max(0, extent.Right);
+        height += Math.Max(0, extent.Top) + Math.Max(0, extent.Bottom);
 
         return new LayoutPiece(string.Empty, FontFor(style), LayoutColors.Or(style.Foreground, _settings.DefaultForeground), style.Background, false,
             false, style.LinkHref, image, Math.Max(1, width), Math.Max(1, height), 0)

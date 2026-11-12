@@ -6,6 +6,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Xml.Linq;
 using Broiler.Documents.Model;
+using Broiler.Graphics.Color;
 
 namespace Broiler.Documents.Docx;
 
@@ -186,6 +187,8 @@ internal sealed class DocxImageLoader(ZipArchive archive, DocumentLimits limits,
             }
 
             ImagePresentation? presentation = ReadPresentation(blip.Parent, wrapper);
+            if (wrapper.Name == DocxNamespaces.WordDrawing + "inline")
+                (presentation, width, height) = ReadInlineLayout(wrapper, presentation, width, height);
             string? relationshipId = (string?)blip.Attribute(DocxNamespaces.Relationships + "embed");
             if (string.IsNullOrWhiteSpace(relationshipId))
             {
@@ -284,7 +287,7 @@ internal sealed class DocxImageLoader(ZipArchive archive, DocumentLimits limits,
     /// inscribed in, which is what this codec did for all of them before.
     /// </para>
     /// </remarks>
-    private static ImagePresentation? ReadPresentation(XElement? blipFill, XElement wrapper)
+    private ImagePresentation? ReadPresentation(XElement? blipFill, XElement wrapper)
     {
         double left = CropEdge(blipFill, "l");
         double top = CropEdge(blipFill, "t");
@@ -303,9 +306,90 @@ internal sealed class DocxImageLoader(ZipArchive archive, DocumentLimits limits,
             CropRight = right,
             CropBottom = bottom,
             Mask = mask,
+            Shadow = ReadShadow(FindDescendant(wrapper, DocxNamespaces.Picture + "spPr")?
+                .Element(DocxNamespaces.Drawing + "effectLst")?.Element(DocxNamespaces.Drawing + "outerShdw")),
         };
 
         return presentation.IsDefault ? null : presentation;
+    }
+
+    /// <summary>
+    /// A picture's <c>a:outerShdw</c>: <c>dist</c> (EMUs) along <c>dir</c>
+    /// (60000ths of a degree clockwise from the right), the box scaled by
+    /// <c>sx</c>/<c>sy</c> (thousandths of a percent) about the <c>algn</c>
+    /// point (bottom when unstated), in the shadow's colour. LibreOffice draws
+    /// the shadow under the picture, blurred by <c>blurRad</c>; it is drawn
+    /// here unblurred (<c>tdf133473.docx</c>: a black copy at twice the
+    /// picture's size, from its top left corner).
+    /// </summary>
+    private ImageShadow? ReadShadow(XElement? shadow)
+    {
+        if (shadow is null || !DocxDrawingColor.TryRead(shadow, theme ?? DocxTheme.Empty, out BColor color) || color.A == 0)
+            return null;
+
+        double Number(string name, double fallback) =>
+            double.TryParse((string?)shadow.Attribute(name), NumberStyles.Float, CultureInfo.InvariantCulture, out double value) &&
+            double.IsFinite(value) ? value : fallback;
+
+        double distance = Math.Clamp(Number("dist", 0) / EmusPerPoint, 0, MaxDisplayExtent);
+        double direction = Number("dir", 0) / 60000 * Math.PI / 180;
+        double scaleX = Math.Clamp(Number("sx", 100000) / 100000, -10, 10);
+        double scaleY = Math.Clamp(Number("sy", 100000) / 100000, -10, 10);
+        string align = (string?)shadow.Attribute("algn") ?? "b";
+        double alignX = align switch { "tl" or "l" or "bl" => 0, "tr" or "r" or "br" => 1, _ => 0.5 };
+        double alignY = align switch { "tl" or "t" or "tr" => 0, "bl" or "b" or "br" => 1, _ => 0.5 };
+        if (scaleX <= 0 || scaleY <= 0)
+            return null;
+        return new ImageShadow(color, distance * Math.Cos(direction), distance * Math.Sin(direction), scaleX, scaleY, alignX, alignY);
+    }
+
+    /// <summary>
+    /// How an inline picture sits in its line, as LibreOffice lays it out. A
+    /// turned picture (<c>a:xfrm rot</c>) is drawn turned about the centre of
+    /// a box as tall as the turned picture's bounding box and as wide as the
+    /// picture's height when the turn is nearer a quarter than a half turn,
+    /// else its width (<c>tdf103001.docx</c>; the width is Word's swapped
+    /// extent, the height the true one). The <c>wp:effectExtent</c> Word
+    /// leaves around a turned picture or one with an effect is added to its
+    /// margins; LibreOffice ignores it on a plain picture.
+    /// </summary>
+    private static (ImagePresentation? Presentation, double Width, double Height) ReadInlineLayout(
+        XElement inline, ImagePresentation? presentation, double width, double height)
+    {
+        XElement? properties = FindDescendant(inline, DocxNamespaces.Picture + "spPr");
+        double rotation = 0;
+        if (long.TryParse((string?)properties?.Element(DocxNamespaces.Drawing + "xfrm")?.Attribute("rot"),
+                NumberStyles.Integer, CultureInfo.InvariantCulture, out long sixtieths))
+            rotation = sixtieths % 21600000 / 60000.0;
+        if (rotation < 0)
+            rotation += 360;
+        bool hasEffect = properties?.Element(DocxNamespaces.Drawing + "effectLst")?.HasElements == true;
+        if (rotation == 0 && !hasEffect)
+            return (presentation, width, height);
+
+        ImagePresentation result = presentation ?? ImagePresentation.Default;
+        if (rotation != 0 && width > 0 && height > 0)
+        {
+            double radians = rotation * Math.PI / 180;
+            double turnedHeight = width * Math.Abs(Math.Sin(radians)) + height * Math.Abs(Math.Cos(radians));
+            double quarter = rotation % 180;
+            double turnedWidth = quarter is >= 45 and < 135 ? height : width;
+            result = result with { Rotation = rotation, UnrotatedWidth = width, UnrotatedHeight = height };
+            (width, height) = (turnedWidth, turnedHeight);
+        }
+
+        XElement? extent = inline.Element(DocxNamespaces.WordDrawing + "effectExtent");
+        if (extent is not null)
+        {
+            result = result with
+            {
+                EffectExtent = new TableCellPadding(
+                    EmuToPoints((string?)extent.Attribute("l")), EmuToPoints((string?)extent.Attribute("t")),
+                    EmuToPoints((string?)extent.Attribute("r")), EmuToPoints((string?)extent.Attribute("b"))),
+            };
+        }
+
+        return (result.IsDefault ? null : result, width, height);
     }
 
     /// <summary>One edge of an <c>a:srcRect</c>, as a fraction of the source.</summary>
