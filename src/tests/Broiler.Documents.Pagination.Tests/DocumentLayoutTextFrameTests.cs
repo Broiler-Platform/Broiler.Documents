@@ -100,7 +100,7 @@ public sealed class DocumentLayoutTextFrameTests
     }
 
     [Fact]
-    public void A_Merged_Group_Moves_To_The_Next_Page_When_It_Fits_There()
+    public void A_Merged_Group_Breaks_Between_Its_Rows_At_The_Page_Foot()
     {
         var document = RichTextDocument.FromParagraphs([Text("before"), Text("one\u2028two\u2028three"), Text("neighbor"), Text("below")])
             .WithTables([new DocumentTable(1, 3, [
@@ -109,9 +109,13 @@ public sealed class DocumentLayoutTextFrameTests
         using var images = new ImageStore();
         var pages = new DocumentLayout(new LayoutSettings(), images).Layout(document,
             new DocumentPageBox(300, 55, 10, 10, 10, 10)).Pages;
+        // LibreOffice 24.2 breaks between the rows a merged cell spans and
+        // carries the cell's lines that do not fit to the next page (measured
+        // on cut-down DOCX copies, docs/notes/office-issue-242-docx-layout.md).
         Assert.Equal(2, pages.Count);
-        Assert.Empty(pages[0].Cells);
-        Assert.Equal(3, pages[1].Cells.Count);
+        Assert.Equal(4, pages[0].Cells.Count);
+        Assert.Contains(pages[0].Lines.SelectMany(line => line.Pieces), piece => piece.Text == "one");
+        Assert.Contains(pages[0].Lines.SelectMany(line => line.Pieces), piece => piece.Text == "two");
         Assert.Contains(pages[1].Lines.SelectMany(line => line.Pieces), piece => piece.Text == "three");
     }
 

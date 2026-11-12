@@ -75,6 +75,36 @@ public sealed class DocumentLayoutPageFieldTests
     }
 
     [Fact]
+    public void A_Page_Number_With_No_Format_Of_Its_Own_Follows_Its_Sections()
+    {
+        // tdf170602_exportContext.docx: front matter numbered I, II, III by its
+        // section's w:pgNumType w:fmt, the body from 1 again in decimal, under
+        // one header whose PAGE field names no format (office issue #242).
+        RichTextDocument document = Body(40,
+            Field(new PageField(PageFieldKind.PageNumber) { FollowsPageFormat = true }));
+        RichTextParagraph[] paragraphs = [.. document.Paragraphs];
+        paragraphs[10] = paragraphs[10].WithParagraphStyle(ParagraphStyle.Default with { PageBreakBefore = true });
+        document = RichTextDocument.FromParagraphs(paragraphs)
+            .WithRunningContent(document.RunningContent)
+            .WithSections(
+            [
+                new DocumentSection(0, 10, 1, 0) { PageNumberFormat = ListNumberFormat.UpperRoman },
+                new DocumentSection(10, 30, 1, 0, breakType: SectionBreakType.NextPage, pageNumberStart: 1),
+            ]);
+
+        LayoutResult result = Layout(document);
+        string[] headers = Headers(result);
+        int restart = result.Pages.First(page => page.Lines.Any(line => line.ParagraphIndex == 10)).Number;
+
+        Assert.Equal(
+            Enumerable.Range(1, restart - 1).Select(number => "- " + ListNumberer.Format(number, ListNumberFormat.UpperRoman) + " -"),
+            headers.Take(restart - 1));
+        Assert.Equal("- I -", headers[0]);
+        Assert.Equal("- 1 -", headers[restart - 1]);
+        Assert.Equal("- 2 -", headers[restart]);
+    }
+
+    [Fact]
     public void A_Page_Count_Field_Shows_How_Many_Pages_The_Document_Has()
     {
         RichTextParagraph header = RichTextParagraph.Plain("of ")

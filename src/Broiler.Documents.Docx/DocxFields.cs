@@ -200,6 +200,7 @@ internal sealed class DocxFields
             return null;
 
         ListNumberFormat format = ListNumberFormat.Decimal;
+        bool stated = false;
         for (int i = 1; i < tokens.Count; i++)
         {
             if (tokens[i] != "\\*" || i + 1 >= tokens.Count)
@@ -214,12 +215,15 @@ internal sealed class DocxFields
                     break;
                 case "ARABIC":
                     format = ListNumberFormat.Decimal;
+                    stated = true;
                     break;
                 case "ROMAN":
                     format = name.StartsWith("RO", StringComparison.Ordinal) ? ListNumberFormat.UpperRoman : ListNumberFormat.LowerRoman;
+                    stated = true;
                     break;
                 case "ALPHABETIC":
                     format = name.StartsWith("AL", StringComparison.Ordinal) ? ListNumberFormat.UpperLetter : ListNumberFormat.LowerLetter;
+                    stated = true;
                     break;
                 default:
                     // A format LibreOffice has no numbering for, such as
@@ -231,7 +235,10 @@ internal sealed class DocxFields
             }
         }
 
-        return new PageField(kind, format);
+        // A PAGE field with no format of its own is written in the numbering
+        // of its page style, which writerfilter takes from the section's
+        // w:pgNumType w:fmt (tdf170602_exportContext.docx's roman pages).
+        return new PageField(kind, format) { FollowsPageFormat = kind == PageFieldKind.PageNumber && !stated };
     }
 
     /// <summary>

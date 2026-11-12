@@ -995,11 +995,15 @@ internal static class DocxReader
     private static bool HasContextualSpacing(XElement? pPr, string? paragraphStyleId, DocxReadContext context)
     {
         XElement? stated = pPr?.Element(DocxNamespaces.Wordprocessing + "contextualSpacing");
-        if (stated is null)
-        {
-            foreach (XElement properties in context.Styles.ParagraphProperties(paragraphStyleId, context.TableStyle, context.TableConditions))
-                stated = properties.Element(DocxNamespaces.Wordprocessing + "contextualSpacing") ?? stated;
-        }
+        if (stated is not null)
+            return ReadOnOff(stated);
+
+        // A table style's paragraph properties sit under the paragraph
+        // style's; the paragraph style chain is read as Writer imports it.
+        if (context.Styles.StatesContextualSpacing(paragraphStyleId))
+            return context.Styles.ContextualSpacing(paragraphStyleId);
+        foreach (XElement properties in context.Styles.ParagraphProperties(paragraphStyleId, context.TableStyle, context.TableConditions))
+            stated = properties.Element(DocxNamespaces.Wordprocessing + "contextualSpacing") ?? stated;
         return stated is not null && ReadOnOff(stated);
     }
 
@@ -1887,6 +1891,7 @@ internal static class DocxReader
             WrapMargins = Wrap == ShapeWrap.None ? null : Margins,
             WrapPolygon = Wrap == ShapeWrap.None ? null : ReadWrapPolygon(anchor),
             BoundedByPage = !context.Builder.InTableCell,
+            OffsetXFromColumn = FromColumn(anchor, context),
         });
         return true;
     }
@@ -2103,6 +2108,7 @@ internal static class DocxReader
                 {
                     WrapMargins = Wrap == ShapeWrap.None ? null : Margins,
                     BoundedByPage = !context.Builder.InTableCell,
+                    OffsetXFromColumn = FromColumn(anchor, context),
                 });
             }
             else if (child.Name == DocxNamespaces.WordGroup + "grpSp" && depth < MaxGroupDepth)
@@ -2245,9 +2251,18 @@ internal static class DocxReader
             TextFlow = ReadShapeTextFlow(wsp.Element(DocxNamespaces.WordShape + "bodyPr")),
             WrapMargins = Wrap == ShapeWrap.None ? null : Margins,
             BoundedByPage = !context.Builder.InTableCell,
+            OffsetXFromColumn = FromColumn(anchor, context),
         });
         return true;
     }
+
+    /// <summary>
+    /// Whether an anchored object outside a table is placed across from the left
+    /// of the column its paragraph is in: <c>relativeFrom="column"</c>, and
+    /// <c>"character"</c>, which this reader places as the column.
+    /// </summary>
+    private static bool FromColumn(XElement anchor, DocxReadContext context) =>
+        !context.Builder.InTableCell && RelativeFrom(anchor, "positionH") is "column" or "character";
 
     /// <summary>
     /// Whether an object anchored in a table cell is placed in the cell, as
@@ -3638,6 +3653,8 @@ internal static class DocxReader
         // away the shading its style gave.
         if (pPr.Element(DocxNamespaces.Wordprocessing + "keepNext") is XElement keepNext)
             style = style with { KeepWithNext = ReadOnOff(keepNext) };
+        if (pPr.Element(DocxNamespaces.Wordprocessing + "bidi") is XElement bidi)
+            style = style with { RightToLeft = ReadOnOff(bidi) };
         if (pPr.Element(DocxNamespaces.Wordprocessing + "keepLines") is XElement keepLines)
             style = style with { KeepTogether = ReadOnOff(keepLines) };
         if (pPr.Element(DocxNamespaces.Wordprocessing + "widowControl") is XElement widowControl)

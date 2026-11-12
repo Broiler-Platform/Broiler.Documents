@@ -249,6 +249,14 @@ public sealed class DocumentShape(
     public bool BoundedByPage { get; init; }
 
     /// <summary>
+    /// True when <see cref="OffsetX"/> is measured from the left of the text
+    /// column the anchoring paragraph is set in, not from the left of the text
+    /// area: DOCX's <c>wp:positionH relativeFrom="column"</c>, which in the
+    /// second column of a two-column section is that column's left edge.
+    /// </summary>
+    public bool OffsetXFromColumn { get; init; }
+
+    /// <summary>
     /// Where the shape sits among the other shapes: a higher number draws later,
     /// and therefore on top.
     /// </summary>
@@ -394,6 +402,7 @@ public sealed class DocumentShape(
             WrapPolygon = WrapPolygon,
             MinimumWrapRoom = MinimumWrapRoom,
             BoundedByPage = BoundedByPage,
+            OffsetXFromColumn = OffsetXFromColumn,
         };
 
     /// <summary>The shape's own text, empty when it holds none.</summary>

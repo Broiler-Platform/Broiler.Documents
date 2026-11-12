@@ -39,7 +39,8 @@ public sealed class DocxPageFieldTests
         RichTextParagraph paragraph = Read(ComplexField(instruction, "14"));
 
         Assert.Equal("Seite 14 end", paragraph.Text);
-        Assert.Equal(new PageField(kind), StyleOf(paragraph, "14").PageField);
+        // A page number naming no format follows its section's (w:pgNumType w:fmt).
+        Assert.Equal(new PageField(kind) { FollowsPageFormat = kind == PageFieldKind.PageNumber }, StyleOf(paragraph, "14").PageField);
         Assert.Null(StyleOf(paragraph, "Seite").PageField);
         Assert.Null(StyleOf(paragraph, "end").PageField);
     }
@@ -65,7 +66,8 @@ public sealed class DocxPageFieldTests
         // tdf170003_bottomSpacing.docx's "- 2 -" is drawn as 2.
         RichTextParagraph paragraph = Read(ComplexField(instruction, "- 2 -"));
 
-        Assert.Equal(new PageField(PageFieldKind.PageNumber, ListNumberFormat.Decimal), StyleOf(paragraph, "- 2 -").PageField);
+        Assert.Equal(new PageField(PageFieldKind.PageNumber, ListNumberFormat.Decimal) { FollowsPageFormat = true },
+            StyleOf(paragraph, "- 2 -").PageField);
     }
 
     [Theory]

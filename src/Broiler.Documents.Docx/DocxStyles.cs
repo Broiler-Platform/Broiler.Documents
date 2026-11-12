@@ -140,7 +140,8 @@ internal sealed class DocxStyles
                 (string?)style.Element(DocxNamespaces.Wordprocessing + "basedOn")?.Attribute(DocxNamespaces.Wordprocessing + "val"),
                 style.Element(DocxNamespaces.Wordprocessing + "pPr"),
                 style.Element(DocxNamespaces.Wordprocessing + "rPr"),
-                style);
+                style,
+                styles.Count);
             styles[id] = definition;
 
             bool isDefault = IsOn((string?)style.Attribute(DocxNamespaces.Wordprocessing + "default"));
@@ -423,6 +424,59 @@ internal sealed class DocxStyles
     /// the document's default paragraph style; one that names a style does not,
     /// except through its own <c>w:basedOn</c> ancestry.
     /// </summary>
+    /// <summary>
+    /// Whether <c>w:contextualSpacing</c> is on for paragraphs in
+    /// <paramref name="paragraphStyleId"/>, as LibreOffice imports it.
+    /// </summary>
+    /// <remarks>
+    /// Writer keeps the flag in the item that holds the space above and below,
+    /// and writerfilter creates the styles in the order the part lists them. A
+    /// style that states its own spacing takes a new item from what its parent
+    /// chain holds when the style is made, so it inherits the flag only from
+    /// ancestors listed before it; one that states no spacing inherits from
+    /// its parent as it finally is. Measured with LibreOffice 24.2 on cut-down
+    /// copies of tdf170602_exportContext.docx: its headings state their spacing
+    /// and are based on "List Paragraph", which turns the flag on and is listed
+    /// after them, and their spacing is not collapsed; listing it first
+    /// collapses it.
+    /// </remarks>
+    public bool ContextualSpacing(string? paragraphStyleId)
+    {
+        bool fromDefaults = _defaultParagraphProperties?.Element(DocxNamespaces.Wordprocessing + "contextualSpacing") is XElement stated &&
+            IsOn((string?)stated.Attribute(DocxNamespaces.Wordprocessing + "val") ?? "1");
+        List<StyleDefinition> chain = ParagraphChain(paragraphStyleId);
+        return Effective(chain.Count - 1, int.MaxValue);
+
+        // The flag style index has, made from what exists before `madeBefore`.
+        bool Effective(int index, int madeBefore)
+        {
+            for (int i = index; i >= 0; i--)
+            {
+                StyleDefinition style = chain[i];
+                if (OrderOf(style) >= madeBefore)
+                    return fromDefaults;
+                XElement? pPr = style.ParagraphProperties;
+                if (pPr?.Element(DocxNamespaces.Wordprocessing + "contextualSpacing") is XElement own)
+                    return IsOn((string?)own.Attribute(DocxNamespaces.Wordprocessing + "val") ?? "1");
+                if (pPr?.Element(DocxNamespaces.Wordprocessing + "spacing") is XElement spacing &&
+                    (spacing.Attribute(DocxNamespaces.Wordprocessing + "before") is not null ||
+                     spacing.Attribute(DocxNamespaces.Wordprocessing + "after") is not null))
+                    return Effective(i - 1, Math.Min(madeBefore, OrderOf(style)));
+            }
+
+            return fromDefaults;
+        }
+
+        // The default paragraph style is Writer's own "Standard", there
+        // before any style is imported.
+        int OrderOf(StyleDefinition style) =>
+            string.Equals(style.Id, _defaultParagraphStyleId, StringComparison.Ordinal) ? -1 : style.Order;
+    }
+
+    /// <summary>True when a style of <paramref name="paragraphStyleId"/>'s chain states <c>w:contextualSpacing</c>.</summary>
+    public bool StatesContextualSpacing(string? paragraphStyleId) =>
+        ParagraphChain(paragraphStyleId).Any(style => style.ParagraphProperties?.Element(DocxNamespaces.Wordprocessing + "contextualSpacing") is not null);
+
     private List<StyleDefinition> ParagraphChain(string? paragraphStyleId) =>
         Chain(string.IsNullOrEmpty(paragraphStyleId) ? _defaultParagraphStyleId : paragraphStyleId);
 
@@ -515,7 +569,8 @@ internal sealed class DocxStyles
         string? BasedOn,
         XElement? ParagraphProperties,
         XElement? RunProperties,
-        XElement Element);
+        XElement Element,
+        int Order = 0);
 }
 
 /// <summary>
