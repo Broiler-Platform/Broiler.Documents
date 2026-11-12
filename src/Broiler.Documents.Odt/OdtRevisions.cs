@@ -102,6 +102,25 @@ internal static class OdtRevisions
 
     /// <summary>
     /// Whether the boolean <c>config:config-item</c> called <paramref name="name"/>
+    /// is stated and off, false where the settings do not state it: a flag
+    /// whose absence means on.
+    /// </summary>
+    public static bool ConfigFlagIsOff(XElement? settings, string name)
+    {
+        if (settings is null)
+            return false;
+
+        foreach (XElement item in settings.Descendants(OdtNamespaces.Config + "config-item"))
+        {
+            if ((string?)item.Attribute(OdtNamespaces.Config + "name") == name)
+                return string.Equals(item.Value.Trim(), "false", StringComparison.OrdinalIgnoreCase);
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Whether the boolean <c>config:config-item</c> called <paramref name="name"/>
     /// is set, false where the settings do not state it.
     /// </summary>
     /// <remarks>

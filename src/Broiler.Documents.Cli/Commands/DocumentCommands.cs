@@ -370,8 +370,15 @@ public static class DocumentCommands
             {
                 body = [.. Enumerable.Range(floating[0].ParagraphIndex, floating[0].ParagraphCount)];
             }
-            else if (document.Shapes.FirstOrDefault(shape => shape.HasText && !shape.IsPageAnchored &&
-                (!shape.IsCustomShape || shape.Tables.Count > 0)) is DocumentShape only)
+            // A frame set as a character in the header counts as well
+            // (table-in-frame-in-table-in-header-base.odt, whose only text is
+            // one in the header's table). A floating header shape does not: a
+            // text watermark is a drawing, not a frame, to LibreOffice's export.
+            else if (document.Shapes.Where(shape => !shape.IsPageAnchored && (!shape.IsCustomShape || shape.Tables.Count > 0))
+                .Concat(document.RunningContent.HeaderShapes(PageSelection.Default)
+                    .Concat(document.RunningContent.FooterShapes(PageSelection.Default))
+                    .Where(shape => shape.IsAsCharacter && !shape.IsCustomShape))
+                .FirstOrDefault(shape => shape.HasText) is DocumentShape only)
             {
                 return LabelledText(RichTextDocument.FromParagraphs(only.Paragraphs).WithTables(only.Tables)
                     .WithNoteNumbering(document.NoteNumbering), joinsTableRows);

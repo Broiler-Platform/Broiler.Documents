@@ -84,6 +84,31 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     private DocumentPageBox _setup = DocumentPageBox.Default;
     private PageGeometry? _documentPageGeometry;
     private PageGeometry? _currentPageGeometry;
+
+    /// <summary>
+    /// The line each frame set as a character in a running band's table cell
+    /// was last composed into, which places the frame where the line lands.
+    /// </summary>
+    private readonly Dictionary<DocumentShape, LayoutLine> _asCharLines = new(ReferenceEqualityComparer.Instance);
+
+    /// <summary>The line text grid of the page being filled, or null for none.</summary>
+    private TextGrid? _grid;
+
+    /// <summary>Where the first row of <see cref="_grid"/> starts down the page.</summary>
+    private double _gridTop;
+
+    /// <summary>Where the last row of <see cref="_grid"/> ends down the page.</summary>
+    private double _gridBottom;
+
+    /// <summary>
+    /// More than nought while text outside the body is being composed - a
+    /// header, a footer, a note, a shape's text - which Writer does not set on
+    /// the page's grid (<c>SwTextSizeInfo::SnapToGrid</c> holds only in the body).
+    /// </summary>
+    private int _offBody;
+
+    /// <summary>The grid a body line is set on, or null where none applies.</summary>
+    private TextGrid? BodyGrid => _offBody == 0 ? _grid : null;
     private bool _verticalWriting;
     private double? _headerDistance;
     private double? _footerDistance;
@@ -212,6 +237,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         _footerDistance = document.PageGeometry?.FooterDistance;
         _fixedBands = (document.PageGeometry?.FixedHeaderHeight == true, document.PageGeometry?.FixedFooterHeight == true);
         _frame = null;
+        _grid = null;
+        _offBody = 0;
         _bodyParagraphs = document.Paragraphs;
         _sections = document.Sections;
         _bodyTables = document.Tables;
@@ -231,6 +258,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         _paragraphTops.Clear();
         _grownHeights.Clear();
         _grownWidths.Clear();
+        _asCharLines.Clear();
         _linkedParagraphs.Clear();
         _linkedStarts.Clear();
         foreach (DocumentShape shape in _documentShapes)
@@ -290,7 +318,10 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 sectionColumns.Clear();
             }
             if (setup.Continuous)
+            {
+                _grid = null;
                 return (setup.ContentTopPoints, setup.ContentTopPoints + columnHeight);
+            }
 
             _currentPageGeometry = selectedPage ?? document.PageGeometry;
             if (!sectionPages || selectedPage is not PageGeometry page)
@@ -308,7 +339,16 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                     (page.FixedHeaderHeight, page.FixedFooterHeight));
             }
 
-            return (_frame.TextTop, _frame.TextBottom);
+            // A page with a line text grid sets its body's lines on the grid's
+            // rows, which fill the body to the most whole rows that fit there
+            // (SwBodyFrame::Format).
+            _grid = _currentPageGeometry?.TextGrid is { IsUsable: true } grid ? grid : null;
+            if (_grid is null)
+                return (_frame.TextTop, _frame.TextBottom);
+            (double gridTop, double gridBottom) = _grid.RowsIn(_frame.TextTop, _frame.TextBottom);
+            _gridTop = gridTop;
+            _gridBottom = gridBottom;
+            return (gridTop, gridBottom);
         }
 
         // The section that started the page being filled, whose headers and
@@ -1698,6 +1738,11 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             for (int lineIndex = 0; lineIndex < composed.Lines.Count; lineIndex++)
             {
                 LayoutLine line = composed.Lines[lineIndex];
+                // A line on the page's text grid starts on one of its rows: the
+                // space above its paragraph, or a line kept off the grid before
+                // it, moves it down to the next row.
+                if (line.OnGrid && BodyGrid is TextGrid grid)
+                    y = grid.Snap(y, _gridTop);
                 if (!setup.Continuous && (style.OrphanLines is > 0 || style.WidowLines is > 0) && lineIndex >= segmentEnd)
                 {
                     if (segmentEnd >= 0 && ColumnHasContent())
@@ -2037,7 +2082,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             top: 0,
             band: frame.TextTop,
             topDistance: frame.HeaderDistance,
-            tables: _running.EffectiveHeaderTables(selection));
+            tables: _running.EffectiveHeaderTables(selection),
+            shapes: _running.EffectiveHeaderShapes(selection));
         var footerLines = RunningLines(
             WithPageFields(_running.EffectiveFooter(selection), pageNumber, number),
             setup,
@@ -2046,7 +2092,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             top: frame.TextBottom,
             band: setup.HeightPoints - frame.TextBottom,
             bottomDistance: frame.FooterDistance,
-            tables: _running.EffectiveFooterTables(selection));
+            tables: _running.EffectiveFooterTables(selection),
+            shapes: _running.EffectiveFooterShapes(selection));
 
         NumberLines(inlineLines ?? lines);
 
@@ -2075,6 +2122,13 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         shapes.AddRange(PlaceRunningShapes(_running.EffectiveFooterShapes(selection), setup));
         shapes = [.. shapes.OrderBy(shape => shape.ZOrder)];
 
+        List<LayoutCell> grid = setup.Continuous ? [] : GridLines(frame);
+        if (grid.Count > 0)
+        {
+            cells = [.. grid, .. cells];
+            if (inlineCells is not null)
+                inlineCells = [.. grid, .. inlineCells];
+        }
         List<LayoutCell> allCells = runningBorders.Count == 0 ? cells : [.. cells, .. runningBorders];
         IReadOnlyList<LayoutCell> allInlineCells = inlineCells is null ? allCells :
             runningBorders.Count == 0 ? inlineCells : [.. inlineCells, .. runningBorders];
@@ -2089,6 +2143,58 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             PageBorders = setup.Continuous ? default : _currentPageGeometry?.Borders ?? default,
             PageBorderInsets = _currentPageGeometry?.BorderInsets ?? default,
         };
+    }
+
+    /// <summary>Thickness of a printed text grid's lines: a hairline, one pixel at 96 dpi.</summary>
+    private const double GridLineWidth = 0.75;
+
+    /// <summary>
+    /// The lines of the page's text grid where the document prints it, drawn
+    /// under everything else on the page as Writer paints it
+    /// (<c>SwPageFrame::PaintGrid</c>): a line above each row and between its
+    /// ruby and its text, one below the last row, the grid's two sides, and in
+    /// the <c>both</c> mode the edges of the character cells across each row's
+    /// text. A grid of character cells holds as many whole cells as fit across
+    /// the body, centred in it, as Writer centres them (<c>SwBodyFrame::Format</c>).
+    /// </summary>
+    private List<LayoutCell> GridLines(PageFrame frame)
+    {
+        if (_grid is not { Printed: true } grid || _gridBottom - _gridTop < grid.Pitch - 0.01)
+            return [];
+
+        double left = frame.Left;
+        double width = frame.Width;
+        int cellsAcross = 0;
+        if (grid.CharWidth >= 1)
+        {
+            cellsAcross = (int)Math.Floor((width / grid.CharWidth) + 1e-6);
+            if (cellsAcross > 0)
+            {
+                left += (width - (cellsAcross * grid.CharWidth)) / 2;
+                width = cellsAcross * grid.CharWidth;
+            }
+        }
+
+        var lines = new List<LayoutCell>();
+        void Rule(double x, double y, double w, double h) =>
+            lines.Add(new LayoutCell(new BRect(x, y, Math.Max(GridLineWidth, w), Math.Max(GridLineWidth, h)), grid.Color, default));
+
+        int rows = (int)Math.Round((_gridBottom - _gridTop) / grid.Pitch);
+        for (int row = 0; row < rows; row++)
+        {
+            double top = _gridTop + (row * grid.Pitch);
+            double textTop = grid.RubyBelow ? top : top + grid.RubyHeight;
+            Rule(left, top, width, 0);
+            if (grid.RubyHeight > 0)
+                Rule(left, grid.RubyBelow ? top + grid.BaseHeight : textTop, width, 0);
+            for (int cell = 1; cell < cellsAcross; cell++)
+                Rule(left + (cell * grid.CharWidth), textTop, 0, grid.BaseHeight);
+        }
+
+        Rule(left, _gridBottom, width, 0);
+        Rule(left, _gridTop, 0, _gridBottom - _gridTop);
+        Rule(left + width, _gridTop, 0, _gridBottom - _gridTop);
+        return lines;
     }
 
     /// <summary>
@@ -2185,7 +2291,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             IReadOnlyList<RichTextParagraph> headerParagraphs = _running.EffectiveHeader(selection);
             if (headerParagraphs.Count == 0 && _running.HasAnyHeader && fromTop >= top)
                 headerParagraphs = [RichTextParagraph.Empty];
-            double header = RunningHeight(headerParagraphs, setup, left, width, _running.EffectiveHeaderTables(selection));
+            double header = RunningHeight(headerParagraphs, setup, left, width, _running.EffectiveHeaderTables(selection),
+                _running.EffectiveHeaderShapes(selection));
             double overrun = fromTop + header - top;
             if (header > 0 && overrun > 0 && overrun <= (bottom - top) / 2)
                 top += overrun;
@@ -2193,7 +2300,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
         if (!fixedBands.Footer && footerDistance is double fromBottom && double.IsFinite(fromBottom) && fromBottom >= 0)
         {
-            double footer = RunningHeight(_running.EffectiveFooter(selection), setup, left, width, _running.EffectiveFooterTables(selection));
+            double footer = RunningHeight(_running.EffectiveFooter(selection), setup, left, width, _running.EffectiveFooterTables(selection),
+                _running.EffectiveFooterShapes(selection));
             double overrun = fromBottom + footer - (setup.HeightPoints - bottom);
             if (footer > 0 && overrun > 0 && overrun <= (bottom - top) / 2)
                 bottom -= overrun;
@@ -2303,7 +2411,9 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             NoteGrownHeight(shape, setup);
             if (!Draws(shape))
                 continue;
-            var bounds = new BRect(
+            var bounds = _asCharLines.TryGetValue(shape, out LayoutLine? line)
+                ? new BRect(line.TextAreaLeft, line.Top, BoxWidth(shape), BoxHeight(shape))
+                : new BRect(
                 setup.ContentLeftPoints + (shape.FitsText ? shape.OffsetX + (shape.Width - BoxWidth(shape)) / 2 : shape.OffsetX),
                 shape.OffsetY,
                 BoxWidth(shape),
@@ -2417,7 +2527,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     /// (<paramref name="inFloatingTable"/>); see <see cref="ComposeBlocks"/>.
     /// </remarks>
     private List<RowBox> ComposeTable(DocumentTable table, RichTextDocument document, DocumentPageBox setup, double left, double width,
-        bool inFloatingTable = false)
+        bool inFloatingTable = false, IReadOnlyList<DocumentShape>? asCharShapes = null)
     {
         bool keepsDefaultLines = inFloatingTable || table.IsFloating;
         double[] edges = table.AutoFit
@@ -2445,7 +2555,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
                 (List<LayoutLine> lines, List<LayoutCell> nested, List<CutPiece> pieces, double height) =
                     ComposeBlocks(document, cell.Tables, cell.ParagraphIndex, cell.ParagraphEnd, setup, cellLeft + padding.Left, textWidth,
-                        keepsDefaultLines, inTableCell: !keepsDefaultLines);
+                        keepsDefaultLines, inTableCell: !keepsDefaultLines, gridOffset: padding.Top, asCharShapes: asCharShapes);
 
                 // Text that runs past the cell is cut at its edge, as Writer
                 // cuts a text portion; the innermost cell's edge wins for a
@@ -2845,7 +2955,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     private (List<LayoutLine> Lines, List<LayoutCell> Cells, List<CutPiece> Pieces, double Height) ComposeBlocks(
         RichTextDocument document, IReadOnlyList<DocumentTable> tables, int from, int to, DocumentPageBox setup,
         double left, double width, bool keepsDefaultLines = false, bool drawParagraphBorders = false,
-        bool inTableCell = false)
+        bool inTableCell = false, double gridOffset = 0, IReadOnlyList<DocumentShape>? asCharShapes = null)
     {
         var lines = new List<LayoutLine>();
         var cells = new List<LayoutCell>();
@@ -2880,7 +2990,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                     if (position.VerticalAnchor == TableAnchor.Text && position.VerticalAlignment == TableAlignment.None)
                         y += Math.Max(0, position.Y);
                 }
-                List<RowBox> nestedRows = ComposeTable(nested, document, setup, nestedLeft, nestedWidth, keepsDefaultLines);
+                List<RowBox> nestedRows = ComposeTable(nested, document, setup, nestedLeft, nestedWidth, keepsDefaultLines, asCharShapes);
                 double nestedHeight = nestedRows.Sum(row => row.Height);
                 if (nested.KeepTogether && nestedHeight <= capacity)
                 {
@@ -2927,6 +3037,14 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             }
 
             ParagraphLines composed = ComposeParagraph(paragraph, numbering.Advance(paragraph.Style), setup, index, left, width);
+            if (asCharShapes is not null && composed.Lines.Count > 0)
+            {
+                foreach (DocumentShape shape in asCharShapes.Where(shape => shape.ParagraphIndex == index))
+                {
+                    composed.Lines[0].Height = Math.Max(composed.Lines[0].Height, BoxHeight(shape));
+                    _asCharLines[shape] = composed.Lines[0];
+                }
+            }
 
             y += _styleDefaults.SpaceAbove(paragraph.Style.SpacingBefore, spaceBelowPrevious);
 
@@ -2956,6 +3074,12 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                         b = -1;
                     }
                 }
+                // A cell's line on the page's text grid starts on a row too.
+                // The rows are counted from the top of the cell's row, which
+                // is taken to be on one, so text below the cell's top padding
+                // starts a row down (tdf167583.fodt in LibreOffice 24.2).
+                if (line.OnGrid && BodyGrid is TextGrid grid)
+                    y = grid.Snap(y + gridOffset, 0) - gridOffset;
                 line.Top = y;
                 if (lineIndex == 0)
                     line.AnchorSkip = y - anchorTop;
@@ -3435,7 +3559,10 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     private IReadOnlyList<RichTextParagraph> ShapeParagraphs(DocumentShape shape) =>
         _linkedParagraphs.GetValueOrDefault(shape, shape.Paragraphs);
 
-    private void PrepareLinkedFrames(DocumentPageBox setup)
+    private void PrepareLinkedFrames(DocumentPageBox setup) =>
+        OffBody(() => PrepareLinkedFramesCore(setup));
+
+    private void PrepareLinkedFramesCore(DocumentPageBox setup)
     {
         var named = _documentShapes.Where(shape => shape.FrameName is not null)
             .GroupBy(shape => shape.FrameName!, StringComparer.Ordinal).Where(group => group.Count() == 1)
@@ -3538,7 +3665,10 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     /// its blocks, paragraph spacing and inner padding, or its stated height
     /// where that is more.
     /// </summary>
-    private void NoteGrownHeight(DocumentShape shape, DocumentPageBox setup)
+    private void NoteGrownHeight(DocumentShape shape, DocumentPageBox setup) =>
+        OffBody(() => NoteGrownHeightCore(shape, setup));
+
+    private void NoteGrownHeightCore(DocumentShape shape, DocumentPageBox setup)
     {
         // Turned text runs along the box's height, so the box keeps its height
         // and a box fitted to its text takes the width its turned lines need,
@@ -3616,8 +3746,36 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
     private double BoxWidth(DocumentShape shape) => _grownWidths.GetValueOrDefault(shape, Math.Max(0, shape.Width));
 
+    /// <summary>
+    /// Runs <paramref name="compose"/> for text outside the body, which is not
+    /// set on the page's text grid.
+    /// </summary>
+    private void OffBody(Action compose) => OffBody(() =>
+    {
+        compose();
+        return 0;
+    });
+
+    /// <inheritdoc cref="OffBody(Action)"/>
+    private T OffBody<T>(Func<T> compose)
+    {
+        _offBody++;
+        try
+        {
+            return compose();
+        }
+        finally
+        {
+            _offBody--;
+        }
+    }
+
     private (List<LayoutLine> Lines, List<LayoutCell> Cells, List<CutPiece> Pieces, double Height) ComposeShapeBlocks(
-        DocumentShape shape, DocumentPageBox setup, double left, double? boxWidth = null)
+        DocumentShape shape, DocumentPageBox setup, double left, double? boxWidth = null) =>
+        OffBody(() => ComposeShapeBlocksCore(shape, setup, left, boxWidth));
+
+    private (List<LayoutLine> Lines, List<LayoutCell> Cells, List<CutPiece> Pieces, double Height) ComposeShapeBlocksCore(
+        DocumentShape shape, DocumentPageBox setup, double left, double? boxWidth)
     {
         ListNumberer bodyLists = _lists;
         _lists = _linkedStarts.TryGetValue(shape, out ListNumberer? start) ? start.Snapshot() : new ListNumberer();
@@ -3697,10 +3855,10 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     /// </summary>
     private List<LayoutLine> RunningLines(IReadOnlyList<RichTextParagraph> paragraphs, DocumentPageBox setup, PageFrame frame,
         List<LayoutCell> borders, double top, double band, double? bottomDistance = null, double? topDistance = null,
-        IReadOnlyList<DocumentTable>? tables = null)
+        IReadOnlyList<DocumentTable>? tables = null, IReadOnlyList<DocumentShape>? shapes = null)
     {
         (List<LayoutLine> lines, double height) = ComposeRunning(
-            paragraphs, tables ?? [], setup, frame.Left, frame.Width, out List<LayoutCell> tableCells);
+            paragraphs, tables ?? [], setup, frame.Left, frame.Width, out List<LayoutCell> tableCells, shapes);
         if (lines.Count == 0 && tableCells.Count == 0)
             return lines;
 
@@ -3986,7 +4144,22 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     /// </summary>
     private (List<LayoutLine> Lines, double Height) ComposeRunning(
         IReadOnlyList<RichTextParagraph> paragraphs, IReadOnlyList<DocumentTable> tables, DocumentPageBox setup,
-        double left, double width, out List<LayoutCell> cells)
+        double left, double width, out List<LayoutCell> cells, IReadOnlyList<DocumentShape>? shapes = null)
+    {
+        _offBody++;
+        try
+        {
+            return ComposeRunningCore(paragraphs, tables, setup, left, width, out cells, shapes ?? []);
+        }
+        finally
+        {
+            _offBody--;
+        }
+    }
+
+    private (List<LayoutLine> Lines, double Height) ComposeRunningCore(
+        IReadOnlyList<RichTextParagraph> paragraphs, IReadOnlyList<DocumentTable> tables, DocumentPageBox setup,
+        double left, double width, out List<LayoutCell> cells, IReadOnlyList<DocumentShape> shapes)
     {
         cells = [];
         if (tables.Count > 0)
@@ -3996,7 +4169,13 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             try
             {
                 RichTextDocument content = RichTextDocument.FromParagraphs(paragraphs).WithTables(tables);
-                var blocks = ComposeBlocks(content, tables, 0, content.ParagraphCount, setup, left, width, drawParagraphBorders: true);
+                // A frame set as a character in a table cell of the band
+                // stands in its line, which grows to hold it, and is drawn
+                // where that line lands (table-in-frame-in-table-in-header-base.odt).
+                DocumentShape[] inCells = [.. shapes.Where(shape => shape.IsAsCharacter && !shape.IsPageAnchored &&
+                    tables.Any(table => shape.ParagraphIndex >= table.ParagraphIndex && shape.ParagraphIndex < table.ParagraphEnd))];
+                var blocks = ComposeBlocks(content, tables, 0, content.ParagraphCount, setup, left, width, drawParagraphBorders: true,
+                    asCharShapes: inCells);
                 cells = blocks.Cells;
 
                 // Running lines are numbered below zero, as the paragraph path
@@ -4041,8 +4220,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
     /// <summary>How tall a running band is, or zero for one with nothing in it.</summary>
     private double RunningHeight(IReadOnlyList<RichTextParagraph> paragraphs, DocumentPageBox setup, double left, double width,
-        IReadOnlyList<DocumentTable>? tables = null) =>
-        paragraphs.Count == 0 ? 0 : ComposeRunning(paragraphs, tables ?? [], setup, left, width, out _).Height;
+        IReadOnlyList<DocumentTable>? tables = null, IReadOnlyList<DocumentShape>? shapes = null) =>
+        paragraphs.Count == 0 ? 0 : ComposeRunning(paragraphs, tables ?? [], setup, left, width, out _, shapes).Height;
 
     /// <summary>The notes cited in <paramref name="lines"/>, in the order they are cited.</summary>
     private static IEnumerable<DocumentNote> CitedNotes(IEnumerable<LayoutLine> lines)
@@ -4067,7 +4246,10 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     /// the label - LibreOffice's footnote paragraph style. The width is the
     /// page's text width whatever columns the citation is in.
     /// </remarks>
-    private NoteBlock NoteBlockFor(DocumentNote note, DocumentPageBox setup)
+    private NoteBlock NoteBlockFor(DocumentNote note, DocumentPageBox setup) =>
+        OffBody(() => NoteBlockForCore(note, setup));
+
+    private NoteBlock NoteBlockForCore(DocumentNote note, DocumentPageBox setup)
     {
         if (_noteBlocks.TryGetValue(note, out NoteBlock? block))
             return block;
@@ -4124,7 +4306,11 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     /// the hanging indent where it sets them as LibreOffice does.
     /// </summary>
     private ParagraphLines ComposeNoteParagraph(DocumentNote note, int index, DocumentPageBox setup,
-        double? left = null, double? width = null)
+        double? left = null, double? width = null) =>
+        OffBody(() => ComposeNoteParagraphCore(note, index, setup, left, width));
+
+    private ParagraphLines ComposeNoteParagraphCore(DocumentNote note, int index, DocumentPageBox setup,
+        double? left, double? width)
     {
         RichTextParagraph paragraph = note.Paragraphs[index];
         if (index > 0)
@@ -4514,6 +4700,23 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         }
 
         double natural = ascent + descent + lineGap;
+
+        // A body line on a page's text grid is as many rows tall as its text
+        // needs, its text centred in them below the ruby, and only proportional
+        // spacing past single changes that (SwTextFormatter::CalcRealHeight):
+        // an exact or at-least height is ignored there.
+        if (BodyGrid is TextGrid grid && !style.IgnoresTextGrid)
+        {
+            double overhang = Math.Max(0, imageAscent - ascent);
+            double text = natural + overhang;
+            double rows = grid.RowsFor(text);
+            double baseline = ascent + overhang +
+                ((rows - text + (grid.RubyBelow ? -grid.RubyHeight : grid.RubyHeight)) / 2);
+            double spaced = style.LineHeightRule == LineHeightRule.Proportional && style.LineSpacing > 1
+                ? rows * style.LineSpacing
+                : rows;
+            return new LayoutLine(pieces, 0, spaced, baseline, paragraphIndex) { OnGrid = true };
+        }
 
         // An exact height puts the baseline four fifths of the way down the
         // line, whatever the text's own ascent, which is LibreOffice's rule

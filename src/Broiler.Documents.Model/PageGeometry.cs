@@ -97,6 +97,9 @@ public sealed record PageGeometry(
     /// <summary>The numbers set beside the body's lines, or null for none.</summary>
     public LineNumbering? LineNumbering { get; init; }
 
+    /// <summary>The line text grid the body's lines are set on, or null for none.</summary>
+    public TextGrid? TextGrid { get; init; }
+
     /// <summary>True when the text area is divided into more than one column.</summary>
     public bool HasColumns => ColumnCount > 1;
 
