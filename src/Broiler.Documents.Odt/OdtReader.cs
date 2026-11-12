@@ -192,6 +192,7 @@ internal static class OdtReader
         }
         styles.InvertsTextDisplay = OdtMetadata.WrittenByOpenOffice2(metadata.Producer);
         styles.EmptyDbFieldHidesParagraph = OdtRevisions.ConfigFlag(settings, "EmptyDbFieldHidesPara");
+        styles.WordGridMetrics = OdtRevisions.ConfigFlag(settings, "MsWordCompGridMetrics");
         styles.PageFillBounds = OdtMetadata.PageFillBounds(metadata.Producer);
         styles.LegacyShapeColors = OdtMetadata.LegacyShapeColors(metadata.Producer);
         XElement? master = ResolveMasterPage(content, styles);
@@ -210,7 +211,14 @@ internal static class OdtReader
             ShrinksJustifiedLines = OdtRevisions.ConfigFlag(settings, "JustifyLinesWithShrinking"),
             TabsOverMargin = OdtRevisions.ConfigFlag(settings, "TabOverMargin"),
             UndecoratedLinks = styles.StyledLinks,
-            PreserveOpeningParagraphSpacing = true,
+            // AddParaTableSpacingAtStart and AddParaTableSpacing are Writer's
+            // PARA_SPACE_MAX_AT_PAGES and PARA_SPACE_MAX. A document that turns
+            // them off (one first saved by Word, say) drops the space above its
+            // opening paragraph and sets two paragraphs apart by the larger of
+            // the first's space below and the second's space above
+            // (SwFlowFrame::CalcUpperSpace; tdf133507_contextualSpacingSection.odt).
+            PreserveOpeningParagraphSpacing = !OdtRevisions.ConfigFlagIsOff(settings, "AddParaTableSpacingAtStart"),
+            CollapsesParagraphSpacing = OdtRevisions.ConfigFlagIsOff(settings, "AddParaTableSpacing"),
         });
         document = document.WithPageBackground(
             ReadPageBackground(master, PageLayoutProperties(master, styles), styles));
@@ -842,6 +850,7 @@ internal static class OdtReader
             BorderInsets = borders != default || padding != default
                 ? new TableCellPadding(left, outerTop, right, outerBottom) : default,
             BorderPadding = padding,
+            TextGrid = ReadTextGrid(properties, styles.WordGridMetrics),
         };
 
         if (geometry.IsUsable)
@@ -851,6 +860,56 @@ internal static class OdtReader
             "odt.page.geometry",
             "An ODT page layout gave a page with no room to write on; the page was not read."));
         return null;
+    }
+
+    /// <summary>
+    /// A page layout's line text grid: <c>style:layout-grid-mode</c> <c>line</c>
+    /// or <c>both</c>, with rows <c>style:layout-grid-base-height</c> plus
+    /// <c>style:layout-grid-ruby-height</c> tall, at most
+    /// <c>style:layout-grid-lines</c> of them. Null for no grid, or one whose
+    /// rows are not stated. Only the rows are read; the character cells of
+    /// <c>both</c> are not.
+    /// </summary>
+    private static TextGrid? ReadTextGrid(XElement properties, bool wordGridMetrics)
+    {
+        string? mode = (string?)properties.Attribute(OdtNamespaces.Style + "layout-grid-mode");
+        if (mode is not ("line" or "both"))
+            return null;
+
+        if (!OdtUnits.TryParseLength((string?)properties.Attribute(OdtNamespaces.Style + "layout-grid-base-height"), out double baseHeight))
+            return null;
+        if (!OdtUnits.TryParseLength((string?)properties.Attribute(OdtNamespaces.Style + "layout-grid-ruby-height"), out double rubyHeight))
+            rubyHeight = 0;
+        if (!int.TryParse((string?)properties.Attribute(OdtNamespaces.Style + "layout-grid-lines"),
+                NumberStyles.Integer, CultureInfo.InvariantCulture, out int lines))
+            return null;
+
+        // A character cell is as wide as the row's text is tall unless the grid
+        // is in standard mode, which states the width (GetGridWidth, the
+        // squared page mode being the default).
+        double charWidth = 0;
+        if (mode == "both")
+        {
+            charWidth = baseHeight;
+            if ((string?)properties.Attribute(OdtNamespaces.Style + "layout-grid-standard-mode") == "true" &&
+                OdtUnits.TryParseLength((string?)properties.Attribute(OdtNamespaces.Style + "layout-grid-base-width"), out double baseWidth) &&
+                baseWidth > 0)
+                charWidth = baseWidth;
+        }
+
+        // Writer draws the grid on a printed page only where it is both shown
+        // and printed (SwPageFrame::PaintGrid).
+        var grid = new TextGrid(baseHeight, rubyHeight, lines,
+            RubyBelow: (string?)properties.Attribute(OdtNamespaces.Style + "layout-grid-ruby-below") == "true",
+            CentredInBody: !wordGridMetrics)
+        {
+            Printed = (string?)properties.Attribute(OdtNamespaces.Style + "layout-grid-print") == "true" &&
+                (string?)properties.Attribute(OdtNamespaces.Style + "layout-grid-display") == "true",
+            CharWidth = charWidth,
+        };
+        if (OdtUnits.TryParseColor((string?)properties.Attribute(OdtNamespaces.Style + "layout-grid-color"), out BColor color))
+            grid = grid with { Color = color };
+        return grid.IsUsable ? grid : null;
     }
 
     /// <summary>
@@ -2524,6 +2583,7 @@ internal static class OdtReader
                         context.HoldBreak(pending);
                     }
                 }
+                builder.NoteSectionEdges(sectionStart, builder.CurrentParagraphIndex);
                 if (sectionProperties is not null)
                 {
                     (int count, double gap) = TryReadColumns(sectionProperties, builder.AddDiagnosticOnce) ?? (1, 0);
@@ -2875,6 +2935,13 @@ internal static class OdtReader
         // tall as is its paragraph style's text properties, the formatting every
         // run in it starts from.
         context.Builder.StartParagraph(paragraphStyle, inherited);
+        bool contextual = false;
+        foreach (XElement properties in context.Styles.ParagraphProperties(styleName))
+        {
+            if ((string?)properties.Attribute(OdtNamespaces.Style + "contextual-spacing") is string stated)
+                contextual = stated == "true";
+        }
+        context.Builder.SetSpacingContext(context.Styles.NamedParagraphStyle(styleName), contextual);
         ReadInlineContent(paragraph, context, inherited, depth + 1);
         context.Builder.FinishParagraph();
     }
@@ -3977,6 +4044,8 @@ internal static class OdtReader
 
         if ((string?)properties.Attribute(OdtNamespaces.Fo + "keep-with-next") is string keepNext)
             style = style with { KeepWithNext = keepNext == "always" };
+        if ((string?)properties.Attribute(OdtNamespaces.Style + "snap-to-layout-grid") is string snap)
+            style = style with { IgnoresTextGrid = snap == "false" };
         if ((string?)properties.Attribute(OdtNamespaces.Fo + "keep-together") is string keepTogether)
             style = style with { KeepTogether = keepTogether == "always" };
         if (int.TryParse((string?)properties.Attribute(OdtNamespaces.Fo + "orphans"),

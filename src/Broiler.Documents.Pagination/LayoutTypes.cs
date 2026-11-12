@@ -152,6 +152,12 @@ public sealed class LayoutLine : IPaginatedLineArtifact
     /// <summary>Distance from <see cref="Top"/> down to the baseline, in points.</summary>
     public double Baseline { get; }
 
+    /// <summary>
+    /// True when the line is set on its page's text grid, so it starts on one of
+    /// the grid's rows.
+    /// </summary>
+    internal bool OnGrid { get; init; }
+
     /// <summary>Which model paragraph this line came from. Carried through for diagnostics.</summary>
     public int ParagraphIndex { get; internal set; }
 

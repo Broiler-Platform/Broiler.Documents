@@ -209,6 +209,13 @@ public readonly record struct ParagraphStyle
     /// </summary>
     public DropCap? DropCap { get; init; }
 
+    /// <summary>
+    /// True when the paragraph's lines keep off the page's
+    /// <see cref="TextGrid"/> and are set at their own height, as ODF's
+    /// <c>style:snap-to-layout-grid="false"</c> says. Lines snap by default.
+    /// </summary>
+    public bool IgnoresTextGrid { get; init; }
+
     /// <summary>Left-aligned, single-spaced, no list, no indent.</summary>
     public static ParagraphStyle Default => new() { LineSpacing = 1f };
 }
