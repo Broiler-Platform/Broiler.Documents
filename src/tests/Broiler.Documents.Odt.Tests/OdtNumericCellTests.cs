@@ -26,7 +26,6 @@ public sealed class OdtNumericCellTests
     [Theory]
     [InlineData("12.1", "12,1", "12.1")]
     [InlineData("-1234.5", "-1.234,5", "-1234.5")]
-    [InlineData("0", "0,00", "0")]
     public void General_Numeric_Cells_Display_Their_Stored_Value_And_Keep_Paragraph_Formatting(string value, string cached, string expected)
     {
         var paragraph = Assert.Single(Read(value, cached).Paragraphs);
@@ -41,9 +40,18 @@ public sealed class OdtNumericCellTests
     }
 
     [Fact]
-    public void Explicit_Decimal_Formats_Keep_Their_Cached_Display()
+    public void A_General_Cell_Of_Value_Zero_Keeps_Its_Text()
     {
-        Assert.Equal("12,10", Assert.Single(Read("12.1", "12,10", numberProperties: "number:decimal-places=\"2\"").Paragraphs).Text);
+        // soffice keeps a zero General cell's text, so a label stays a label.
+        Assert.Equal("0,00", Assert.Single(Read("0", "0,00").Paragraphs).Text);
+    }
+
+    [Fact]
+    public void Explicit_Decimal_Formats_Show_The_Value_In_The_System_Locale()
+    {
+        // LibreOffice formats a value cell through its data style, and a style
+        // with no language in the system locale.
+        Assert.Equal("12.10", Assert.Single(Read("12.1", "12,10", numberProperties: "number:decimal-places=\"2\"").Paragraphs).Text);
     }
 
     [Fact]
@@ -53,9 +61,12 @@ public sealed class OdtNumericCellTests
     }
 
     [Fact]
-    public void Rich_Cell_Content_Is_Not_Flattened_By_The_Numeric_Fallback()
+    public void A_Value_In_A_Span_Is_Replaced_And_Keeps_The_Paragraph_Style()
     {
-        Assert.Equal("12,1", Assert.Single(Read("12.1", "12,1", rich: true).Paragraphs).Text);
+        // Writer replaces the text of a value cell's one paragraph, spans and all.
+        var paragraph = Assert.Single(Read("12.1", "12,1", rich: true).Paragraphs);
+        Assert.Equal("12.1", paragraph.Text);
+        Assert.True(paragraph.Runs[0].Style.Bold);
     }
 
     [Theory]

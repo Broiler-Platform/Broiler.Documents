@@ -27,7 +27,13 @@ public static class RtfReader
         RtfTokenizeResult tokenized = RtfTokenizer.TokenizeCore(content, effective.Limits, retainBinary: true);
         var diagnostics = tokenized.Diagnostics.ToList();
         var tokens = RtfShapeGroups.Expand(tokenized.Tokens, effective.Limits.MaxGroupDepth, diagnostics);
-        return new Worker(effective, diagnostics).Run(tokens);
+        var worker = new Worker(effective, diagnostics, writerDefaultPage: false);
+        DocumentReadResult result = worker.Run(tokens);
+        // A document whose body holds nothing never gives LibreOffice a section
+        // to apply, so it opens on Writer's own default page, whatever page the
+        // document states. Geometry is turned into positions as it is read, so
+        // the document is read again with that page in place.
+        return worker.WroteBody ? result : new Worker(effective, diagnostics, writerDefaultPage: true).Run(tokens);
     }
 
     private struct State
@@ -138,6 +144,31 @@ public static class RtfReader
         private int _headerDistance = 720;
         private int _footerDistance = 720;
 
+        // The page Writer opens a document on when the document never reaches
+        // writerfilter's first section: A4 with 2 cm margins in the reference
+        // LibreOffice. writerfilter applies the RTF page (\paperw and the rest,
+        // Letter when omitted) only when it ends a section, and it opens the
+        // section only at the first run of text, paragraph mark or picture
+        // (checkFirstRun). Text in a shape or text box counts, because
+        // writerfilter reads it in the same stream; a header does not. A
+        // document of drawing objects alone, or of nothing, keeps the default
+        // page whatever it states (dppolyline.rtf, dprect-anchor.rtf,
+        // tdf90097.rtf, custom-doc-props.rtf).
+        private const int WriterPageWidth = 11906;
+        private const int WriterPageHeight = 16838;
+        private const int WriterPageMargin = 1134;
+        private readonly bool _writerDefaultPage;
+        private bool _wroteContent;
+
+        /// <summary>
+        /// Whether the document got any text, paragraph mark or picture outside
+        /// its headers and footers, which is what makes writerfilter apply the
+        /// document's page.
+        /// </summary>
+        public bool WroteBody { get; private set; }
+
+        private void MarkContent() => _wroteContent = true;
+
         // The page the first section states. A section's \pgwsxn and the rest
         // are its own page and override the document's \paperw and the rest,
         // which RTF 1.9.1 gives as their defaults; null is a value the section
@@ -204,9 +235,14 @@ public static class RtfReader
         private int _shapeAlignX, _shapeAlignY;
         private readonly Dictionary<string, double> _shapeWrapDistances = new(StringComparer.Ordinal);
 
-        // What a shape's \shptop is measured from: 0 the top margin, 1 the page,
-        // 2 the paragraph - posrelv's numbering, which \shpbymargin, \shpbypage
-        // and \shpbypara state too.
+        // What a shape's \shptop is measured from: 1 the page, 2 the paragraph -
+        // posrelv's numbering, which \shpbypage and \shpbypara state too.
+        // posrelv's 0 and \shpbymargin name the top margin, but LibreOffice
+        // 24.2 measures both from the paragraph, for an offset and an
+        // alignment alike, in the body and in a header (soffice cut-downs: a
+        // shape anchored to the ninth paragraph lands on that paragraph, not
+        // the margin; watermark.rtf's header watermark is centred on its
+        // header paragraph).
         private int _shapeVerticalFrame = 2;
 
         // What a shape's \shpleft is measured from: \shpbxpage, or else the
@@ -235,6 +271,8 @@ public static class RtfReader
         // WordArt: fGtext turns the shape into its gtextUNICODE string, drawn in
         // gtextFont and the shape's fill colour.
         private bool _shapeGtext;
+        // Whether the WordArt text is stretched to the box (a VML text shape type).
+        private bool _shapeWordArtStretched;
         private string? _shapeGtextString;
         private string? _shapeGtextFont;
         private bool? _shapeFillEnabled;
@@ -289,10 +327,17 @@ public static class RtfReader
 
         private State _state;
 
-        public Worker(DocumentReadOptions options, IReadOnlyList<DocumentDiagnostic> tokenizerDiagnostics)
+        public Worker(DocumentReadOptions options, IReadOnlyList<DocumentDiagnostic> tokenizerDiagnostics, bool writerDefaultPage)
         {
+            _writerDefaultPage = writerDefaultPage;
+            if (writerDefaultPage)
+            {
+                _paperWidth = WriterPageWidth;
+                _paperHeight = WriterPageHeight;
+                _marginLeft = _marginRight = _marginTop = _marginBottom = WriterPageMargin;
+            }
             _diagnostics.AddRange(tokenizerDiagnostics);
-            _builder = new Accumulator(options.Limits.MaxParagraphCount);
+            _builder = new Accumulator(options.Limits.MaxParagraphCount) { OnWrite = MarkContent };
             _table = new RtfTableBuilder(_colors);
             _pageBorders = new RtfPageBorders(_colors);
             _maxParagraphs = options.Limits.MaxParagraphCount;
@@ -340,6 +385,7 @@ public static class RtfReader
                             _shapePropertyName.ToString().Trim() == "pib")
                         {
                             _shapeImage = ReadPicture(tokens, ref next);
+                            MarkContent();
                             break;
                         }
                         if (_state.Dest is RtfDestination.Normal or RtfDestination.FieldResult or
@@ -395,6 +441,7 @@ public static class RtfReader
             FlushPending();
             FinishFrame();
             FinishTable();
+            WroteBody = _wroteContent || _bodySectionPending;
             if (_bodySectionPending)
             {
                 if (_bodySectionHasProperties)
@@ -864,7 +911,7 @@ public static class RtfReader
                     if (_state.Dest == RtfDestination.Normal && _noteText is null)
                     {
                         _state.Dest = RtfDestination.Note;
-                        _noteText = new Accumulator(_maxParagraphs);
+                        _noteText = new Accumulator(_maxParagraphs) { OnWrite = MarkContent };
                         _noteIsEndnote = false;
                         _noteCitationStyle = _stack.Count > 0 ? _stack.Peek().Char : _state.Char;
                         return;
@@ -1066,12 +1113,12 @@ public static class RtfReader
                 // Section geometry, in twips. Held aside and turned into a page
                 // at the end, because a page needs all of it and RTF states it
                 // one control word at a time.
-                case "paperw": if (has) _paperWidth = p; return;
-                case "paperh": if (has) _paperHeight = p; return;
-                case "margl": if (has) _marginLeft = p; return;
-                case "margr": if (has) _marginRight = p; return;
-                case "margt": if (has) _marginTop = p; return;
-                case "margb": if (has) _marginBottom = p; return;
+                case "paperw": if (has && !_writerDefaultPage) _paperWidth = p; return;
+                case "paperh": if (has && !_writerDefaultPage) _paperHeight = p; return;
+                case "margl": if (has && !_writerDefaultPage) _marginLeft = p; return;
+                case "margr": if (has && !_writerDefaultPage) _marginRight = p; return;
+                case "margt": if (has && !_writerDefaultPage) _marginTop = p; return;
+                case "margb": if (has && !_writerDefaultPage) _marginBottom = p; return;
                 case "headery": if (has) _headerDistance = p; return;
                 case "footery": if (has) _footerDistance = p; return;
 
@@ -1081,12 +1128,12 @@ public static class RtfReader
                 // page belongs to that section, which this reader does not read,
                 // and letting it overwrite the first would turn the whole
                 // document landscape for one landscape section at its end.
-                case "pgwsxn": if (has && !_pastFirstSection) _sectionWidth = p; return;
-                case "pghsxn": if (has && !_pastFirstSection) _sectionHeight = p; return;
-                case "marglsxn": if (has && !_pastFirstSection) _sectionLeft = p; return;
-                case "margrsxn": if (has && !_pastFirstSection) _sectionRight = p; return;
-                case "margtsxn": if (has && !_pastFirstSection) _sectionTop = p; return;
-                case "margbsxn": if (has && !_pastFirstSection) _sectionBottom = p; return;
+                case "pgwsxn": if (has && !_pastFirstSection && !_writerDefaultPage) _sectionWidth = p; return;
+                case "pghsxn": if (has && !_pastFirstSection && !_writerDefaultPage) _sectionHeight = p; return;
+                case "marglsxn": if (has && !_pastFirstSection && !_writerDefaultPage) _sectionLeft = p; return;
+                case "margrsxn": if (has && !_pastFirstSection && !_writerDefaultPage) _sectionRight = p; return;
+                case "margtsxn": if (has && !_pastFirstSection && !_writerDefaultPage) _sectionTop = p; return;
+                case "margbsxn": if (has && !_pastFirstSection && !_writerDefaultPage) _sectionBottom = p; return;
                 // \sectd puts the section back to its defaults, which for the
                 // page are the document's.
                 case "sectd":
@@ -1206,7 +1253,7 @@ public static class RtfReader
                         ReportShapeApproximation("wrap", "Contour wrapping was approximated by the shape rectangle or unrestricted flow.");
                     return;
                 case "shpwrk": _shapeWrapSide = p switch { 1 => WrapSide.Left, 2 => WrapSide.Right, _ => WrapSide.Largest }; return;
-                case "shpbymargin": _shapeVerticalFrame = 0; return;
+                case "shpbymargin": _shapeVerticalFrame = 2; return;
                 case "shpbypage": _shapeVerticalFrame = 1; return;
                 case "shpbypara": _shapeVerticalFrame = 2; return;
                 case "shpbxpage": _shapeLeftFromPage = true; return;
@@ -1638,6 +1685,10 @@ public static class RtfReader
                         _state.Field?.Instruction.Append(character <= 255 ? RtfCodePage.DecodeByte((byte)character, _state.CodePage) : character);
                     break;
                 case RtfDestination.InfoTitle: _infoTitle.Append(text); break;
+                // writerfilter collects the text of \title, \author and the
+                // other info fields, but text between them, in \info itself,
+                // is a run of body text to it, and opens the first section.
+                case RtfDestination.Info: if (text.Length > 0) MarkContent(); break;
                 case RtfDestination.InfoAuthor: _infoAuthor.Append(text); break;
                 case RtfDestination.InfoSubject: _infoSubject.Append(text); break;
                 case RtfDestination.Generator: _generator.Append(text); break;
@@ -1997,13 +2048,13 @@ public static class RtfReader
                     : _state.Dest;
 
                 if (destination == RtfDestination.ShapeText)
-                    return _shapeText ??= new Accumulator(_maxParagraphs);
+                    return _shapeText ??= new Accumulator(_maxParagraphs) { OnWrite = MarkContent };
 
                 if (destination == RtfDestination.LegacyDrawingText)
-                    return _legacyDrawingText ??= new Accumulator(_maxParagraphs);
+                    return _legacyDrawingText ??= new Accumulator(_maxParagraphs) { OnWrite = MarkContent };
 
                 if (destination == RtfDestination.Note)
-                    return _noteText ??= new Accumulator(_maxParagraphs);
+                    return _noteText ??= new Accumulator(_maxParagraphs) { OnWrite = MarkContent };
 
                 if (!IsRunning(destination))
                     return BodyOrFrame(destination);
@@ -2142,6 +2193,7 @@ public static class RtfReader
             _shapeFillFocus = 0;
             _shapeText = null;
             _shapeGtext = false;
+            _shapeWordArtStretched = false;
             _shapeGtextString = _shapeGtextFont = null;
         }
 
@@ -2249,8 +2301,10 @@ public static class RtfReader
                     _shapeGroupDrawShape = number != 0;
                     break;
                 case "posrelv":
-                    // 3 is the line, which the model holds as its paragraph.
-                    _shapeVerticalFrame = number is 0 or 1 ? (int)number : 2;
+                    // 3 is the line, which the model holds as its paragraph,
+                    // and 0 the margin, which LibreOffice measures from the
+                    // paragraph too.
+                    _shapeVerticalFrame = number == 1 ? 1 : 2;
                     break;
                 default:
                     break;
@@ -2447,11 +2501,9 @@ public static class RtfReader
                 (outline.IsEmpty || _shapeType == 75))
                 return;
 
-            // A shape measured from the page or its top margin is placed from the
-            // top of the page its paragraph is on, which the model holds as such.
+            // A shape measured from the page is placed from the top of the page
+            // its paragraph is on, which the model holds as such.
             double top = _shapeTop / 20d;
-            if (_shapeVerticalFrame == 0)
-                top += TopMarginTwips / 20d;
 
             // A line drawn right to left or bottom to top states its far end
             // first; the rule is the same either way.
@@ -2461,34 +2513,67 @@ public static class RtfReader
             if (height < 0)
                 top += height;
 
+            // An aligned shape is aligned by the box its rotation sweeps, as
+            // LibreOffice aligns a rotated drawing's bounding rectangle (soffice:
+            // a 45° shape aligned to the top of its paragraph has its bounding
+            // square's top there). The shape turns about its centre, so its own
+            // box is centred in that one.
+            double turnedWidth = Math.Abs(width) * Math.Abs(Math.Cos(_shapeRotation)) + Math.Abs(height) * Math.Abs(Math.Sin(_shapeRotation));
+            double turnedHeight = Math.Abs(width) * Math.Abs(Math.Sin(_shapeRotation)) + Math.Abs(height) * Math.Abs(Math.Cos(_shapeRotation));
             if (_shapeAlignX != 0)
             {
                 double pageWidth = (_sectionWidth ?? _paperWidth) / 20d;
                 double marginLeft = (_sectionLeft ?? _marginLeft) / 20d;
                 double marginRight = (_sectionRight ?? _marginRight) / 20d;
                 double referenceWidth = _shapeLeftFromPage ? pageWidth : pageWidth - marginLeft - marginRight;
-                left = (_shapeLeftFromPage ? -marginLeft : 0) +
-                    (_shapeAlignX == 2 ? (referenceWidth - Math.Abs(width)) / 2 : _shapeAlignX == 3 ? referenceWidth - Math.Abs(width) : 0);
+                left = (_shapeLeftFromPage ? -marginLeft : 0) + (turnedWidth - Math.Abs(width)) / 2 +
+                    (_shapeAlignX == 2 ? (referenceWidth - turnedWidth) / 2 : _shapeAlignX == 3 ? referenceWidth - turnedWidth : 0);
             }
-            if (_shapeAlignY != 0 && _shapeVerticalFrame is 0 or 1 && height != 0 && !_shapeFitsText)
+
+            bool running = IsRunning(host);
+            bool header = host is RtfDestination.Header or RtfDestination.HeaderFirst or RtfDestination.HeaderEven;
+            bool alignedY = false;
+            if (_shapeAlignY != 0 && height != 0 && !_shapeFitsText &&
+                HeaderParagraphTop(host) is double paragraphTop && _shapeVerticalFrame == 2)
+            {
+                // Aligned with the header paragraph it is anchored to: the first
+                // one starts at the header distance, and its height is a line
+                // of its text, which this reader estimates from the font size.
+                double paragraphHeight = (_state.Char.FontSize ?? 12) * HeaderLineHeight;
+                top = paragraphTop + (turnedHeight - Math.Abs(height)) / 2 +
+                    (_shapeAlignY == 2 ? (paragraphHeight - turnedHeight) / 2 : _shapeAlignY == 3 ? paragraphHeight - turnedHeight : 0);
+                alignedY = true;
+            }
+            else if (_shapeAlignY != 0 && _shapeVerticalFrame == 1 && height != 0 && !_shapeFitsText)
             {
                 double pageHeight = (_sectionHeight ?? _paperHeight) / 20d;
-                double marginTop = TopMarginTwips / 20d;
-                double marginBottom = BottomMarginTwips / 20d;
-                double referenceHeight = _shapeVerticalFrame == 1 ? pageHeight : pageHeight - marginTop - marginBottom;
-                top = (_shapeVerticalFrame == 1 ? 0 : marginTop) +
-                    (_shapeAlignY == 2 ? (referenceHeight - Math.Abs(height)) / 2 : _shapeAlignY == 3 ? referenceHeight - Math.Abs(height) : 0);
+                top = (turnedHeight - Math.Abs(height)) / 2 +
+                    (_shapeAlignY == 2 ? (pageHeight - turnedHeight) / 2 : _shapeAlignY == 3 ? pageHeight - turnedHeight : 0);
+                alignedY = true;
             }
             else if (_shapeAlignY is 2 or 3)
                 ReportShapeApproximation("position", "An aligned shape lacked a fixed page-relative height; its stated offset was retained.");
 
-            bool running = IsRunning(host);
-            if (running && _shapeVerticalFrame == 2)
-            {
-                bool header = host is RtfDestination.Header or RtfDestination.HeaderFirst or RtfDestination.HeaderEven;
+            if (running && _shapeVerticalFrame == 2 && !alignedY)
                 top += (header ? _headerDistance : (_sectionHeight ?? _paperHeight) - _footerDistance) / 20d;
+
+            // Writer keeps a header's or footer's drawing on its page: one whose
+            // turned box would cross the page's top or bottom edge is moved
+            // inside it (soffice: a header watermark centred on its one-line
+            // paragraph starts at the page's top edge).
+            if (running && turnedHeight > 0)
+            {
+                double pageHeight = (_sectionHeight ?? _paperHeight) / 20d;
+                double boxTop = top + (Math.Abs(height) - turnedHeight) / 2;
+                if (boxTop + turnedHeight > pageHeight)
+                    boxTop = pageHeight - turnedHeight;
+                if (boxTop < 0)
+                    boxTop = 0;
+                top = boxTop + (turnedHeight - Math.Abs(height)) / 2;
             }
 
+            // Word turns a shape about its centre, the model about its top-left
+            // corner: the corner moves so the centre stays where Word has it.
             var shape = new DocumentShape(
                 _builder.ParagraphCount,
                 left + (Math.Abs(width) * (1 - Math.Cos(_shapeRotation)) + Math.Abs(height) * Math.Sin(_shapeRotation)) / 2,
@@ -2520,6 +2605,13 @@ public static class RtfReader
             {
                 RotationRadians = _shapeRotation,
                 IsCustomShape = _shapeGroupDrawShape,
+                StretchesTextToBox = _shapeWordArtStretched,
+                // A group's text box that LibreOffice imports as a drawing shape
+                // grows and shrinks about its text: one line per paragraph,
+                // unwrapped, centred across the box it states, from its top
+                // (groupshape.rtf; soffice cut-downs: a long line runs past the
+                // box on both sides, a second paragraph adds a line).
+                FitsText = _shapeGroupDrawShape && _shapeType == 202 && paragraphs.Count > 0,
             };
             if (running)
             {
@@ -2558,6 +2650,27 @@ public static class RtfReader
         /// </summary>
         private const double WordArtAdvance = 0.7;
 
+        /// <summary>
+        /// The height of a one-line header paragraph, in ems of its font: about
+        /// the line height of the sans and serif faces Word documents use
+        /// (11 pt Calibri's header line is 12.4 pt in LibreOffice).
+        /// </summary>
+        private const double HeaderLineHeight = 1.15;
+
+        /// <summary>
+        /// The top of the header paragraph a shape in <paramref name="host"/> is
+        /// anchored to, in points from the page's top edge, or null when that is
+        /// not known without laying the header out: the header's first paragraph
+        /// starts at the header distance, and later ones below lines this reader
+        /// has not measured. Footers grow up from the page's foot, so none of
+        /// theirs is known.
+        /// </summary>
+        private double? HeaderParagraphTop(RtfDestination host) =>
+            host is RtfDestination.Header or RtfDestination.HeaderFirst or RtfDestination.HeaderEven &&
+            (_running.GetValueOrDefault(host)?.ParagraphCount ?? 0) == 0
+                ? _headerDistance / 20d
+                : null;
+
         private IReadOnlyList<RichTextParagraph>? WordArtParagraphs(double width, double height)
         {
             if (!_shapeGtext || string.IsNullOrWhiteSpace(_shapeGtextString))
@@ -2570,8 +2683,18 @@ public static class RtfReader
             if (lines.Length == 0)
                 return null;
 
-            ReportShapeApproximation("wordart", "An RTF WordArt shape was drawn as plain text in its box; its glyphs are not fitted to the text path.");
-            double size = Math.Min(Math.Abs(height) / lines.Length / 1.2, Math.Abs(width) / (lines.Max(line => line.Length) * WordArtAdvance));
+            // The VML text shape types are fitted to the box: the painter
+            // stretches each line across it and the lines down it, so the size
+            // only has to keep every line on one line, as the DOCX reader's
+            // VML WordArt does (no glyph is wider than an em and a tenth).
+            _shapeWordArtStretched = _shapeType is >= 136 and <= 175;
+            ReportShapeApproximation("wordart", _shapeWordArtStretched
+                ? "An RTF WordArt shape's text was stretched to fill its box; its glyphs are not bent along the text path."
+                : "An RTF WordArt shape was drawn as plain text in its box; its glyphs are not fitted to the text path.");
+            double longest = lines.Max(line => line.Length);
+            double size = _shapeWordArtStretched
+                ? Math.Max(1, Math.Abs(width) / (longest * 1.1))
+                : Math.Min(Math.Abs(height) / lines.Length / 1.2, Math.Abs(width) / (longest * WordArtAdvance));
             BColor color = _shapeFillStart.IsEmpty ? BColor.Black : ShapeOpacity(_shapeFillStart, _shapeFillOpacity);
             InlineStyle style = InlineStyle.Default with
             {
@@ -2628,7 +2751,7 @@ public static class RtfReader
                 return _builder;
 
             _frameKey = _state.Frame;
-            return _frameText ??= new Accumulator(_maxParagraphs);
+            return _frameText ??= new Accumulator(_maxParagraphs) { OnWrite = MarkContent };
         }
 
         /// <summary>
@@ -3234,6 +3357,9 @@ public static class RtfReader
         /// <summary>The paragraph a shape met right now would be anchored to.</summary>
         public int ParagraphCount => _paragraphs.Count;
         public bool HasPendingText => _current.Length > 0;
+
+        /// <summary>Called whenever text, a paragraph mark or a break is written.</summary>
+        public Action? OnWrite { get; init; }
         private readonly int _maxParagraphs = maxParagraphs;
         private RichTextParagraph _current = RichTextParagraph.Create(string.Empty, InlineStyle.Default, ParagraphStyle.Default);
 
@@ -3262,6 +3388,7 @@ public static class RtfReader
                 EndParagraph(style);
 
             ColumnBreakPending = true;
+            OnWrite?.Invoke();
         }
 
         /// <summary>
@@ -3286,6 +3413,7 @@ public static class RtfReader
                 EndParagraph(style);
 
             PageBreakPending = true;
+            OnWrite?.Invoke();
             return !displaced;
         }
 
@@ -3295,6 +3423,7 @@ public static class RtfReader
             if (LimitHit || text.Length == 0)
                 return;
             _current = _current.InsertText(_current.Length, text, style);
+            OnWrite?.Invoke();
         }
 
         public void EndParagraph(ParagraphStyle style, InlineStyle mark = default)
@@ -3309,6 +3438,7 @@ public static class RtfReader
 
             _paragraphs.Add(_current.WithParagraphStyle(Spend(style)).WithMarkStyle(mark));
             _current = RichTextParagraph.Create(string.Empty, InlineStyle.Default, style);
+            OnWrite?.Invoke();
         }
 
         /// <summary>

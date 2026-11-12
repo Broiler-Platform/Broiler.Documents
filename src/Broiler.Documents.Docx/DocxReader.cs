@@ -233,6 +233,19 @@ internal static class DocxReader
 
             if (name == DocxNamespaces.Wordprocessing + "tbl")
             {
+                // A table continues the frame its framed paragraphs opened when
+                // its cells state the same frame. LibreOffice does not open a
+                // frame for a table: one that starts the framed run, or a
+                // floating one, stays a table of the body (tdf75573_lostTable.docx,
+                // tdf115094.docx).
+                if (context.Frames?.ActiveProperties is DocxFrameProperties active &&
+                    element.Element(DocxNamespaces.Wordprocessing + "tblPr")?.Element(DocxNamespaces.Wordprocessing + "tblpPr") is null &&
+                    DocxFrameAccumulator.ReadTableProperties(element, context) == active)
+                {
+                    DocxTableReader.Read(element, context.ForFrame(context.Frames.ActiveBuilder!), depth + 1, ReadBlockContent);
+                    continue;
+                }
+
                 context.Frames?.Finish(context);
                 DocxTableReader.Read(element, context, depth + 1, ReadBlockContent);
                 continue;
@@ -982,11 +995,15 @@ internal static class DocxReader
     private static bool HasContextualSpacing(XElement? pPr, string? paragraphStyleId, DocxReadContext context)
     {
         XElement? stated = pPr?.Element(DocxNamespaces.Wordprocessing + "contextualSpacing");
-        if (stated is null)
-        {
-            foreach (XElement properties in context.Styles.ParagraphProperties(paragraphStyleId, context.TableStyle, context.TableConditions))
-                stated = properties.Element(DocxNamespaces.Wordprocessing + "contextualSpacing") ?? stated;
-        }
+        if (stated is not null)
+            return ReadOnOff(stated);
+
+        // A table style's paragraph properties sit under the paragraph
+        // style's; the paragraph style chain is read as Writer imports it.
+        if (context.Styles.StatesContextualSpacing(paragraphStyleId))
+            return context.Styles.ContextualSpacing(paragraphStyleId);
+        foreach (XElement properties in context.Styles.ParagraphProperties(paragraphStyleId, context.TableStyle, context.TableConditions))
+            stated = properties.Element(DocxNamespaces.Wordprocessing + "contextualSpacing") ?? stated;
         return stated is not null && ReadOnOff(stated);
     }
 
@@ -1421,7 +1438,9 @@ internal static class DocxReader
                 {
                     string? font = (string?)child.Attribute(DocxNamespaces.Wordprocessing + "font");
                     builder.AppendText(((char)symbol).ToString(),
-                        string.IsNullOrWhiteSpace(font) ? style : style with { FontFamily = font });
+                        string.IsNullOrWhiteSpace(font)
+                            ? style with { IsSymbolCharacter = true }
+                            : style with { FontFamily = font, IsSymbolCharacter = true });
                 }
                 else
                 {
@@ -1773,6 +1792,22 @@ internal static class DocxReader
             ? new DocxDiagram.Cache(DocxDiagram.ConvertTree(canvas, anchor, context.Builder, context.Styles.Theme, DocxNamespaces.Drawing), context.Relationships)
             : context.Images.ReadDiagram(references!, anchor, context.Relationships, context.Builder, context.Styles.Theme);
         if (cache is null) return true;
+        // A locked canvas is a group drawn in its graphic frame: its children are
+        // scaled from the group's child space to the frame's extent, as
+        // LibreOffice imports it (fonts keep their size, so text rewraps).
+        if (canvas is not null && cache.Group.Element(DocxNamespaces.WordGroup + "grpSpPr")?.Element(DocxNamespaces.Drawing + "xfrm") is XElement frame)
+        {
+            XElement? offset = frame.Element(DocxNamespaces.Drawing + "off"), size = frame.Element(DocxNamespaces.Drawing + "ext");
+            if (frame.Element(DocxNamespaces.Drawing + "chOff") is null && offset is not null)
+                frame.Add(new XElement(DocxNamespaces.Drawing + "chOff", offset.Attributes()));
+            if (frame.Element(DocxNamespaces.Drawing + "chExt") is null && size is not null)
+                frame.Add(new XElement(DocxNamespaces.Drawing + "chExt", size.Attributes()));
+            offset?.Remove();
+            size?.Remove();
+            frame.AddFirst(new XElement(DocxNamespaces.Drawing + "off", new XAttribute("x", 0), new XAttribute("y", 0)),
+                new XElement(DocxNamespaces.Drawing + "ext", new XAttribute("cx", (string?)extent?.Attribute("cx") ?? "0"),
+                    new XAttribute("cy", (string?)extent?.Attribute("cy") ?? "0")));
+        }
         XElement placement = new(anchor);
         if (context.Builder.InTableCell)
             context.Builder.AddDiagnosticOnce("docx.diagram.inline", "A saved diagram in a table cell was approximated using its paragraph anchor; cell-relative placement is not fully retained.");
@@ -1856,6 +1891,7 @@ internal static class DocxReader
             WrapMargins = Wrap == ShapeWrap.None ? null : Margins,
             WrapPolygon = Wrap == ShapeWrap.None ? null : ReadWrapPolygon(anchor),
             BoundedByPage = !context.Builder.InTableCell,
+            OffsetXFromColumn = FromColumn(anchor, context),
         });
         return true;
     }
@@ -2001,6 +2037,17 @@ internal static class DocxReader
     /// </remarks>
     private static bool ReadShapeGroup(XElement group, XElement anchor, double width, double height, DocxReadContext context)
     {
+        // A group of one shape is that shape in the group's box: LibreOffice
+        // imports the child over the whole group, wherever its own a:xfrm puts
+        // it in the child space. shape-in-floattable.docx's text box, a third
+        // of its group's width at the group's right, draws its "Hello" at the
+        // group's corner; groupshape-theme-font.docx's box takes the group's
+        // full height. A diagram's saved drawing, which is read as a group
+        // here, is not imported that way.
+        if (!context.InDiagram && group.Elements().Where(IsGroupMember).ToList() is [XElement only] &&
+            only.Name == DocxNamespaces.WordShape + "wsp")
+            return ReadDrawnShape(only, anchor, 0, 0, width, height, context);
+
         XElement? transform = group.Element(DocxNamespaces.WordGroup + "grpSpPr")?.Element(DocxNamespaces.Drawing + "xfrm");
         (double childX, double childY, double childWidth, double childHeight) = ChildSpace(transform);
         var frame = new GroupFrame(
@@ -2015,6 +2062,11 @@ internal static class DocxReader
         ReadGroupChildren(group, frame, anchor, context, ref read, depth: 0);
         return read > 0;
     }
+
+    /// <summary>Whether a group's child element is one of its members, not its properties.</summary>
+    private static bool IsGroupMember(XElement child) =>
+        child.Name == DocxNamespaces.WordShape + "wsp" || child.Name == DocxNamespaces.Picture + "pic" ||
+        child.Name == DocxNamespaces.WordGroup + "grpSp" || child.Name == DocxNamespaces.WordGroup + "graphicFrame";
 
     private static void ReadGroupChildren(
         XElement group, GroupFrame frame, XElement anchor, DocxReadContext context, ref int read, int depth)
@@ -2056,6 +2108,7 @@ internal static class DocxReader
                 {
                     WrapMargins = Wrap == ShapeWrap.None ? null : Margins,
                     BoundedByPage = !context.Builder.InTableCell,
+                    OffsetXFromColumn = FromColumn(anchor, context),
                 });
             }
             else if (child.Name == DocxNamespaces.WordGroup + "grpSp" && depth < MaxGroupDepth)
@@ -2198,9 +2251,18 @@ internal static class DocxReader
             TextFlow = ReadShapeTextFlow(wsp.Element(DocxNamespaces.WordShape + "bodyPr")),
             WrapMargins = Wrap == ShapeWrap.None ? null : Margins,
             BoundedByPage = !context.Builder.InTableCell,
+            OffsetXFromColumn = FromColumn(anchor, context),
         });
         return true;
     }
+
+    /// <summary>
+    /// Whether an anchored object outside a table is placed across from the left
+    /// of the column its paragraph is in: <c>relativeFrom="column"</c>, and
+    /// <c>"character"</c>, which this reader places as the column.
+    /// </summary>
+    private static bool FromColumn(XElement anchor, DocxReadContext context) =>
+        !context.Builder.InTableCell && RelativeFrom(anchor, "positionH") is "column" or "character";
 
     /// <summary>
     /// Whether an object anchored in a table cell is placed in the cell, as
@@ -3591,6 +3653,8 @@ internal static class DocxReader
         // away the shading its style gave.
         if (pPr.Element(DocxNamespaces.Wordprocessing + "keepNext") is XElement keepNext)
             style = style with { KeepWithNext = ReadOnOff(keepNext) };
+        if (pPr.Element(DocxNamespaces.Wordprocessing + "bidi") is XElement bidi)
+            style = style with { RightToLeft = ReadOnOff(bidi) };
         if (pPr.Element(DocxNamespaces.Wordprocessing + "keepLines") is XElement keepLines)
             style = style with { KeepTogether = ReadOnOff(keepLines) };
         if (pPr.Element(DocxNamespaces.Wordprocessing + "widowControl") is XElement widowControl)

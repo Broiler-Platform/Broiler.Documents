@@ -264,6 +264,12 @@ public sealed class LayoutShape : IPaginatedShapeArtifact
     public BColor Outline { get; }
 
     public ShapeGeometry Geometry { get; }
+
+    /// <summary>
+    /// The closed polygons drawn in place of <see cref="Geometry"/>, corners as
+    /// fractions of <see cref="Bounds"/>; see <see cref="DocumentShape.OutlinePaths"/>.
+    /// </summary>
+    public IReadOnlyList<IReadOnlyList<(double X, double Y)>>? OutlinePaths { get; init; }
     double IPaginatedShapeArtifact.X => Bounds.Left;
     double IPaginatedShapeArtifact.Y => Bounds.Top;
     double IPaginatedShapeArtifact.Width => Bounds.Width;

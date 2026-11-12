@@ -36,12 +36,13 @@ public sealed class RtfShapeFrameTests
     }
 
     [Fact]
-    public void A_Shape_By_Margin_Is_Measured_From_The_Top_Margin()
+    public void A_Shape_By_Margin_Is_Measured_From_Its_Paragraph()
     {
+        // LibreOffice 24.2 measures \shpbymargin from the paragraph (#242).
         DocumentShape shape = ReadShape("\\shpbymargin");
 
-        Assert.True(shape.OffsetFromPage);
-        Assert.Equal(72 + 20, shape.OffsetY, 3);
+        Assert.False(shape.OffsetFromPage);
+        Assert.Equal(20, shape.OffsetY, 3);
     }
 
     [Theory]

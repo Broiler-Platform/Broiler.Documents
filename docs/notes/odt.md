@@ -285,18 +285,31 @@ toolkit behind it.
   is read whether the picture is a package entry named by `xlink:href` or inline
   `office:binary-data`, and whether or not a `draw:a` wraps it. Display size is
   `svg:width`/`svg:height`, alternative text `svg:title` (falling back to
-  `svg:desc`). Raster formats only: PNG, JPEG, GIF, BMP, TIFF, WebP, and ICO;
-  SVG, EMF and WMF (what producers store for charts, formulas and object
-  replacement images) cannot be decoded to pixels here and are reported as
-  `odt.image.format` rather than kept as a picture that draws nothing. A write
+  `svg:desc`). Raster formats are carried as they are: PNG, JPEG, GIF, BMP,
+  TIFF, WebP, and ICO. A StarView metafile, an EMF and an SVG are rasterized
+  to a PNG (`SvmRasterizer`, `EmfRasterizer`, `SvgRasterizer`), each for the
+  subset it understands; the SVG one draws plain geometry (paths, basic shapes,
+  groups, transforms, solid fills and strokes) and declines anything with text,
+  images, gradients, filters, masks, clip paths, dashes or stylesheets. One
+  that draws nothing at all is an unmarked empty frame. WMF, and anything a
+  rasterizer declines, is reported as `odt.image.format` rather than kept as a
+  picture that draws nothing. A write
   stores each distinct image once under `Pictures`, declares it in the manifest,
   and anchors the frame `as-char`.
 - A frame's alternative `draw:image` representations, including those inside
-  `draw:a` and flat binary-data ones, are tried in source order until the loader
-  can carry one (so an embedded PNG can stand in for an unreadable SVM); a
-  supported first representation keeps priority, and skipped ones keep their
-  diagnostics. Resource policy denial stops extraction rather than trying
+  `draw:a` and flat binary-data ones, are all read, and the best one the loader
+  can carry wins, as LibreOffice ranks them
+  (`MultiImageImportHelper::solveMultipleImages`): SVG, then EMF, WMF and SVM,
+  then PNG, JPEG, GIF and BMP, the first of equals. So an embedded PNG stands in
+  for an unreadable SVG, and a drawable SVG wins over a PNG beside it. Failures
+  before the first readable one keep their diagnostics; alternatives read after
+  it report nothing. Resource policy denial stops extraction rather than trying
   another representation.
+- An embedded chart (`draw:object` naming a package folder whose `content.xml`
+  is an `office:chart`) with no readable replacement picture is drawn from its
+  own data when it is a flat column chart (`OdtChartPreview`): wall, value grid,
+  axis lines and ticks, columns and legend symbols, without text. An
+  automatically placed plot area is laid out again above its category labels.
 - Floating pictures: `text:anchor-type="char"` floats at a character anchor and
   `as-char` is inline; paragraph and page anchors float too, and a missing
   anchor-type keeps the reader's legacy inline fallback. A floating picture is

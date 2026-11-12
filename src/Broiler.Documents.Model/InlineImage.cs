@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics.CodeAnalysis;
+using Broiler.Graphics.Color;
 using Broiler.Graphics.Geometry;
 using Broiler.Graphics.Imaging;
 
@@ -54,6 +55,39 @@ public enum ImageMask
 }
 
 /// <summary>
+/// A picture's outer shadow (DrawingML <c>a:outerShdw</c>): its box scaled about
+/// an alignment point of the picture's box, moved by an offset, and filled
+/// with one colour under the picture.
+/// </summary>
+/// <param name="Color">The shadow's colour, alpha included.</param>
+/// <param name="OffsetX">How far right the shadow is moved, in points.</param>
+/// <param name="OffsetY">How far down the shadow is moved, in points.</param>
+/// <param name="ScaleX">The shadow's width as a fraction of the picture's.</param>
+/// <param name="ScaleY">The shadow's height as a fraction of the picture's.</param>
+/// <param name="AlignX">The point the scale keeps fixed, across the box: 0 left, 0.5 centre, 1 right.</param>
+/// <param name="AlignY">The point the scale keeps fixed, down the box: 0 top, 0.5 middle, 1 bottom.</param>
+public sealed record ImageShadow(
+    BColor Color,
+    double OffsetX,
+    double OffsetY,
+    double ScaleX = 1,
+    double ScaleY = 1,
+    double AlignX = 0,
+    double AlignY = 0)
+{
+    /// <summary>The shadow's box for a picture drawn in <paramref name="box"/>.</summary>
+    public BRect Bounds(BRect box)
+    {
+        double anchorX = box.X + box.Width * AlignX, anchorY = box.Y + box.Height * AlignY;
+        return new BRect(
+            anchorX + (box.X - anchorX) * ScaleX + OffsetX,
+            anchorY + (box.Y - anchorY) * ScaleY + OffsetY,
+            box.Width * ScaleX,
+            box.Height * ScaleY);
+    }
+}
+
+/// <summary>
 /// How a picture is presented: the part of the source shown, and the shape it is
 /// shown in. Separate from the image itself because it says nothing about the
 /// bytes — two pictures can share one payload and crop it differently.
@@ -86,9 +120,61 @@ public sealed record ImagePresentation
     public double GreenAdjustment { get; init; }
     public double BlueAdjustment { get; init; }
 
+    /// <summary>
+    /// The turn the picture is drawn at, in degrees clockwise about the centre
+    /// of its box. The image's own size is the box the turned picture takes;
+    /// <see cref="UnrotatedWidth"/> and <see cref="UnrotatedHeight"/> are the
+    /// size it is drawn at before it is turned.
+    /// </summary>
+    public double Rotation { get; init; }
+
+    /// <summary>The width, in points, a turned picture is drawn at; null to fill its box.</summary>
+    public double? UnrotatedWidth { get; init; }
+
+    /// <summary>The height, in points, a turned picture is drawn at; null to fill its box.</summary>
+    public double? UnrotatedHeight { get; init; }
+
+    /// <summary>The shadow drawn under the picture, or null for none.</summary>
+    public ImageShadow? Shadow { get; init; }
+
+    /// <summary>
+    /// Room the picture's effects take around its box, in points: DrawingML's
+    /// <c>wp:effectExtent</c>, which LibreOffice adds to an inline picture's
+    /// margins. The line box of an inline picture grows by it.
+    /// </summary>
+    public TableCellPadding EffectExtent { get; init; }
+
     /// <summary>True when this asks for nothing the default does not already do.</summary>
     public bool IsDefault =>
-        Mask == ImageMask.None && !HasCrop && !HasColorAdjustments;
+        !ChangesPixels && Rotation == 0 && Shadow is null && EffectExtent == default;
+
+    /// <summary>True when the picture's own pixels differ from the source's: cropped, masked or recoloured.</summary>
+    public bool ChangesPixels =>
+        Mask != ImageMask.None || HasCrop || HasColorAdjustments || RotationRadians != 0;
+
+    /// <summary>
+    /// The bounding box, in points, of the picture turned by <see cref="Rotation"/>
+    /// from <see cref="UnrotatedWidth"/> by <see cref="UnrotatedHeight"/>, or
+    /// null when it is not turned or that size is not known.
+    /// </summary>
+    public (double Width, double Height)? TurnedBounds
+    {
+        get
+        {
+            double angle = RotationRadians;
+            if (angle == 0 || UnrotatedWidth is not > 0 || UnrotatedHeight is not > 0)
+                return null;
+            double cos = Math.Abs(Math.Cos(angle)), sin = Math.Abs(Math.Sin(angle));
+            double width = UnrotatedWidth.Value, height = UnrotatedHeight.Value;
+            return (width * cos + height * sin, width * sin + height * cos);
+        }
+    }
+
+    /// <summary>
+    /// The rotation as a finite angle in radians, zero when there is none.
+    /// </summary>
+    public double RotationRadians =>
+        double.IsFinite(Rotation) && Rotation % 360 != 0 ? Rotation % 360 * Math.PI / 180 : 0;
 
     /// <summary>True when the presentation changes the source color channels.</summary>
     public bool HasColorAdjustments =>
@@ -151,7 +237,7 @@ public sealed record ImagePresentation
     public BBitmap Apply(BBitmap source)
     {
         ArgumentNullException.ThrowIfNull(source);
-        if (IsDefault)
+        if (!ChangesPixels)
             return source;
 
         BRect box = SourceRect(source.Width, source.Height);
@@ -174,6 +260,44 @@ public sealed record ImagePresentation
         if (HasColorAdjustments)
             AdjustColors(rgba);
 
+        if (TurnedBounds is (double turnedWidth, double turnedHeight))
+            return Turn(rgba, width, height, turnedWidth, turnedHeight);
+
+        return new BBitmap(width, height, rgba, takeOwnership: true);
+    }
+
+    /// <summary>
+    /// The picture turned by <see cref="Rotation"/> about its centre, on a
+    /// transparent bitmap of its turned bounding box. The source is stretched to
+    /// <see cref="UnrotatedWidth"/> by <see cref="UnrotatedHeight"/> first, so a
+    /// picture shown at another aspect than its pixels' turns as it is shown.
+    /// </summary>
+    private BBitmap Turn(byte[] source, int sourceWidth, int sourceHeight, double turnedWidth, double turnedHeight)
+    {
+        const int MaxSide = 4096;
+        double shownWidth = UnrotatedWidth!.Value, shownHeight = UnrotatedHeight!.Value;
+        double density = Math.Max(sourceWidth / shownWidth, sourceHeight / shownHeight);
+        density = Math.Min(density, MaxSide / Math.Max(turnedWidth, turnedHeight));
+        int width = Math.Clamp((int)Math.Ceiling(turnedWidth * density), 1, MaxSide);
+        int height = Math.Clamp((int)Math.Ceiling(turnedHeight * density), 1, MaxSide);
+        double angle = RotationRadians, cos = Math.Cos(angle), sin = Math.Sin(angle);
+        var rgba = new byte[width * height * 4];
+        for (int y = 0; y < height; y++)
+        {
+            double down = (y + 0.5) / density - turnedHeight / 2;
+            for (int x = 0; x < width; x++)
+            {
+                double across = (x + 0.5) / density - turnedWidth / 2;
+                // Back through the clockwise turn, into the picture as shown.
+                double u = across * cos + down * sin + shownWidth / 2;
+                double v = -across * sin + down * cos + shownHeight / 2;
+                if (u < 0 || v < 0 || u >= shownWidth || v >= shownHeight)
+                    continue;
+                int column = Math.Min(sourceWidth - 1, (int)(u * sourceWidth / shownWidth));
+                int row = Math.Min(sourceHeight - 1, (int)(v * sourceHeight / shownHeight));
+                Array.Copy(source, (row * sourceWidth + column) * 4, rgba, (y * width + x) * 4, 4);
+            }
+        }
         return new BBitmap(width, height, rgba, takeOwnership: true);
     }
 

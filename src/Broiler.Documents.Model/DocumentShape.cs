@@ -221,6 +221,14 @@ public sealed class DocumentShape(
     public IReadOnlyList<(double X, double Y)>? WrapPolygon { get; init; }
 
     /// <summary>
+    /// The closed polygons the shape is drawn as, in place of
+    /// <see cref="Geometry"/>: a star's or an arrow's outline, each polygon's
+    /// corners as fractions of the box's width and height. Null draws
+    /// <see cref="Geometry"/>.
+    /// </summary>
+    public IReadOnlyList<IReadOnlyList<(double X, double Y)>>? OutlinePaths { get; init; }
+
+    /// <summary>
     /// The least room, in points, a line needs beside a shape that wraps on its
     /// larger side; with less on both sides the line goes below it. Zero lets
     /// text into any gap. Writer keeps text out of a gap narrower than 2 cm
@@ -247,6 +255,14 @@ public sealed class DocumentShape(
     /// its 19 pages that way.
     /// </remarks>
     public bool BoundedByPage { get; init; }
+
+    /// <summary>
+    /// True when <see cref="OffsetX"/> is measured from the left of the text
+    /// column the anchoring paragraph is set in, not from the left of the text
+    /// area: DOCX's <c>wp:positionH relativeFrom="column"</c>, which in the
+    /// second column of a two-column section is that column's left edge.
+    /// </summary>
+    public bool OffsetXFromColumn { get; init; }
 
     /// <summary>
     /// Where the shape sits among the other shapes: a higher number draws later,
@@ -392,8 +408,10 @@ public sealed class DocumentShape(
             TextOutlineWidth = TextOutlineWidth,
             WrapMargins = WrapMargins,
             WrapPolygon = WrapPolygon,
+            OutlinePaths = OutlinePaths,
             MinimumWrapRoom = MinimumWrapRoom,
             BoundedByPage = BoundedByPage,
+            OffsetXFromColumn = OffsetXFromColumn,
         };
 
     /// <summary>The shape's own text, empty when it holds none.</summary>

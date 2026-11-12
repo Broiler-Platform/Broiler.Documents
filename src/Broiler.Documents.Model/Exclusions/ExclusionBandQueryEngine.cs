@@ -151,7 +151,23 @@ public sealed class ExclusionBandQueryEngine
         double top,
         double height,
         bool includeSideRestricted = true,
-        double? tolerance = null)
+        double? tolerance = null) =>
+        DeepestLowerEdge(top, height, includeSideRestricted, tolerance, double.NegativeInfinity, double.PositiveInfinity);
+
+    /// <summary>
+    /// <see cref="DeepestLowerEdge(double, double, bool, double?)"/> counting only
+    /// obstacles that reach into the span from <paramref name="spanLeft"/> to
+    /// <paramref name="spanRight"/>: a top-and-bottom frame beside a column does
+    /// not push that column's text down, as Writer lets only a frame that
+    /// overlaps a text area move its text.
+    /// </summary>
+    public double DeepestLowerEdge(
+        double top,
+        double height,
+        bool includeSideRestricted,
+        double? tolerance,
+        double spanLeft,
+        double spanRight)
     {
         if (IsEmpty)
             return top;
@@ -164,6 +180,8 @@ public sealed class ExclusionBandQueryEngine
         foreach (var obs in _obstacles)
         {
             if (obs.WrapKind == ObstacleWrapKind.SideRestricted && !includeSideRestricted)
+                continue;
+            if (obs.Right <= spanLeft + tol || obs.Left >= spanRight - tol)
                 continue;
 
             if (obs.IntersectsY(moved, sliceBottom - top + moved, tol) && obs.Bottom > moved)
@@ -184,7 +202,8 @@ public sealed class ExclusionBandQueryEngine
         double containerWidth,
         ObstacleSidePolicy defaultSidePolicy = ObstacleSidePolicy.Largest,
         MultiObstaclePolicy multiPolicy = MultiObstaclePolicy.SequentialClamping,
-        double? tolerance = null)
+        double? tolerance = null,
+        bool clearanceNeedsOverlap = false)
     {
         if (containerWidth <= 0.0)
             return new LineBandInterval(containerLeft, 0.0);
@@ -209,7 +228,8 @@ public sealed class ExclusionBandQueryEngine
                 bandLeft = Math.Max(bandLeft, obs.Right);
             else if (obs.WrapKind == ObstacleWrapKind.CssFloatRight)
                 bandRight = Math.Min(bandRight, obs.Left);
-            else if (obs.WrapKind == ObstacleWrapKind.ClearanceOnly)
+            else if (obs.WrapKind == ObstacleWrapKind.ClearanceOnly &&
+                (!clearanceNeedsOverlap || (obs.Right > containerLeft + tol && obs.Left < containerLeft + containerWidth - tol)))
                 return new LineBandInterval(bandLeft, 0.0);
         }
 
@@ -355,9 +375,12 @@ public sealed class ExclusionBandQueryEngine
         BlockedBandFallback fallback = BlockedBandFallback.FullColumnAtCurrentY,
         double minUsableWidth = 1.0,
         ObstacleSidePolicy defaultSidePolicy = ObstacleSidePolicy.Largest,
-        double? tolerance = null)
+        double? tolerance = null,
+        bool clearanceNeedsOverlap = false)
     {
         skip = 0.0;
+        double spanLeft = clearanceNeedsOverlap ? containerLeft : double.NegativeInfinity;
+        double spanRight = clearanceNeedsOverlap ? containerLeft + containerWidth : double.PositiveInfinity;
         if (IsEmpty)
             return new LineBandInterval(containerLeft, containerWidth);
 
@@ -367,7 +390,7 @@ public sealed class ExclusionBandQueryEngine
         for (int attempt = 0; attempt < maxAttempts; attempt++)
         {
             // Step 1: Outright clearance (clearance-only / top-and-bottom obstacles)
-            double cleared = DeepestLowerEdge(top, height, includeSideRestricted: false, tol);
+            double cleared = DeepestLowerEdge(top, height, includeSideRestricted: false, tol, spanLeft, spanRight);
             if (cleared > top + tol)
             {
                 skip += cleared - top;
@@ -376,14 +399,15 @@ public sealed class ExclusionBandQueryEngine
             }
 
             // Step 2: Query band at current top
-            var band = ComputeBand(top, height, containerLeft, containerWidth, defaultSidePolicy, tolerance: tol);
+            var band = ComputeBand(top, height, containerLeft, containerWidth, defaultSidePolicy, tolerance: tol,
+                clearanceNeedsOverlap: clearanceNeedsOverlap);
             if (band.Width >= minUsableWidth)
                 return band;
 
             // Step 3: Descend past obstacles blocking the line
             if (descentStep == ClearanceDescentStep.Deepest)
             {
-                double moved = DeepestLowerEdge(top, height, includeSideRestricted: true, tol);
+                double moved = DeepestLowerEdge(top, height, includeSideRestricted: true, tol, spanLeft, spanRight);
                 if (moved <= top + tol)
                     break;
 

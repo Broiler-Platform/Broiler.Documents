@@ -68,6 +68,9 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     // number it took, the sections that have restarted it, and the document's
     // page count once a first pass has found it, for a page-count field.
     private (int Page, int Number) _numbering = (1, 1);
+
+    /// <summary>How the page being laid out writes its number: its section's format.</summary>
+    private ListNumberFormat? _pageNumberFormat;
     private readonly HashSet<DocumentSection> _restartedNumbering = [];
     private int? _pageCount;
 
@@ -113,12 +116,19 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     private double? _headerDistance;
     private double? _footerDistance;
     private (bool Header, bool Footer) _fixedBands;
+    private (double Header, double Footer) _bandSpacing;
     private PageFrame? _frame;
     private IReadOnlyList<DocumentShape> _documentShapes = [];
     private ShapeFill? _background;
     private DocumentStyleDefaults _styleDefaults = DocumentStyleDefaults.Default;
     private TextWrapExclusions _wrap = new();
     private readonly Dictionary<int, double> _paragraphTops = [];
+
+    /// <summary>
+    /// How far right of the text area's left the column each body paragraph
+    /// was set in starts, for shapes placed from their column.
+    /// </summary>
+    private readonly Dictionary<int, double> _paragraphColumns = [];
     private readonly Dictionary<DocumentShape, double> _grownHeights = [];
     private readonly Dictionary<DocumentShape, double> _grownWidths = [];
     private readonly Dictionary<DocumentShape, IReadOnlyList<RichTextParagraph>> _linkedParagraphs = [];
@@ -157,6 +167,16 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     private const double SeparatorGap = 2.86;
 
     private const double SeparatorBlock = SeparatorGap + SeparatorThickness + SeparatorGap;
+
+    /// <summary>Writer's layout unit, a twentieth of a point.</summary>
+    private const double Twip = 0.05;
+
+    /// <summary>
+    /// The family a symbol character is drawn in when its own font has no
+    /// face: LibreOffice's default serif face, Liberation Serif where the
+    /// references are made.
+    /// </summary>
+    private const string SymbolFallbackFamily = "serif";
 
     /// <summary>
     /// U+2028 LINE SEPARATOR, which is how the model spells a break inside a
@@ -217,6 +237,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     private LayoutResult LayoutOnce(RichTextDocument document, DocumentPageBox setup)
     {
         _numbering = (1, 1);
+        _pageNumberFormat = null;
         _restartedNumbering.Clear();
 
         // A document that hides its changes is laid out as it reads with its
@@ -236,6 +257,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         _headerDistance = document.PageGeometry?.HeaderDistance;
         _footerDistance = document.PageGeometry?.FooterDistance;
         _fixedBands = (document.PageGeometry?.FixedHeaderHeight == true, document.PageGeometry?.FixedFooterHeight == true);
+        _bandSpacing = (document.PageGeometry?.HeaderSpacing ?? 0, document.PageGeometry?.FooterSpacing ?? 0);
         _frame = null;
         _grid = null;
         _offBody = 0;
@@ -256,6 +278,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         _raisedNoteLabels = document.NoteNumbering.RaisedLabels;
         _noteBlocks.Clear();
         _paragraphTops.Clear();
+        _paragraphColumns.Clear();
         _grownHeights.Clear();
         _grownWidths.Clear();
         _asCharLines.Clear();
@@ -328,7 +351,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             {
                 _frame = FrameFor(
                     pages.Count + 1, setup, setup.MarginTopPoints, setup.MarginBottomPoints,
-                    _headerDistance, _footerDistance, setup.ContentLeftPoints, setup.ContentWidthPoints, _fixedBands);
+                    _headerDistance, _footerDistance, setup.ContentLeftPoints, setup.ContentWidthPoints, _fixedBands, _bandSpacing);
             }
             else
             {
@@ -336,7 +359,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 _frame = FrameFor(
                     pages.Count + 1, setup, Math.Clamp(page.MarginTop, 0, setup.HeightPoints - 1), page.MarginBottom,
                     page.HeaderDistance, page.FooterDistance, left, Math.Max(1, setup.WidthPoints - page.MarginRight - left),
-                    (page.FixedHeaderHeight, page.FixedFooterHeight));
+                    (page.FixedHeaderHeight, page.FixedFooterHeight), (page.HeaderSpacing, page.FooterSpacing));
             }
 
             // A page with a line text grid sets its body's lines on the grid's
@@ -379,6 +402,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             // count at, once: a section runs onto later pages as their owner too.
             if (section?.PageNumberStart is int restart && _restartedNumbering.Add(section))
                 _numbering = (pages.Count + 1, restart);
+            _pageNumberFormat = section?.PageNumberFormat;
             _running = setup.Continuous ? RunningContent.Empty : section?.RunningContent ?? _documentRunning;
             _firstPage = sharesFirst ? 0 : pages.Count + 1;
         }
@@ -1050,7 +1074,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                             if (shape.Wraps && !shape.IsPageAnchored &&
                                 _paragraphTops.TryGetValue(shape.ParagraphIndex, out double anchor))
                             {
-                                _wrap.Add(shape, shape.TopOnPage(anchor), height: BoxHeight(shape), width: BoxWidth(shape));
+                                AddWrap(shape, shape.TopOnPage(anchor));
                             }
                         }
 
@@ -1127,13 +1151,14 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         void ReanchorParagraph(int index)
         {
             _paragraphTops[index] = y;
+            _paragraphColumns[index] = columns.Offset(column);
             _wrap = new TextWrapExclusions();
             AddPageExclusions(pages.Count + 1);
             foreach (DocumentShape shape in _documentShapes)
             {
                 if (shape.Wraps && !shape.IsPageAnchored &&
                     _paragraphTops.TryGetValue(shape.ParagraphIndex, out double anchor))
-                    _wrap.Add(shape, shape.TopOnPage(anchor), height: BoxHeight(shape), width: BoxWidth(shape));
+                    AddWrap(shape, shape.TopOnPage(anchor));
             }
             AddFloatExclusions();
         }
@@ -1253,6 +1278,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 else if (ColumnHasContent() || openingTableSpacing)
                     y += table.SpacingBefore;
                 List<RowBox> composedRows = ComposeTable(table, document, setup, setup.ContentLeftPoints, columns.Width);
+                if (!setup.Continuous)
+                    StackOversizedSpans(composedRows, table, HeaderRowCount(table), contentBottom - pageTop);
                 y = BelowFloats(y, composedRows, columns.Offset(column));
                 double totalTableHeight = composedRows.Sum(row => row.Height);
                 if (table.KeepTogether && !setup.Continuous && totalTableHeight <= contentBottom - pageTop && y + totalTableHeight > contentBottom && ColumnHasContent())
@@ -1355,10 +1382,10 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                     for (int index = rowNumber - 1; index < groupEnd && index < table.Rows.Count; index++)
                     {
                         int spanEnd = index + 1;
-                        foreach (CellLines cellContent in composedRows[index].Contents.Where(c => c.Cell is { RowSpan: > 1 }))
+                        foreach (CellLines cellContent in composedRows[index].Contents.Where(c => c.Cell is not null && c.Span > 1))
                         {
                             double accumulated = 0;
-                            int maxSpan = Math.Min(composedRows.Count, index + cellContent.Cell!.RowSpan);
+                            int maxSpan = Math.Min(composedRows.Count, index + cellContent.Span);
                             for (int r = index; r < maxSpan; r++)
                             {
                                 accumulated += composedRows[r].Height;
@@ -1380,8 +1407,14 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                     bool continuesBrokenKeepChain = rowNumber > 1 && table.Rows[rowNumber - 2].KeepWithNext &&
                         !composedRows[rowNumber - 1].Contents.Any(c => c.Cell is { RowSpan: > 1 });
 
+                    // Rows held together only by a merged cell's text break
+                    // between them as Writer breaks them: the rows that fit stay,
+                    // with the lines of the merged cell that fit beside them, and
+                    // the rest of its text continues on the next page beside the
+                    // rows it still spans (tdf128959.docx).
                     if (groupEnd > rowNumber && !continuesBrokenKeepChain && !setup.Continuous &&
-                        requiredToKeep <= contentBottom - pageTop && y + requiredToKeep > contentBottom && ColumnHasContent())
+                        requiredToKeep <= contentBottom - pageTop && y + requiredToKeep > contentBottom && ColumnHasContent() &&
+                        (inHeader || table.KeepTogether || !SplitMergedRows(composedRows, table, rowNumber - 1, groupEnd, contentBottom - y)))
                         ContinueTable(inHeader, composedRow);
                     RowBox? row = composedRow;
                     while (row is not null && !truncated)
@@ -1533,6 +1566,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                     break;
             }
             _paragraphTops.TryAdd(paragraphIndex, y);
+            _paragraphColumns[paragraphIndex] = columns.Offset(column);
 
             // A paragraph whose text and mark are all hidden takes no room, as
             // LibreOffice hides it; the break it asked for was taken above.
@@ -1549,7 +1583,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             foreach (DocumentShape shape in _documentShapes)
             {
                 if (shape.Wraps && !shape.IsPageAnchored && shape.ParagraphIndex == paragraphIndex)
-                    _wrap.Add(shape, shape.TopOnPage(y), height: BoxHeight(shape), width: BoxWidth(shape));
+                    AddWrap(shape, shape.TopOnPage(y));
             }
 
             // Word honors spacing above the opening paragraph. Subsequent
@@ -2070,7 +2104,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             ? current.Number == number ? current : FrameFor(number, setup, current)
             : FrameFor(
                 number, setup, setup.MarginTopPoints, setup.MarginBottomPoints,
-                _headerDistance, _footerDistance, setup.ContentLeftPoints, setup.ContentWidthPoints, _fixedBands);
+                _headerDistance, _footerDistance, setup.ContentLeftPoints, setup.ContentWidthPoints, _fixedBands, _bandSpacing);
 
         int pageNumber = _numbering.Number + number - _numbering.Page;
         var runningBorders = new List<LayoutCell>();
@@ -2271,6 +2305,11 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     /// margin itself, with no room between, drew no header on any page.
     /// </para>
     /// <para>
+    /// An ODF band keeps its spacing (<see cref="PageGeometry.HeaderSpacing"/>,
+    /// <see cref="PageGeometry.FooterSpacing"/>) between its content and the
+    /// text however tall it grows, where Word's text only clears the header.
+    /// </para>
+    /// <para>
     /// A band with no declared distance is centred in its margin and moves
     /// nothing, and a band that would take more than half of the text's height
     /// moves nothing either: it is reported and left out, as one taller than
@@ -2278,7 +2317,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     /// </para>
     /// </remarks>
     private PageFrame FrameFor(int number, DocumentPageBox setup, double marginTop, double marginBottom,
-        double? headerDistance, double? footerDistance, double left, double width, (bool Header, bool Footer) fixedBands = default)
+        double? headerDistance, double? footerDistance, double left, double width, (bool Header, bool Footer) fixedBands = default,
+        (double Header, double Footer) bandSpacing = default)
     {
         double top = marginTop;
         double bottom = Math.Max(top + 1, setup.HeightPoints - marginBottom);
@@ -2293,7 +2333,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 headerParagraphs = [RichTextParagraph.Empty];
             double header = RunningHeight(headerParagraphs, setup, left, width, _running.EffectiveHeaderTables(selection),
                 _running.EffectiveHeaderShapes(selection));
-            double overrun = fromTop + header - top;
+            double overrun = fromTop + header + bandSpacing.Header - top;
             if (header > 0 && overrun > 0 && overrun <= (bottom - top) / 2)
                 top += overrun;
         }
@@ -2302,17 +2342,17 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         {
             double footer = RunningHeight(_running.EffectiveFooter(selection), setup, left, width, _running.EffectiveFooterTables(selection),
                 _running.EffectiveFooterShapes(selection));
-            double overrun = fromBottom + footer - (setup.HeightPoints - bottom);
+            double overrun = fromBottom + footer + bandSpacing.Footer - (setup.HeightPoints - bottom);
             if (footer > 0 && overrun > 0 && overrun <= (bottom - top) / 2)
                 bottom -= overrun;
         }
 
-        return new PageFrame(number, marginTop, marginBottom, headerDistance, footerDistance, left, width, top, bottom, fixedBands);
+        return new PageFrame(number, marginTop, marginBottom, headerDistance, footerDistance, left, width, top, bottom, fixedBands, bandSpacing);
     }
 
     /// <summary>Page <paramref name="number"/>'s frame on the paper and margins of <paramref name="like"/>.</summary>
     private PageFrame FrameFor(int number, DocumentPageBox setup, PageFrame like) =>
-        FrameFor(number, setup, like.MarginTop, like.MarginBottom, like.HeaderDistance, like.FooterDistance, like.Left, like.Width, like.FixedBands);
+        FrameFor(number, setup, like.MarginTop, like.MarginBottom, like.HeaderDistance, like.FooterDistance, like.Left, like.Width, like.FixedBands, like.BandSpacing);
 
     /// <summary>
     /// The paper a page is laid out on: the margins and band distances it takes
@@ -2329,7 +2369,21 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         double Width,
         double TextTop,
         double TextBottom,
-        (bool Header, bool Footer) FixedBands = default);
+        (bool Header, bool Footer) FixedBands = default,
+        (double Header, double Footer) BandSpacing = default);
+
+    /// <summary>
+    /// Adds a shape hanging from a body paragraph to the exclusions, its box
+    /// starting at <paramref name="top"/>, and across from its column where it
+    /// is placed from one.
+    /// </summary>
+    private void AddWrap(DocumentShape shape, double top) =>
+        _wrap.Add(shape, top, 1, BoxHeight(shape), BoxWidth(shape), ColumnShift(shape));
+
+    /// <summary>How far right a shape placed from its paragraph's column moves.</summary>
+    private double ColumnShift(DocumentShape shape) =>
+        shape.OffsetXFromColumn && !shape.OffsetXFromCell && !shape.IsPageAnchored
+            ? _paragraphColumns.GetValueOrDefault(shape.ParagraphIndex) : 0;
 
     /// <summary>
     /// Adds the wrapping shapes anchored to page <paramref name="number"/> to the
@@ -2437,6 +2491,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 StretchesTextToBox = shape.StretchesTextToBox,
                 TextOutline = shape.TextOutline,
                 TextOutlineWidth = shape.TextOutlineWidth,
+                OutlinePaths = shape.OutlinePaths,
             });
         }
 
@@ -2460,7 +2515,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             return placed;
 
         var cellTextAreas = new Dictionary<int, (double Left, double Width)>();
-        if (_documentShapes.Any(shape => shape.OffsetXFromCell || shape.IsAsCharacter))
+        if (_documentShapes.Any(shape => shape.OffsetXFromCell || shape.IsAsCharacter || shape.OffsetXFromColumn))
             foreach (LayoutLine line in sourceLines)
                 cellTextAreas.TryAdd(line.ParagraphIndex, (line.TextAreaLeft, line.TextAreaWidth));
 
@@ -2480,7 +2535,12 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             }
 
             var area = shape.OffsetXFromCell && cellTextAreas.TryGetValue(shape.ParagraphIndex, out var cellArea)
-                ? cellArea : (Left: setup.ContentLeftPoints, Width: setup.ContentWidthPoints);
+                ? cellArea : (Left: setup.ContentLeftPoints + ColumnShift(shape), Width: setup.ContentWidthPoints);
+            // From the column the paragraph's lines ended up in, balanced
+            // columns included.
+            if (shape.OffsetXFromColumn && !shape.OffsetXFromCell && !shape.IsPageAnchored &&
+                cellTextAreas.TryGetValue(shape.ParagraphIndex, out var placedArea))
+                area = (placedArea.Left, setup.ContentWidthPoints);
             // An as-character frame sits in its line, so in its text column
             // (tdf132420: one frame per paragraph in a three-column section).
             if (!shape.OffsetXFromCell && shape.IsAsCharacter && !shape.IsPageAnchored && !shape.OffsetFromPage &&
@@ -2508,6 +2568,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 StretchesTextToBox = shape.StretchesTextToBox,
                 TextOutline = shape.TextOutline,
                 TextOutlineWidth = shape.TextOutlineWidth,
+                OutlinePaths = shape.OutlinePaths,
             });
         }
 
@@ -2601,19 +2662,24 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             boxes.Add(box);
         }
 
-        for (int index = 0; index < boxes.Count; index++)
+        // The merges that end first are grown first: a row an earlier merge
+        // grows is then counted in the rows of a merge that ends below it,
+        // rather than both growing their own last row for the same text
+        // (fdo114306.odt's C1, over two rows, and A1, over three).
+        var merges = boxes.SelectMany((box, index) => box.Contents
+                .Where(content => content.Cell is { RowSpan: > 1 })
+                .Select(content => (Index: index, Content: content)))
+            .OrderBy(merge => merge.Index + merge.Content.Cell!.RowSpan).ThenByDescending(merge => merge.Index).ToList();
+        foreach ((int index, CellLines content) in merges)
         {
-            foreach (CellLines content in boxes[index].Contents.Where(content => content.Cell is { RowSpan: > 1 }))
+            int end = Math.Min(boxes.Count, index + content.Cell!.RowSpan);
+            double deficit = content.Height - boxes.Skip(index).Take(end - index).Sum(row => row.Height);
+            for (int last = end - 1; deficit > 0 && last >= index; last--)
             {
-                int end = Math.Min(boxes.Count, index + content.Cell!.RowSpan);
-                double deficit = content.Height - boxes.Skip(index).Take(end - index).Sum(row => row.Height);
-                for (int last = end - 1; deficit > 0 && last >= index; last--)
-                {
-                    if (table.Rows[last].ExactHeight)
-                        continue;
-                    boxes[last].Height += deficit;
-                    break;
-                }
+                if (table.Rows[last].ExactHeight)
+                    continue;
+                boxes[last].Height += deficit;
+                break;
             }
         }
         ExtendRowSpans(boxes);
@@ -2642,9 +2708,194 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     }
 
     /// <summary>
+    /// Breaks a group of rows that a merged cell's text holds together between
+    /// two of its rows, where <paramref name="room"/> runs out: the rows that fit
+    /// keep the lines of each merged cell that end beside them, and the rest of
+    /// such a cell moves to the first row left over, which draws its box for the
+    /// rows it still spans. This is Writer's follow flow line: a table breaks at
+    /// any row, and a cell spanning the break continues in the follow.
+    /// </summary>
+    /// <returns>
+    /// False, changing nothing, when no row of the group fits, when a row is to
+    /// be kept with the next, or when a merged cell crossing the break would
+    /// leave none of its text before it.
+    /// </returns>
+    private static bool SplitMergedRows(List<RowBox> rows, DocumentTable table, int start, int end, double room)
+    {
+        for (int r = start; r < end - 1; r++)
+        {
+            if (table.Rows[r].KeepWithNext)
+                return false;
+        }
+
+        int split = start;
+        double used = 0;
+        while (split < end - 1 && used + rows[split].Height <= room + 0.01)
+            used += rows[split++].Height;
+        if (split == start)
+            return false;
+
+        var moves = new List<(int Row, CellLines Content, double Kept, double Cut)>();
+        for (int m = start; m < split; m++)
+        {
+            foreach (CellLines content in rows[m].Contents)
+            {
+                if (content.Cell is null || content.Span <= 1 || m + content.Span <= split)
+                    continue;
+                double kept = 0;
+                for (int r = m; r < split; r++)
+                    kept += rows[r].Height;
+                double? cut = content.Pieces.FirstOrDefault(piece => piece.Bottom > kept + 0.01) is { Bottom: > 0 } piece
+                    ? piece.Top : null;
+                if (cut is double top && top <= 0.01)
+                    return false;
+                moves.Add((m, content, kept, cut ?? content.Height));
+            }
+        }
+        if (moves.Count == 0)
+            return false;
+
+        // The first row left over starts on this page too where it may break,
+        // its own cells fit beside the rows above and every merged cell that
+        // runs into it ends in it: Writer then cuts it at the page's foot, and
+        // the merged cells' lines fill the page down to there rather than only
+        // beside the rows above (soffice 24.2: a cell merged over two auto-height
+        // rows with five lines, three of them on page 1 beside the second row).
+        RowBox next = rows[split];
+        TableRow nextRow = table.Rows[split];
+        double own = next.Contents.Where(content => content.Cell is { RowSpan: <= 1, IsRowSpanContinuation: false })
+            .Select(content => content.Height).DefaultIfEmpty(0).Max();
+        bool starts = !nextRow.ExactHeight && nextRow.CanSplit && nextRow.Cells.All(cell => cell.Tables.Count == 0) &&
+            Math.Max(own, next.MinimumHeight) <= room - used + 0.01 &&
+            moves.All(move => move.Row + move.Content.Span == split + 1);
+
+        foreach ((int m, CellLines content, double kept, double cut) in moves)
+        {
+            RowBox master = rows[m];
+            int span = content.Span;
+            int last = Math.Min(rows.Count, m + span);
+            CellBox? box = master.Boxes.FirstOrDefault(candidate => ReferenceEquals(candidate.Cell, content.Cell));
+            if (box is not null)
+                box.ExtraHeight = kept - master.Height;
+
+            var before = new List<LayoutLine>();
+            var after = new List<LayoutLine>();
+            foreach (LayoutLine line in content.Lines)
+            {
+                if (line.Top < cut - 0.01)
+                {
+                    before.Add(line);
+                    continue;
+                }
+
+                bool shown = master.Lines.Remove(line);
+                line.Top -= cut;
+                line.ClipHeight = null;
+                if (shown || line.Top < kept)
+                    after.Add(line);
+            }
+
+            var cellsBefore = new List<LayoutCell>();
+            var cellsAfter = new List<LayoutCell>();
+            foreach (LayoutCell nested in content.Cells)
+            {
+                if (nested.Bounds.Top < cut - 0.01)
+                {
+                    cellsBefore.Add(nested);
+                    continue;
+                }
+
+                master.Cells.Remove(nested);
+                nested.Bounds = new BRect(nested.Bounds.Left, nested.Bounds.Top - cut, nested.Bounds.Width, nested.Bounds.Height);
+                cellsAfter.Add(nested);
+            }
+
+            int index = master.Contents.IndexOf(content);
+            master.Contents[index] = new CellLines(before, cellsBefore,
+                [.. content.Pieces.Where(piece => piece.Top < cut - 0.01)], Math.Min(cut, content.Height), content.Cell, IsSplit: true,
+                SpanRows: split - m);
+
+            RowBox follow = rows[split];
+            double remaining = Math.Max(0, content.Height - cut);
+            var pieces = content.Pieces.Where(piece => piece.Top >= cut - 0.01)
+                .Select(piece => new CutPiece(piece.Top - cut, piece.Bottom - cut)).ToList();
+            follow.Lines.AddRange(after);
+            follow.Cells.AddRange(cellsAfter);
+            follow.Contents.Add(new CellLines(after, cellsAfter, pieces, remaining, content.Cell, IsSplit: true, SpanRows: last - split));
+            // The rows the rest spans grow to hold it, the last that may.
+            double deficit = remaining;
+            for (int r = split; r < last; r++)
+                deficit -= rows[r].Height;
+            for (int grow = last - 1; deficit > 0 && grow >= split; grow--)
+            {
+                if (table.Rows[grow].ExactHeight)
+                    continue;
+                rows[grow].Height += deficit;
+                break;
+            }
+
+            if (box is not null)
+            {
+                double below = 0;
+                for (int r = split + 1; r < last; r++)
+                    below += rows[r].Height;
+                follow.Boxes.Add(new CellBox(box.Left, box.Width, box.Cell) { ExtraHeight = below });
+            }
+        }
+        if (starts)
+            next.CanSplit = true;
+        return true;
+    }
+
+    /// <summary>
     /// Grows a spanning cell's box down over the rows it covers, now that their
     /// heights are known.
     /// </summary>
+    /// <summary>
+    /// Makes each group of rows tied by cells that span them, and too tall for
+    /// a page, one box that breaks across pages (<see cref="RowBox.Stack"/>),
+    /// as Writer splits the rows a merged cell covers and continues the cell
+    /// on the next page (fdo114306.odt). A group that fits a page is still kept
+    /// whole; one with a row that may not break, has an exact height or holds
+    /// a nested table is left as it was. The rows after the first in a stacked
+    /// group are left empty, so the rows keep their indexes.
+    /// </summary>
+    private static void StackOversizedSpans(List<RowBox> rows, DocumentTable table, int headerCount, double bodyHeight)
+    {
+        int count = Math.Min(rows.Count, table.Rows.Count);
+        for (int first = headerCount; first < count; first++)
+        {
+            int end = first + 1;
+            for (int r = first; r < end; r++)
+            {
+                foreach (TableCell cell in table.Rows[r].Cells)
+                {
+                    if (cell.RowSpan > 1 && !cell.IsRowSpanContinuation)
+                        end = Math.Max(end, Math.Min(count, r + cell.RowSpan));
+                }
+            }
+            if (end - first < 2)
+                continue;
+
+            bool splittable = true;
+            double height = 0;
+            for (int r = first; r < end; r++)
+            {
+                TableRow row = table.Rows[r];
+                splittable &= row.CanSplit && !row.ExactHeight && row.Cells.All(cell => cell.Tables.Count == 0);
+                height += rows[r].Height;
+            }
+            if (splittable && height > bodyHeight)
+            {
+                RowBox stacked = RowBox.Stack(rows.GetRange(first, end - first));
+                rows[first] = stacked;
+                for (int r = first + 1; r < end; r++)
+                    rows[r] = new RowBox { CanSplit = true };
+            }
+            first = end - 1;
+        }
+    }
+
     private static void ExtendRowSpans(List<RowBox> rows)
     {
         for (int r = 0; r < rows.Count; r++)
@@ -3239,7 +3490,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             }
 
             double shapeTop = shape.TopOnPage(anchorTop);
-            double shapeLeft = setup.ContentLeftPoints + shape.OffsetX;
+            double shapeLeft = setup.ContentLeftPoints + shape.OffsetX + ColumnShift(shape);
             double shapeWidth = BoxWidth(shape);
             double shapeHeight = BoxHeight(shape);
             if (shapeWidth <= 0 || shapeHeight <= 0)
@@ -3275,14 +3526,34 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
         /// <summary>How far past its own row the box reaches, for a cell that spans rows.</summary>
         public double ExtraHeight { get; set; }
+
+        /// <summary>
+        /// Where the box starts below the top of a stacked row box
+        /// (<see cref="RowBox.Stacked"/>); zero in an ordinary row.
+        /// </summary>
+        public double Top { get; init; }
+
+        /// <summary>
+        /// The box's own height in a stacked row box, or null where the box is
+        /// as tall as its row and <see cref="ExtraHeight"/>.
+        /// </summary>
+        public double? FixedHeight { get; init; }
     }
 
     /// <summary>
     /// One cell's composed lines, in order, the boxes of any table nested in it,
     /// the pieces it may be cut between, and the height they take.
     /// </summary>
-    private sealed record CellLines(List<LayoutLine> Lines, List<LayoutCell> Cells, List<CutPiece> Pieces, double Height, TableCell? Cell = null, bool IsSplit = false)
+    private sealed record CellLines(List<LayoutLine> Lines, List<LayoutCell> Cells, List<CutPiece> Pieces, double Height, TableCell? Cell = null, bool IsSplit = false,
+        int? SpanRows = null)
     {
+        /// <summary>
+        /// The rows this content covers from its own row on: the cell's row span,
+        /// or what is left of it for the part of a merged cell that continues on
+        /// a later page.
+        /// </summary>
+        public int Span => SpanRows ?? Cell?.RowSpan ?? 1;
+
         public static CellLines Empty => new([], [], [], 0);
     }
 
@@ -3306,7 +3577,168 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         public List<CellLines> Contents { get; } = [];
 
         /// <summary>True when the row may break across a page; see <see cref="TableRow.CanSplit"/>.</summary>
-        public bool CanSplit { get; init; }
+        public bool CanSplit { get; set; }
+
+        /// <summary>
+        /// True for a box that holds several rows tied together by cells that
+        /// span them (<see cref="Stack"/>): each cell's lines and box stand at
+        /// their own place in it rather than at its top.
+        /// </summary>
+        public bool Stacked { get; init; }
+
+        /// <summary>
+        /// The rows <paramref name="rows"/> as one box that may break across a
+        /// page, each row at its own offset, each cell's lines and box where
+        /// they are in the rows. A cell's lines are aligned in their box first,
+        /// since the stacked box no longer knows where each row ends.
+        /// </summary>
+        public static RowBox Stack(IReadOnlyList<RowBox> rows)
+        {
+            var stacked = new RowBox { Height = rows.Sum(row => row.Height), CanSplit = true, Stacked = true };
+            double offset = 0;
+            foreach (RowBox row in rows)
+            {
+                foreach (CellLines content in row.Contents)
+                {
+                    double down = 0;
+                    if (!content.IsSplit && content.Cell is TableCell cell && cell.VerticalAlignment != CellVerticalAlignment.Top)
+                    {
+                        double extra = row.Boxes.FirstOrDefault(box => ReferenceEquals(box.Cell, cell))?.ExtraHeight ?? 0;
+                        double spare = Math.Max(0, row.Height + extra - content.Height);
+                        down = cell.VerticalAlignment == CellVerticalAlignment.Center ? spare / 2 : spare;
+                    }
+                    foreach (LayoutLine line in content.Lines)
+                        line.Top += offset + down;
+                    foreach (LayoutCell nested in content.Cells)
+                        nested.Bounds = new BRect(nested.Bounds.Left, nested.Bounds.Top + offset + down, nested.Bounds.Width, nested.Bounds.Height);
+                    List<CutPiece> pieces = [.. content.Pieces.Select(piece => new CutPiece(piece.Top + offset + down, piece.Bottom + offset + down))];
+                    stacked.Lines.AddRange(content.Lines);
+                    stacked.Cells.AddRange(content.Cells);
+                    stacked.Contents.Add(new CellLines(content.Lines, content.Cells, pieces, offset + down + content.Height, content.Cell, IsSplit: true));
+                }
+                foreach (CellBox box in row.Boxes)
+                {
+                    stacked.Boxes.Add(new CellBox(box.Left, box.Width, box.Cell)
+                    {
+                        Top = offset + box.Top,
+                        FixedHeight = box.FixedHeight ?? row.Height + box.ExtraHeight,
+                    });
+                }
+                offset += row.Height;
+            }
+            return stacked;
+        }
+
+        /// <summary>
+        /// <see cref="SplitAt"/> for a stacked box. A cell that has lines on
+        /// both sides of <paramref name="room"/> is cut on its own line boundary
+        /// and its rest starts at the top of the second part; the cells below
+        /// the cut, and the boxes, move up together by the highest of those cuts,
+        /// so the rows after keep their places under the cut cells' rest. A cell
+        /// with nothing that fits moves on whole.
+        /// </summary>
+        private (RowBox Fitted, RowBox? Remainder)? SplitStackedAt(double room)
+        {
+            if (Height <= room)
+                return (this, null);
+
+            var cuts = new double?[Contents.Count];
+            bool kept = false;
+            double shift = room;
+            for (int i = 0; i < Contents.Count; i++)
+            {
+                CellLines content = Contents[i];
+                bool cellKept = false;
+                foreach (CutPiece piece in content.Pieces)
+                {
+                    if (piece.Bottom <= room)
+                    {
+                        cellKept = true;
+                        continue;
+                    }
+
+                    cuts[i] = piece.Top;
+                    break;
+                }
+                kept |= cellKept;
+                if (cuts[i] is double cut && cut < room)
+                    shift = Math.Min(shift, cut);
+            }
+            if (!kept)
+                return null;
+
+            var fitted = new RowBox { Height = room, CanSplit = true, Stacked = true };
+            var rest = new RowBox { CanSplit = true, Stacked = true };
+            for (int i = 0; i < Contents.Count; i++)
+            {
+                CellLines content = Contents[i];
+                if (cuts[i] is not double cut)
+                {
+                    fitted.Lines.AddRange(content.Lines);
+                    fitted.Cells.AddRange(content.Cells);
+                    fitted.Contents.Add(content);
+                    continue;
+                }
+
+                // A cell that starts below the cut moves with the rows; one cut
+                // part way through starts its rest at the top.
+                double by = content.Pieces.Count > 0 && content.Pieces[0].Top >= cut && cut >= room ? shift : cut;
+                var before = new List<LayoutLine>();
+                var after = new List<LayoutLine>();
+                foreach (LayoutLine line in content.Lines)
+                {
+                    if (line.Top < cut)
+                    {
+                        before.Add(line);
+                        continue;
+                    }
+                    line.Top -= by;
+                    after.Add(line);
+                }
+                var cellsBefore = new List<LayoutCell>();
+                var cellsAfter = new List<LayoutCell>();
+                foreach (LayoutCell nested in content.Cells)
+                {
+                    if (nested.Bounds.Top < cut)
+                        cellsBefore.Add(nested);
+                    else
+                    {
+                        nested.Bounds = new BRect(nested.Bounds.Left, nested.Bounds.Top - by, nested.Bounds.Width, nested.Bounds.Height);
+                        cellsAfter.Add(nested);
+                    }
+                }
+                List<CutPiece> piecesAfter = [.. content.Pieces.Where(piece => piece.Top >= cut)
+                    .Select(piece => new CutPiece(piece.Top - by, piece.Bottom - by))];
+                double end = Math.Max(0, content.Height - by);
+                if (before.Count > 0 || cellsBefore.Count > 0)
+                {
+                    fitted.Lines.AddRange(before);
+                    fitted.Cells.AddRange(cellsBefore);
+                    fitted.Contents.Add(new CellLines(before, cellsBefore, [.. content.Pieces.Where(piece => piece.Top < cut)], cut, content.Cell, IsSplit: true));
+                }
+                rest.Lines.AddRange(after);
+                rest.Cells.AddRange(cellsAfter);
+                rest.Contents.Add(new CellLines(after, cellsAfter, piecesAfter, end, content.Cell, IsSplit: true));
+                rest.Height = Math.Max(rest.Height, end);
+            }
+
+            foreach (CellBox box in Boxes)
+            {
+                double top = box.Top;
+                double bottom = box.Top + (box.FixedHeight ?? Height);
+                if (top < room)
+                    fitted.Boxes.Add(new CellBox(box.Left, box.Width, box.Cell) { Top = top, FixedHeight = Math.Min(bottom, room) - top });
+                if (bottom > room)
+                {
+                    double restTop = Math.Max(0, top - shift);
+                    double restBottom = Math.Max(restTop, bottom - shift);
+                    rest.Boxes.Add(new CellBox(box.Left, box.Width, box.Cell) { Top = restTop, FixedHeight = restBottom - restTop });
+                    rest.Height = Math.Max(rest.Height, restBottom);
+                }
+            }
+
+            return (fitted, rest);
+        }
 
         /// <summary>Common safe cut boundaries when this row is inside another cell.</summary>
         public IReadOnlyList<CutPiece> NestedPieces()
@@ -3367,6 +3799,9 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         /// </remarks>
         public (RowBox Fitted, RowBox? Remainder)? SplitAt(double room, bool allowStranding = false)
         {
+            if (Stacked)
+                return SplitStackedAt(room);
+
             // A row whose stated floor fits on a fresh page must move there,
             // even when its few text lines would fit in the space left here.
             if (room < MinimumHeight && !allowStranding)
@@ -3541,7 +3976,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             }
 
             foreach (CellBox box in Boxes)
-                cells.Add(new LayoutCell(new BRect(box.Left + shift, top, box.Width, Height + box.ExtraHeight), box.Cell.Shading, box.Cell.Borders));
+                cells.Add(new LayoutCell(new BRect(box.Left + shift, top + box.Top, box.Width, box.FixedHeight ?? Height + box.ExtraHeight),
+                    box.Cell.Shading, box.Cell.Borders));
 
             foreach (LayoutCell cell in Cells)
                 cells.Add(new LayoutCell(new BRect(cell.Bounds.Left + shift, cell.Bounds.Top + top, cell.Bounds.Width, cell.Bounds.Height), cell.Shading, cell.Borders));
@@ -3811,10 +4247,17 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         var lines = new List<LayoutLine>();
         var cells = new List<LayoutCell>();
         bool first = true;
+        int count = 0;
         foreach (LayoutLine line in content.Lines)
         {
             line.Top += bounds.Top + down;
-            if (shape.TextOverflow || (line.Top >= bounds.Top && line.Top + (line.ClipHeight ?? line.Height) <= bounds.Bottom + 0.01))
+            // Writer sets each line at a whole number of twips, rounding its
+            // proportional height down, so a line that this layout ends a
+            // fraction past the frame's foot can still fit in Writer's: the
+            // picture line of test_msword_hang.docx ends 0.05 points past it
+            // here and fills the frame to the twip in LibreOffice.
+            double tolerance = Math.Max(0.01, ++count * Twip);
+            if (shape.TextOverflow || (line.Top >= bounds.Top && line.Top + (line.ClipHeight ?? line.Height) <= bounds.Bottom + tolerance))
             {
                 lines.Add(line);
             }
@@ -4053,7 +4496,9 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                     : run.Style.PageField is PageField field && field.Kind == PageFieldKind.PageNumber && field.Adjust != 0 &&
                         (page + field.Adjust < 1 || (_pageCount is int count && page + field.Adjust > count))
                         ? ""
-                        : run.Style.PageField?.Text(pageNumber, _pageCount);
+                        : run.Style.PageField is PageField { FollowsPageFormat: true } follows && _pageNumberFormat is ListNumberFormat format
+                            ? (follows with { Format = format }).Text(pageNumber, _pageCount)
+                            : run.Style.PageField?.Text(pageNumber, _pageCount);
                 if (text is not null && text != paragraph.Text.Substring(start, run.Length))
                 {
                     paragraph = paragraph.RemoveRange(start, run.Length);
@@ -4214,6 +4659,10 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             spaceBelowPrevious = Math.Max(0, paragraph.Style.SpacingAfter);
             height += spaceBelowPrevious;
         }
+
+        // Writer's band ends at its last line; its own spacing parts it from the body.
+        if (_styleDefaults.RunningBandsEndAtLastLine && lines.Count > 0)
+            height -= spaceBelowPrevious;
 
         return (lines, height);
     }
@@ -4483,6 +4932,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             line.IndentWidth = columnWidth;
             line.TextAreaLeft = columnLeft - indent;
             line.TextAreaWidth = columnWidthOverride ?? setup.ContentWidthPoints;
+            if (style.RightToLeft && dropPieces is null)
+                MirrorRightToLeft(line);
             lines.Add(line);
         }
 
@@ -4491,6 +4942,106 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 textLeft + (bands.Count > 0 ? bands[0].Left : firstIndent + dropIndent));
 
         return new ParagraphLines(lines);
+    }
+
+    /// <summary>
+    /// Sets a right-to-left paragraph's line, composed from the left, from the
+    /// right of its text area: the line is mirrored, which puts its start, its
+    /// indents and its alignment on the other side, as LibreOffice sets a
+    /// <c>w:bidi</c> paragraph, and runs the words from the right. A stretch of
+    /// left-to-right text - Latin words, numbers, and the spaces between them -
+    /// keeps its own order inside the room it takes, as the Unicode
+    /// bidirectional algorithm orders it at the word level.
+    /// </summary>
+    /// <remarks>
+    /// The glyphs of a word are drawn as they always are; joining and
+    /// reordering the letters inside a right-to-left word is the text drawing's
+    /// business, not the line's.
+    /// </remarks>
+    private static void MirrorRightToLeft(LayoutLine line)
+    {
+        double axis = 2 * line.TextAreaLeft + line.TextAreaWidth;
+        IReadOnlyList<LayoutPiece> pieces = line.Pieces;
+        var starts = new double[pieces.Count];
+        for (int i = 0; i < pieces.Count; i++)
+        {
+            starts[i] = pieces[i].X;
+            pieces[i].X = axis - (pieces[i].X + pieces[i].Width);
+        }
+
+        // Each piece's direction: strong right-to-left, strong left-to-right, a
+        // number, or neutral. A number after left-to-right text is part of it
+        // (UAX #9 W7); a neutral between two left-to-right pieces joins them.
+        var kinds = new int[pieces.Count];
+        int lastStrong = 1;
+        for (int i = 0; i < pieces.Count; i++)
+        {
+            int kind = pieces[i].IsImage || pieces[i].IsTab ? 0 : DirectionOf(pieces[i].Text);
+            if (kind == 3)
+                kind = lastStrong == 2 ? 2 : 3;
+            if (kind is 1 or 2)
+                lastStrong = kind;
+            kinds[i] = kind;
+        }
+
+        bool LeftToRight(int i) => kinds[i] is 2 or 3;
+        int index = 0;
+        while (index < pieces.Count)
+        {
+            if (!LeftToRight(index))
+            {
+                index++;
+                continue;
+            }
+
+            int end = index;
+            for (int next = index + 1; next < pieces.Count; next++)
+            {
+                if (LeftToRight(next))
+                {
+                    end = next;
+                    continue;
+                }
+
+                if (kinds[next] != 0)
+                    break;
+            }
+
+            // The stretch's pieces keep their places relative to each other,
+            // inside the room the mirror gave the stretch.
+            if (end > index)
+            {
+                double left = pieces.Skip(index).Take(end - index + 1).Min(piece => piece.X);
+                for (int i = index; i <= end; i++)
+                    pieces[i].X = left + (starts[i] - starts[index]);
+            }
+
+            index = end + 1;
+        }
+
+        line.IndentLeft = axis - (line.IndentLeft + line.IndentWidth);
+        if (line.BackgroundWidth > 0)
+            line.BackgroundLeft = axis - (line.BackgroundLeft + line.BackgroundWidth);
+    }
+
+    /// <summary>
+    /// 1 for text whose first strong character is right-to-left, 2 for
+    /// left-to-right, 3 for text with no strong character but a digit, 0 for
+    /// neutral text.
+    /// </summary>
+    private static int DirectionOf(string text)
+    {
+        bool digit = false;
+        foreach (char c in text)
+        {
+            if (c is >= '\u0590' and <= '\u08FF' or >= '\uFB1D' and <= '\uFDFF' or >= '\uFE70' and <= '\uFEFF')
+                return char.IsDigit(c) ? 3 : 1;
+            if (char.IsLetter(c))
+                return 2;
+            digit |= char.IsDigit(c);
+        }
+
+        return digit ? 3 : 0;
     }
 
     /// <summary>
@@ -4981,6 +5532,14 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             text = SymbolFontText.Recode(text);
             style = style with { FontFamily = null };
         }
+        else if (style.IsSymbolCharacter && _settings.TextMeasurer is Fonts.PaginationFontAdapter fonts &&
+                 !fonts.HasFace(style.FontFamily))
+        {
+            // A symbol character in a font there is no face for is drawn in
+            // the default serif face, as LibreOffice replaces a symbol font
+            // it lacks (InlineStyle.IsSymbolCharacter).
+            style = style with { FontFamily = SymbolFallbackFamily };
+        }
 
         if (style.Capitalization != TextCapitalization.SmallCaps)
         {
@@ -5014,7 +5573,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     {
         bool revised = _revisions.Shows && style.Revision is not null;
         style = _revisions.Decorate(style, out bool doubled);
-        BFontStyle font = FontFor(style, sizeScale);
+        BaselineShift? shift = style.Shift is { IsNone: false } stated ? stated : null;
+        BFontStyle font = FontFor(style, sizeScale * (shift?.Scale ?? 1));
         BColor color = LayoutColors.Or(style.Foreground, _settings.DefaultForeground);
         bool underline = style.Underline;
 
@@ -5037,9 +5597,28 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             : (_settings.ItalicFaceAvailable?.Invoke(font.FamilyName) ?? false);
         bool oblique = style.Italic && _settings.SynthesizeItalic && !italicFaceAvailable;
 
+        double rise = 0;
+        if (shift is BaselineShift moved)
+        {
+            // Writer moves the smaller text by the full-size font's metrics and
+            // keeps the line at least as tall as full-size text would make it
+            // (SwSubFont::CalcEscAscent, CalcEscHeight; SwFont::CalcEsc).
+            var (fullAscent, fullDescent, fullGap) = VerticalMetrics(FontFor(style, sizeScale));
+            rise = moved.Position switch
+            {
+                BaselinePosition.AutoSuperscript => fullAscent - ascent,
+                BaselinePosition.AutoSubscript => -(fullDescent - descent),
+                _ => (fullAscent + fullDescent) * moved.Offset,
+            };
+            ascent = Math.Max(fullAscent, ascent + rise);
+            descent = Math.Max(fullDescent, descent - rise);
+            lineGap = fullGap;
+        }
+
         return new LayoutPiece(text, font, color, style.Background, underline, style.Strikethrough, style.LinkHref, null,
             width, ascent, descent, oblique: oblique, lineGap: lineGap)
         {
+            Rise = rise,
             Revised = revised,
             Doubled = doubled,
         };
@@ -5051,7 +5630,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     /// </summary>
     private LayoutPiece MakeCitationPiece(DocumentNote note, InlineStyle style)
     {
-        InlineStyle plain = style with { Note = null, Image = null };
+        InlineStyle plain = style with { Note = null, Image = null, Shift = null };
         LayoutPiece small = MakeTextPiece(_noteLabels.Label(note), plain, _settings.DecorateLinks, CitationScale);
         double rise = FontFor(plain).Size * CitationRise;
         return new LayoutPiece(small.Text, small.Font, small.Color, small.Highlight, small.Underline, small.Strikethrough,
@@ -5107,6 +5686,11 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     {
         InlineImage image = style.Image!;
         (double width, double height) = _images.MeasurePoints(image);
+        // The line holds the room the picture's effects take around it as well
+        // (LibreOffice's margins from wp:effectExtent).
+        TableCellPadding extent = image.Presentation.EffectExtent;
+        width += Math.Max(0, extent.Left) + Math.Max(0, extent.Right);
+        height += Math.Max(0, extent.Top) + Math.Max(0, extent.Bottom);
 
         return new LayoutPiece(string.Empty, FontFor(style), LayoutColors.Or(style.Foreground, _settings.DefaultForeground), style.Background, false,
             false, style.LinkHref, image, Math.Max(1, width), Math.Max(1, height), 0)

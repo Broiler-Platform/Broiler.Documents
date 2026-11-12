@@ -145,10 +145,31 @@ internal static class DocxDiagram
                     }
                     result.Add(Shape(child));
                 }
+                else if (child.Name == sourceNamespace + "pic")
+                {
+                    if (++count > builder.Limits.MaxParagraphCount)
+                    {
+                        Report("docx.diagram.limit", "A saved diagram exceeded the supported object count; later children were skipped."); break;
+                    }
+                    result.Add(Picture(child));
+                }
                 else if (child.Name != sourceNamespace + "grpSpPr" && child.Name != sourceNamespace + "nvGrpSpPr")
                     Report("docx.diagram.object", "An unsupported saved diagram object was skipped; supported shapes and text were retained.");
             }
             return result;
+        }
+        // A picture (a locked canvas holds a:pic) becomes the pic:pic a drawing group holds.
+        XElement Picture(XElement source)
+        {
+            XNamespace pictureNamespace = DocxNamespaces.Picture;
+            XElement? names = source.Element(sourceNamespace + "nvPicPr");
+            XElement? fill = source.Element(sourceNamespace + "blipFill");
+            XElement? properties = source.Element(sourceNamespace + "spPr");
+            return new XElement(pictureNamespace + "pic",
+                new XElement(pictureNamespace + "nvPicPr",
+                    names?.Elements().Select(name => new XElement(pictureNamespace + name.Name.LocalName, name.Attributes(), name.Nodes()))),
+                new XElement(pictureNamespace + "blipFill", fill?.Attributes(), fill?.Nodes()),
+                new XElement(pictureNamespace + "spPr", properties?.Attributes(), properties?.Nodes()));
         }
         XElement Shape(XElement source)
         {

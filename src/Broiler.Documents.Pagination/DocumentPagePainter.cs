@@ -217,9 +217,18 @@ public sealed class DocumentPagePainter
         double radius = Math.Min(bounds.Width, bounds.Height) / 6;
         BPoint apex = new(bounds.Left + bounds.Width / 2, bounds.Top);
         BPoint lowerLeft = new(bounds.Left, bounds.Bottom), lowerRight = new(bounds.Right, bounds.Bottom);
+        IReadOnlyList<IReadOnlyList<(double X, double Y)>>? paths = shape.OutlinePaths is { Count: > 0 } outline ? outline : null;
         if (shape.Fill is ShapeFill fill)
         {
-            if (shape.Geometry == ShapeGeometry.Ellipse)
+            if (paths is not null && fill.Image is null && fill.Hatch is null)
+            {
+                // The painter cannot clip a gradient to the outline, so its
+                // middle colour fills it, which keeps the shape's form.
+                BColor color = fill.IsGradient ? fill.ColorAt(0.5) : fill.Start;
+                foreach (IReadOnlyList<(double X, double Y)> path in paths)
+                    FillPolygon(list, PolygonCorners(bounds, path), color);
+            }
+            else if (shape.Geometry == ShapeGeometry.Ellipse)
             {
                 if (!fill.IsGradient && fill.Image is null && fill.Hatch is null)
                     list.Append(new BRenderCommand.FillRoundedRect(shape.Bounds, fill.Start, shape.Bounds.Width / 2, shape.Bounds.Height / 2));
@@ -259,7 +268,16 @@ public sealed class DocumentPagePainter
         if (!shape.Outline.IsEmpty && shape.Outline.A > 0)
         {
             double thickness = shape.OutlineWidth == 0 ? HairlineWidth : shape.OutlineWidth;
-            if (shape.Geometry == ShapeGeometry.Ellipse)
+            if (paths is not null)
+            {
+                foreach (IReadOnlyList<(double X, double Y)> path in paths)
+                {
+                    List<BPoint> corners = PolygonCorners(bounds, path);
+                    for (int i = 0; i < corners.Count; i++)
+                        DrawSegment(list, corners[i], corners[(i + 1) % corners.Count], shape.Outline, thickness);
+                }
+            }
+            else if (shape.Geometry == ShapeGeometry.Ellipse)
                 list.Append(new BRenderCommand.StrokeRoundedRect(shape.Bounds, shape.Outline, shape.Bounds.Width / 2, shape.Bounds.Height / 2, thickness));
             else if (shape.Geometry == ShapeGeometry.RoundedRectangle)
                 list.StrokeRoundedRect(bounds, shape.Outline, radius, radius, thickness);
@@ -428,12 +446,226 @@ public sealed class DocumentPagePainter
             list.FillRect(new BRect(bounds.Left, bounds.Top - (width / 2), bounds.Width, width), shape.Outline);
     }
 
+    /// <summary>The corners of one of a shape's outline polygons on the page.</summary>
+    private static List<BPoint> PolygonCorners(BRect bounds, IReadOnlyList<(double X, double Y)> path)
+    {
+        var corners = new List<BPoint>(path.Count);
+        foreach ((double x, double y) in path)
+        {
+            var corner = new BPoint(bounds.Left + x * bounds.Width, bounds.Top + y * bounds.Height);
+            if (corners.Count == 0 || corners[^1] != corner)
+                corners.Add(corner);
+        }
+        if (corners.Count > 1 && corners[0] == corners[^1])
+            corners.RemoveAt(corners.Count - 1);
+        return corners;
+    }
+
+    /// <summary>
+    /// Fills a simple polygon, convex or not - a star's points - as the
+    /// triangles ear clipping cuts it into.
+    /// </summary>
+    private static void FillPolygon(BRenderList list, List<BPoint> corners, BColor color)
+    {
+        if (corners.Count < 3)
+            return;
+        double area = 0;
+        for (int i = 0; i < corners.Count; i++)
+        {
+            BPoint a = corners[i], b = corners[(i + 1) % corners.Count];
+            area += a.X * b.Y - b.X * a.Y;
+        }
+        double orientation = Math.Sign(area);
+        if (orientation == 0)
+            return;
+
+        // Neighbouring triangles each shade their shared edge half way, which
+        // leaves a pale seam across an opaque fill; grown a little about their
+        // centres they overlap there instead.
+        double grow = color.A == 255 ? 0.3 : 0;
+
+        var remaining = new List<BPoint>(corners);
+        int guard = remaining.Count * remaining.Count;
+        int index = 0;
+        while (remaining.Count > 3 && guard-- > 0)
+        {
+            int count = remaining.Count;
+            BPoint previous = remaining[(index + count - 1) % count], current = remaining[index % count], next = remaining[(index + 1) % count];
+            if (Cross(previous, current, next) * orientation > 0 && !ContainsCorner(remaining, previous, current, next, orientation))
+            {
+                Fill(previous, current, next);
+                remaining.RemoveAt(index % count);
+                index = Math.Max(0, index - 1);
+                continue;
+            }
+            index = (index + 1) % count;
+        }
+
+        if (remaining.Count == 3)
+            Fill(remaining[0], remaining[1], remaining[2]);
+        else
+        {
+            // Not simple after all: fan it rather than leave a hole.
+            for (int i = 1; i + 1 < remaining.Count; i++)
+                Fill(remaining[0], remaining[i], remaining[i + 1]);
+        }
+
+        void Fill(BPoint a, BPoint b, BPoint c)
+        {
+            double cx = (a.X + b.X + c.X) / 3, cy = (a.Y + b.Y + c.Y) / 3;
+            list.FillTriangle(Grown(a), Grown(b), Grown(c), color);
+
+            BPoint Grown(BPoint p)
+            {
+                double dx = p.X - cx, dy = p.Y - cy, length = Math.Sqrt(dx * dx + dy * dy);
+                return length <= 0 || grow == 0 ? p : new BPoint(p.X + dx / length * grow, p.Y + dy / length * grow);
+            }
+        }
+
+        static double Cross(BPoint a, BPoint b, BPoint c) => (b.X - a.X) * (c.Y - b.Y) - (b.Y - a.Y) * (c.X - b.X);
+
+        static bool ContainsCorner(List<BPoint> points, BPoint a, BPoint b, BPoint c, double orientation)
+        {
+            foreach (BPoint p in points)
+            {
+                if (p == a || p == b || p == c)
+                    continue;
+                if (Cross(a, b, p) * orientation >= 0 && Cross(b, c, p) * orientation >= 0 && Cross(c, a, p) * orientation >= 0)
+                    return true;
+            }
+            return false;
+        }
+    }
+
     /// <summary>The midpoints of a box's four edges, the corners of the diamond it holds.</summary>
     private static (BPoint Top, BPoint Right, BPoint Bottom, BPoint Left) DiamondCorners(BRect bounds)
     {
         double middleX = bounds.Left + bounds.Width / 2, middleY = bounds.Top + bounds.Height / 2;
         return (new BPoint(middleX, bounds.Top), new BPoint(bounds.Right, middleY),
             new BPoint(middleX, bounds.Bottom), new BPoint(bounds.Left, middleY));
+    }
+
+    /// <summary>
+    /// Draws a piece's text, with each private-use character its face has no
+    /// glyph for drawn as the face's missing glyph (<c>.notdef</c>).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The renderer draws a character its face lacks as a built-in block
+    /// question mark. LibreOffice first looks for the character in the other
+    /// installed faces, and only where none has it draws the face's own
+    /// missing glyph: a box in DejaVu Sans, nothing in Liberation Serif, whose
+    /// <c>.notdef</c> has no contours. A private-use character, which is what a
+    /// symbol font's text is (Wingdings' arrow at U+F0E7), is in no face of the
+    /// reference set, so the missing glyph is what LibreOffice draws.
+    /// </para>
+    /// <para>
+    /// Other characters are left to the renderer: LibreOffice draws Arabic
+    /// from another face that has it, and East Asian text in the run's East
+    /// Asian font, neither of which this layout models. Drawing the Latin
+    /// face's empty <c>.notdef</c> there left tdf130314.docx's Chinese
+    /// paragraphs blank where LibreOffice draws boxes.
+    /// Where the face's outlines are not known, the text is drawn as it is.
+    /// </para>
+    /// </remarks>
+    private void DrawRun(BRenderList list, LayoutPiece piece, BTextRun run, double originY, double baseline)
+    {
+        if (_settings.TextMeasurer is not Fonts.PaginationFontAdapter adapter ||
+            adapter.FontService.ResolveFace(piece.Font.FamilyName, piece.Bold, piece.Italic) is not { TrueType: { } font } face ||
+            face.UnitsPerEm <= 0 || !HasMissingGlyph(piece.Text, font))
+        {
+            list.DrawText(run, new BPoint(piece.X, originY));
+            return;
+        }
+
+        string text = piece.Text;
+        double size = piece.Font.Size, scale = size / face.UnitsPerEm;
+        int start = 0;
+        for (int i = 0; i <= text.Length;)
+        {
+            int codepoint = i < text.Length ? char.ConvertToUtf32(text, i) : -1;
+            int length = codepoint > 0xFFFF ? 2 : 1;
+            if (codepoint >= 0 && !IsMissingGlyph(codepoint, font))
+            {
+                i += length;
+                continue;
+            }
+
+            if (i > start)
+            {
+                list.DrawText(new BTextRun(text[start..i], piece.Font, piece.Color),
+                    new BPoint(piece.X + face.GetAdvancePoints(text[..start], size), originY));
+            }
+            if (codepoint < 0)
+                break;
+
+            double x = piece.X + face.GetAdvancePoints(text[..i], size);
+            FillContours(list, [.. font.GetGlyphContours(0).Select(contour =>
+                contour.Select(point => new BPoint(x + point.X * scale, baseline - point.Y * scale)).ToArray())], piece.Color);
+            i += length;
+            start = i;
+        }
+    }
+
+    private static bool HasMissingGlyph(string text, TrueTypeFont font)
+    {
+        for (int i = 0; i < text.Length; i += char.IsSurrogatePair(text, i) ? 2 : 1)
+        {
+            if (IsMissingGlyph(char.ConvertToUtf32(text, i), font))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>True for a private-use character the face has no glyph for (<see cref="DrawRun"/>).</summary>
+    private static bool IsMissingGlyph(int codepoint, TrueTypeFont font) =>
+        System.Globalization.CharUnicodeInfo.GetUnicodeCategory(codepoint) == System.Globalization.UnicodeCategory.PrivateUse &&
+        font.GetGlyphIndex(codepoint) == 0;
+
+    /// <summary>
+    /// Fills closed polygons by the non-zero winding rule, as a glyph's
+    /// contours are filled: each band between two corner heights is split
+    /// into the trapezoids its edges bound, drawn as two triangles each.
+    /// </summary>
+    internal static void FillContours(BRenderList list, IReadOnlyList<BPoint[]> contours, BColor color)
+    {
+        var edges = new List<(BPoint Top, BPoint Bottom, int Winding)>();
+        foreach (BPoint[] contour in contours)
+        {
+            for (int i = 0; i < contour.Length && contour.Length > 2; i++)
+            {
+                BPoint a = contour[i], b = contour[(i + 1) % contour.Length];
+                if (a.Y == b.Y)
+                    continue;
+                edges.Add(a.Y < b.Y ? (a, b, 1) : (b, a, -1));
+            }
+        }
+        if (edges.Count == 0 || color.IsEmpty || color.A == 0)
+            return;
+
+        double[] heights = [.. edges.SelectMany(edge => new[] { edge.Top.Y, edge.Bottom.Y }).Distinct().Order()];
+        for (int band = 0; band + 1 < heights.Length; band++)
+        {
+            double top = heights[band], bottom = heights[band + 1], middle = (top + bottom) / 2;
+            var crossings = edges
+                .Where(edge => edge.Top.Y <= top && edge.Bottom.Y >= bottom)
+                .Select(edge => (Middle: At(edge, middle), Top: At(edge, top), Bottom: At(edge, bottom), edge.Winding))
+                .OrderBy(crossing => crossing.Middle)
+                .ToList();
+            int winding = 0;
+            for (int i = 0; i + 1 < crossings.Count; i++)
+            {
+                winding += crossings[i].Winding;
+                if (winding == 0)
+                    continue;
+                var (left, right) = (crossings[i], crossings[i + 1]);
+                list.FillTriangle(new BPoint(left.Top, top), new BPoint(right.Top, top), new BPoint(right.Bottom, bottom), color);
+                list.FillTriangle(new BPoint(left.Top, top), new BPoint(right.Bottom, bottom), new BPoint(left.Bottom, bottom), color);
+            }
+        }
+
+        static double At((BPoint Top, BPoint Bottom, int Winding) edge, double y) =>
+            edge.Top.X + (edge.Bottom.X - edge.Top.X) * (y - edge.Top.Y) / (edge.Bottom.Y - edge.Top.Y);
     }
 
     private static void DrawSegment(BRenderList list, BPoint start, BPoint end, BColor color, double width)
@@ -999,6 +1231,9 @@ public sealed class DocumentPagePainter
     /// </summary>
     private static void DrawShapeImage(BRenderList list, InlineImage image, BRect destination, Func<InlineImage, BImageHandle?> resolveImage)
     {
+        if (image.Presentation.Shadow is ImageShadow shadow && !shadow.Color.IsEmpty && shadow.Color.A > 0)
+            list.FillRect(shadow.Bounds(destination), shadow.Color);
+
         if (resolveImage(image) is not BImageHandle decoded)
         {
             if (image.MarksMissingPayload || !image.IsMissingPayload)
@@ -1239,12 +1474,12 @@ public sealed class DocumentPagePainter
                 // and nothing else.
                 double slant = _settings.ObliqueSlant;
                 list.PushTransform(new BMatrix3x2(1, 0, -slant, 1, slant * pieceBaseline, 0));
-                list.DrawText(run, new BPoint(piece.X, originY));
+                DrawRun(list, piece, run, originY, pieceBaseline);
                 list.PopTransform();
             }
             else
             {
-                list.DrawText(run, new BPoint(piece.X, originY));
+                DrawRun(list, piece, run, originY, pieceBaseline);
             }
 
             double thickness = Math.Max(0.5, piece.Font.Size * 0.055);
@@ -1284,14 +1519,38 @@ public sealed class DocumentPagePainter
     private static void DrawImage(BRenderList list, LayoutPiece piece, double baseline, Func<InlineImage, BImageHandle?> resolveImage)
     {
         var destination = new BRect(piece.X, baseline - piece.Ascent, piece.Width, piece.Ascent);
+        ImagePresentation presentation = piece.Image!.Presentation;
+        if (!presentation.IsDefault)
+        {
+            // The line box holds the picture's effect extent around its turned box.
+            TableCellPadding extent = presentation.EffectExtent;
+            double left = Math.Max(0, extent.Left), top = Math.Max(0, extent.Top);
+            destination = new BRect(destination.X + left, destination.Y + top,
+                Math.Max(1, destination.Width - left - Math.Max(0, extent.Right)),
+                Math.Max(1, destination.Height - top - Math.Max(0, extent.Bottom)));
+            if (presentation.Shadow is ImageShadow shadow && !shadow.Color.IsEmpty && shadow.Color.A > 0)
+                list.FillRect(shadow.Bounds(destination), shadow.Color);
+            // A turned picture's bitmap is already turned (ImagePresentation.Apply)
+            // and covers its turned bounding box, centred on the line's box.
+            if (presentation.TurnedBounds is (double width, double height))
+            {
+                destination = new BRect(destination.X + (destination.Width - width) / 2,
+                    destination.Y + (destination.Height - height) / 2, width, height);
+            }
+        }
 
-        if (resolveImage(piece.Image!) is not BImageHandle image)
+        DrawImageInto(list, piece.Image, destination, resolveImage);
+    }
+
+    private static void DrawImageInto(BRenderList list, InlineImage picture, BRect destination, Func<InlineImage, BImageHandle?> resolveImage)
+    {
+        if (resolveImage(picture) is not BImageHandle image)
         {
             // The image did not decode. Draw the box it would have occupied with
             // a cross through it: the page then shows where content is missing
             // instead of quietly closing up around the hole - unless the source
             // prints nothing there (InlineImage.MarksMissingPayload).
-            if (piece.Image!.MarksMissingPayload || !piece.Image.IsMissingPayload)
+            if (picture.MarksMissingPayload || !picture.IsMissingPayload)
                 DrawMissingImage(list, destination);
             return;
         }

@@ -58,6 +58,8 @@ internal sealed class DocxFields
             return page;
         if (style.StyleReference is null && Result is StyleReferenceField field)
             style = style with { StyleReference = field };
+        if (_open.Exists(static open => open.Separated && open.Recalculated))
+            style = style with { Hidden = true };
         return style;
     }
 
@@ -100,6 +102,8 @@ internal sealed class DocxFields
         switch ((string?)fieldCharacter.Attribute(DocxNamespaces.Wordprocessing + "fldCharType"))
         {
             case "begin":
+                if (_open.Count > 0 && !_open[^1].Separated)
+                    _open[^1].HasNestedField = true;
                 _open.Add(new Field());
                 break;
             case "separate" when _open.Count > 0 && !_open[^1].Separated:
@@ -111,6 +115,12 @@ internal sealed class DocxFields
                     _open[^1].PageStyle = runStyle with { PageField = separated };
                 _open[^1].TableOfContents = Tokens(_open[^1].Code.ToString()) is [string name, ..] &&
                     name.Equals("TOC", StringComparison.OrdinalIgnoreCase);
+                if (!_open[^1].HasNestedField && LibreOfficeIfResult(_open[^1].Code.ToString()) is string shown)
+                {
+                    _open[^1].Recalculated = true;
+                    if (shown.Length > 0)
+                        return (null, shown, false);
+                }
                 break;
             case "end" when _open.Count > 0:
                 Field ended = _open[^1];
@@ -190,6 +200,7 @@ internal sealed class DocxFields
             return null;
 
         ListNumberFormat format = ListNumberFormat.Decimal;
+        bool stated = false;
         for (int i = 1; i < tokens.Count; i++)
         {
             if (tokens[i] != "\\*" || i + 1 >= tokens.Count)
@@ -204,12 +215,15 @@ internal sealed class DocxFields
                     break;
                 case "ARABIC":
                     format = ListNumberFormat.Decimal;
+                    stated = true;
                     break;
                 case "ROMAN":
                     format = name.StartsWith("RO", StringComparison.Ordinal) ? ListNumberFormat.UpperRoman : ListNumberFormat.LowerRoman;
+                    stated = true;
                     break;
                 case "ALPHABETIC":
                     format = name.StartsWith("AL", StringComparison.Ordinal) ? ListNumberFormat.UpperLetter : ListNumberFormat.LowerLetter;
+                    stated = true;
                     break;
                 default:
                     // A format LibreOffice has no numbering for, such as
@@ -221,7 +235,82 @@ internal sealed class DocxFields
             }
         }
 
-        return new PageField(kind, format);
+        // A PAGE field with no format of its own is written in the numbering
+        // of its page style, which writerfilter takes from the section's
+        // w:pgNumType w:fmt (tdf170602_exportContext.docx's roman pages).
+        return new PageField(kind, format) { FollowsPageFormat = kind == PageFieldKind.PageNumber && !stated };
+    }
+
+    /// <summary>
+    /// The text LibreOffice draws for an <c>IF</c> field it works out again on
+    /// the page, or null where it keeps the result Word saved.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// LibreOffice imports <c>IF condition "true" "false"</c> as conditional
+    /// text: the last two arguments are the two results and the rest, joined
+    /// by spaces, is the condition, which Writer's calculator evaluates when
+    /// it lays the page out. Its import reads the comparison <c>=</c> as the
+    /// name of Word's formula field, so <c>IF "1234" = "" "" "phone: 1234"</c>
+    /// becomes the condition <c>1234 FORMULA</c> (its flat ODF export). The
+    /// calculator takes a condition that starts with a number and runs on
+    /// into a name as true, and one that starts with text as not worked out,
+    /// so the field keeps its saved result. LibreOffice 24.2 draws the true
+    /// result for <c>1 = 2</c> and <c>"1234" = ""</c> and the saved one for
+    /// <c>"a" = "a"</c>; a numeric <c>&lt;</c>, <c>&lt;=</c>, <c>&gt;</c>,
+    /// <c>&gt;=</c> or <c>&lt;&gt;</c> comparison, or a lone number, it works
+    /// out as Word does. Its text export does not lay the page out and lists
+    /// the saved result, so that stays in the document, hidden.
+    /// </para>
+    /// <para>
+    /// Only those forms are worked out. A field with a nested field in its
+    /// instruction is not: LibreOffice imports that differently.
+    /// </para>
+    /// </remarks>
+    internal static string? LibreOfficeIfResult(string instruction)
+    {
+        List<string> tokens = Tokens(instruction);
+        if (tokens.Count == 0 || !tokens[0].Equals("IF", StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        var arguments = new List<string>();
+        for (int i = 1; i < tokens.Count; i++)
+        {
+            if (tokens[i].StartsWith('\\'))
+            {
+                if (tokens[i] is "\\*" or "\\@" or "\\#")
+                    i++;
+                continue;
+            }
+            arguments.Add(tokens[i]);
+        }
+        if (arguments.Count < 3)
+            return null;
+
+        string whenTrue = arguments[^2], whenFalse = arguments[^1];
+        List<string> condition = arguments[..^2];
+        bool? holds = condition switch
+        {
+            [string value] when Number(value) is double number => number != 0,
+            [string left, "=", _] when Number(left) is not null => true,
+            [string left, string comparison, string right] when Number(left) is double a && Number(right) is double b =>
+                comparison switch
+                {
+                    "<" => a < b,
+                    "<=" => a <= b,
+                    ">" => a > b,
+                    ">=" => a >= b,
+                    "<>" => a != b,
+                    _ => null,
+                },
+            _ => null,
+        };
+        return holds switch { true => whenTrue, false => whenFalse, null => null };
+
+        static double? Number(string text) =>
+            double.TryParse(text, NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out double value)
+                ? value
+                : null;
     }
 
     /// <summary>Adds a <c>w:instrText</c> to the instruction of the field being spelled.</summary>
@@ -315,5 +404,14 @@ internal sealed class DocxFields
 
         public bool TableOfContents { get; set; }
         public bool HiddenResult { get; set; }
+
+        /// <summary>A field begins inside this one's instruction.</summary>
+        public bool HasNestedField { get; set; }
+
+        /// <summary>
+        /// LibreOffice works this field out again on the page, so the result
+        /// Word saved is hidden (<see cref="LibreOfficeIfResult"/>).
+        /// </summary>
+        public bool Recalculated { get; set; }
     }
 }

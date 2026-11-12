@@ -100,9 +100,11 @@ public sealed class DocxShapeGroupTests
         // The group draws child space (1000, 2000)-(1400, 2200) into its 200 by
         // 100 point box: half a point to a unit across and down. A child at
         // (1200, 2100), 100 by 50 units, is (100, 50) points in, 50 by 25.
-        DocumentShape shape = Assert.Single(Read(Group(
+        // A second box keeps the group from being one shape, which LibreOffice
+        // draws over the whole group (DocxIssue242BlankTests).
+        DocumentShape shape = Read(Group(
             Transform(0, 0, 2540000, 1270000, 1000, 2000, 400, 200),
-            Box("2", 1200, 2100, 100, 50, "C0504D"))).Document.Shapes);
+            Box("2", 1200, 2100, 100, 50, "C0504D") + Box("3", 1000, 2000, 10, 10, "FFFFFF"))).Document.Shapes[0];
 
         Assert.Equal(10 + 100, shape.OffsetX, 6);
         Assert.Equal(20 + 50, shape.OffsetY, 6);

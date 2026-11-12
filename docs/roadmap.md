@@ -344,14 +344,16 @@ Each item needs conformance fixtures and explicit diagnostics before it lands.
   `TabOverMargin` too, as no RTF states a compatibility mode; and the line
   breaking that lets `tdf77417.docx`'s "$ 000,000" overrun its right stop by
   2.4 pt in LibreOffice where `broilerdoc` wraps it.
-- **Superscript and subscript.** `w:vertAlign`, RTF's `\super` and `\sub`, ODF's
-  `style:text-position` and HTML's `sup` and `sub` are not modelled for ordinary
-  text; only a note's citation is raised and made smaller. `tdf77417.docx`'s
+- **Superscript and subscript.** The model has a run property for it
+  (`InlineStyle.Shift`, `BaselineShift`), the line layout sets such a run
+  smaller and raises or lowers it as Writer does, and the raster and PDF
+  painters draw it off the baseline. Only the ODT codec reads and writes it
+  (`style:text-position`, issue #242). `w:vertAlign` and `w:position`, RTF's
+  `\super`, `\sub` and `\up`, and HTML's `sup` and `sub` are not read yet;
+  only a note's citation is raised and made smaller there. `tdf77417.docx`'s
   footnote marks "(a)" and "(b)" are drawn at full size on the baseline, and
   `fdo68607.docx`'s "19th" is set at full size, which wraps its definition
-  one word earlier than LibreOffice does. `tdf127316_autoEscapement2.odt`'s
-  40 pt runs at `super 80%` down to `sub 20%` are drawn full size, so each
-  paragraph wraps and the document runs to 6 pages where LibreOffice sets 2.
+  one word earlier than LibreOffice does.
 - **The DOCX widow and orphan default.** A DOCX with a `w:pPrDefault` keeps two
   lines of every paragraph that states nothing, in Word and in LibreOffice
   (`DocumentStyleDefaults.WidowOrphanLines`, issue #185); 1,701 of the

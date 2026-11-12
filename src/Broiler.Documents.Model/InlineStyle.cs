@@ -42,6 +42,12 @@ public readonly record struct InlineStyle
     /// </summary>
     public TextCapitalization Capitalization { get; init; }
 
+    /// <summary>
+    /// The run raised or lowered and set smaller (superscript, subscript), or
+    /// <see langword="null"/> for text on the baseline at its own size.
+    /// </summary>
+    public BaselineShift? Shift { get; init; }
+
     /// <summary>Foreground color, or <see cref="BColor.Empty"/> for the default color.</summary>
     public BColor Foreground { get; init; }
 
@@ -97,6 +103,21 @@ public readonly record struct InlineStyle
     /// styles stay apart even where they look the same.
     /// </summary>
     public string? CharacterStyle { get; init; }
+
+    /// <summary>
+    /// True for a symbol character: one inserted from a symbol font by its
+    /// code in that font (DOCX <c>w:sym</c>), rather than typed as text.
+    /// </summary>
+    /// <remarks>
+    /// LibreOffice imports such a character in the symbol character set, and
+    /// a symbol font it does not have is not replaced by the face fontconfig
+    /// offers for the name but by its default serif face. A character that
+    /// face lacks is then drawn as its missing glyph, which in Liberation
+    /// Serif is empty: fdo78384.docx's 72 point Wingdings arrow is a blank
+    /// page in LibreOffice 24.2 without Wingdings, where the same character
+    /// typed in Wingdings shows DejaVu Sans's missing-glyph box.
+    /// </remarks>
+    public bool IsSymbolCharacter { get; init; }
 
     /// <summary>The unformatted default style (<c>default(InlineStyle)</c>).</summary>
     public static InlineStyle Default => default;

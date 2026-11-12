@@ -37,6 +37,14 @@ public enum PageFieldKind
 public sealed record PageField(PageFieldKind Kind, ListNumberFormat Format = ListNumberFormat.Decimal, int Adjust = 0)
 {
     /// <summary>
+    /// True for a page number that states no format of its own, such as DOCX's
+    /// <c>PAGE \* MERGEFORMAT</c>: it is written as the page's section numbers
+    /// its pages (<see cref="DocumentSection.PageNumberFormat"/>), and in
+    /// <see cref="Format"/> where the section says nothing.
+    /// </summary>
+    public bool FollowsPageFormat { get; init; }
+
+    /// <summary>
     /// The field's text on a page numbered <paramref name="pageNumber"/> in a
     /// document of <paramref name="pageCount"/> pages, or null for a page count
     /// not known yet. A number adjusted to before the first page shows nothing,

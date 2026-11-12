@@ -673,6 +673,11 @@ public sealed class DocumentComparison
             ? "none"
             : revision.Kind.ToString().ToLowerInvariant() + (revision.Author is string author ? " by " + Quote(author) : string.Empty);
 
+    private static string DescribeShift(BaselineShift? shift) =>
+        shift is not BaselineShift value
+            ? "none"
+            : FormattableString.Invariant($"{value.Position} {value.Offset:0.###} at {value.Scale:0.###}");
+
     private static string? DescribeInlineDifference(InlineStyle left, InlineStyle right)
     {
         if (left.Bold != right.Bold)
@@ -685,6 +690,8 @@ public sealed class DocumentComparison
             return "strikethrough " + left.Strikethrough + " vs " + right.Strikethrough;
         if (left.Capitalization != right.Capitalization)
             return "capitalization " + left.Capitalization + " vs " + right.Capitalization;
+        if (left.Shift != right.Shift)
+            return "baseline shift " + DescribeShift(left.Shift) + " vs " + DescribeShift(right.Shift);
         if (!string.Equals(left.FontFamily, right.FontFamily, StringComparison.Ordinal))
             return "font family " + Quote(left.FontFamily) + " vs " + Quote(right.FontFamily);
         if (!NullableNear(left.FontSize, right.FontSize))

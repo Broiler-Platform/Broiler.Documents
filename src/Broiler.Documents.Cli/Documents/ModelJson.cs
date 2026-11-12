@@ -167,6 +167,22 @@ public static class ModelJson
         if (style.CharacterStyle is string characterStyle)
             entry["characterStyle"] = characterStyle;
 
+        // Only on raised or lowered text, so the description of every other run is as it was.
+        if (style.Shift is BaselineShift shift)
+        {
+            entry["shift"] = new JsonObject
+            {
+                ["position"] = shift.Position switch
+                {
+                    BaselinePosition.AutoSuperscript => "superscript",
+                    BaselinePosition.AutoSubscript => "subscript",
+                    _ => "offset",
+                },
+                ["offset"] = shift.Offset,
+                ["scale"] = shift.Scale,
+            };
+        }
+
         // Only on a citation, so the description of every other run is as it was.
         if (style.Note is DocumentNote note)
         {
