@@ -235,9 +235,14 @@ public static class RtfReader
         private int _shapeAlignX, _shapeAlignY;
         private readonly Dictionary<string, double> _shapeWrapDistances = new(StringComparer.Ordinal);
 
-        // What a shape's \shptop is measured from: 0 the top margin, 1 the page,
-        // 2 the paragraph - posrelv's numbering, which \shpbymargin, \shpbypage
-        // and \shpbypara state too.
+        // What a shape's \shptop is measured from: 1 the page, 2 the paragraph -
+        // posrelv's numbering, which \shpbypage and \shpbypara state too.
+        // posrelv's 0 and \shpbymargin name the top margin, but LibreOffice
+        // 24.2 measures both from the paragraph, for an offset and an
+        // alignment alike, in the body and in a header (soffice cut-downs: a
+        // shape anchored to the ninth paragraph lands on that paragraph, not
+        // the margin; watermark.rtf's header watermark is centred on its
+        // header paragraph).
         private int _shapeVerticalFrame = 2;
 
         // What a shape's \shpleft is measured from: \shpbxpage, or else the
@@ -266,6 +271,8 @@ public static class RtfReader
         // WordArt: fGtext turns the shape into its gtextUNICODE string, drawn in
         // gtextFont and the shape's fill colour.
         private bool _shapeGtext;
+        // Whether the WordArt text is stretched to the box (a VML text shape type).
+        private bool _shapeWordArtStretched;
         private string? _shapeGtextString;
         private string? _shapeGtextFont;
         private bool? _shapeFillEnabled;
@@ -1246,7 +1253,7 @@ public static class RtfReader
                         ReportShapeApproximation("wrap", "Contour wrapping was approximated by the shape rectangle or unrestricted flow.");
                     return;
                 case "shpwrk": _shapeWrapSide = p switch { 1 => WrapSide.Left, 2 => WrapSide.Right, _ => WrapSide.Largest }; return;
-                case "shpbymargin": _shapeVerticalFrame = 0; return;
+                case "shpbymargin": _shapeVerticalFrame = 2; return;
                 case "shpbypage": _shapeVerticalFrame = 1; return;
                 case "shpbypara": _shapeVerticalFrame = 2; return;
                 case "shpbxpage": _shapeLeftFromPage = true; return;
@@ -2186,6 +2193,7 @@ public static class RtfReader
             _shapeFillFocus = 0;
             _shapeText = null;
             _shapeGtext = false;
+            _shapeWordArtStretched = false;
             _shapeGtextString = _shapeGtextFont = null;
         }
 
@@ -2293,8 +2301,10 @@ public static class RtfReader
                     _shapeGroupDrawShape = number != 0;
                     break;
                 case "posrelv":
-                    // 3 is the line, which the model holds as its paragraph.
-                    _shapeVerticalFrame = number is 0 or 1 ? (int)number : 2;
+                    // 3 is the line, which the model holds as its paragraph,
+                    // and 0 the margin, which LibreOffice measures from the
+                    // paragraph too.
+                    _shapeVerticalFrame = number == 1 ? 1 : 2;
                     break;
                 default:
                     break;
@@ -2491,11 +2501,9 @@ public static class RtfReader
                 (outline.IsEmpty || _shapeType == 75))
                 return;
 
-            // A shape measured from the page or its top margin is placed from the
-            // top of the page its paragraph is on, which the model holds as such.
+            // A shape measured from the page is placed from the top of the page
+            // its paragraph is on, which the model holds as such.
             double top = _shapeTop / 20d;
-            if (_shapeVerticalFrame == 0)
-                top += TopMarginTwips / 20d;
 
             // A line drawn right to left or bottom to top states its far end
             // first; the rule is the same either way.
@@ -2505,34 +2513,67 @@ public static class RtfReader
             if (height < 0)
                 top += height;
 
+            // An aligned shape is aligned by the box its rotation sweeps, as
+            // LibreOffice aligns a rotated drawing's bounding rectangle (soffice:
+            // a 45° shape aligned to the top of its paragraph has its bounding
+            // square's top there). The shape turns about its centre, so its own
+            // box is centred in that one.
+            double turnedWidth = Math.Abs(width) * Math.Abs(Math.Cos(_shapeRotation)) + Math.Abs(height) * Math.Abs(Math.Sin(_shapeRotation));
+            double turnedHeight = Math.Abs(width) * Math.Abs(Math.Sin(_shapeRotation)) + Math.Abs(height) * Math.Abs(Math.Cos(_shapeRotation));
             if (_shapeAlignX != 0)
             {
                 double pageWidth = (_sectionWidth ?? _paperWidth) / 20d;
                 double marginLeft = (_sectionLeft ?? _marginLeft) / 20d;
                 double marginRight = (_sectionRight ?? _marginRight) / 20d;
                 double referenceWidth = _shapeLeftFromPage ? pageWidth : pageWidth - marginLeft - marginRight;
-                left = (_shapeLeftFromPage ? -marginLeft : 0) +
-                    (_shapeAlignX == 2 ? (referenceWidth - Math.Abs(width)) / 2 : _shapeAlignX == 3 ? referenceWidth - Math.Abs(width) : 0);
+                left = (_shapeLeftFromPage ? -marginLeft : 0) + (turnedWidth - Math.Abs(width)) / 2 +
+                    (_shapeAlignX == 2 ? (referenceWidth - turnedWidth) / 2 : _shapeAlignX == 3 ? referenceWidth - turnedWidth : 0);
             }
-            if (_shapeAlignY != 0 && _shapeVerticalFrame is 0 or 1 && height != 0 && !_shapeFitsText)
+
+            bool running = IsRunning(host);
+            bool header = host is RtfDestination.Header or RtfDestination.HeaderFirst or RtfDestination.HeaderEven;
+            bool alignedY = false;
+            if (_shapeAlignY != 0 && height != 0 && !_shapeFitsText &&
+                HeaderParagraphTop(host) is double paragraphTop && _shapeVerticalFrame == 2)
+            {
+                // Aligned with the header paragraph it is anchored to: the first
+                // one starts at the header distance, and its height is a line
+                // of its text, which this reader estimates from the font size.
+                double paragraphHeight = (_state.Char.FontSize ?? 12) * HeaderLineHeight;
+                top = paragraphTop + (turnedHeight - Math.Abs(height)) / 2 +
+                    (_shapeAlignY == 2 ? (paragraphHeight - turnedHeight) / 2 : _shapeAlignY == 3 ? paragraphHeight - turnedHeight : 0);
+                alignedY = true;
+            }
+            else if (_shapeAlignY != 0 && _shapeVerticalFrame == 1 && height != 0 && !_shapeFitsText)
             {
                 double pageHeight = (_sectionHeight ?? _paperHeight) / 20d;
-                double marginTop = TopMarginTwips / 20d;
-                double marginBottom = BottomMarginTwips / 20d;
-                double referenceHeight = _shapeVerticalFrame == 1 ? pageHeight : pageHeight - marginTop - marginBottom;
-                top = (_shapeVerticalFrame == 1 ? 0 : marginTop) +
-                    (_shapeAlignY == 2 ? (referenceHeight - Math.Abs(height)) / 2 : _shapeAlignY == 3 ? referenceHeight - Math.Abs(height) : 0);
+                top = (turnedHeight - Math.Abs(height)) / 2 +
+                    (_shapeAlignY == 2 ? (pageHeight - turnedHeight) / 2 : _shapeAlignY == 3 ? pageHeight - turnedHeight : 0);
+                alignedY = true;
             }
             else if (_shapeAlignY is 2 or 3)
                 ReportShapeApproximation("position", "An aligned shape lacked a fixed page-relative height; its stated offset was retained.");
 
-            bool running = IsRunning(host);
-            if (running && _shapeVerticalFrame == 2)
-            {
-                bool header = host is RtfDestination.Header or RtfDestination.HeaderFirst or RtfDestination.HeaderEven;
+            if (running && _shapeVerticalFrame == 2 && !alignedY)
                 top += (header ? _headerDistance : (_sectionHeight ?? _paperHeight) - _footerDistance) / 20d;
+
+            // Writer keeps a header's or footer's drawing on its page: one whose
+            // turned box would cross the page's top or bottom edge is moved
+            // inside it (soffice: a header watermark centred on its one-line
+            // paragraph starts at the page's top edge).
+            if (running && turnedHeight > 0)
+            {
+                double pageHeight = (_sectionHeight ?? _paperHeight) / 20d;
+                double boxTop = top + (Math.Abs(height) - turnedHeight) / 2;
+                if (boxTop + turnedHeight > pageHeight)
+                    boxTop = pageHeight - turnedHeight;
+                if (boxTop < 0)
+                    boxTop = 0;
+                top = boxTop + (turnedHeight - Math.Abs(height)) / 2;
             }
 
+            // Word turns a shape about its centre, the model about its top-left
+            // corner: the corner moves so the centre stays where Word has it.
             var shape = new DocumentShape(
                 _builder.ParagraphCount,
                 left + (Math.Abs(width) * (1 - Math.Cos(_shapeRotation)) + Math.Abs(height) * Math.Sin(_shapeRotation)) / 2,
@@ -2564,6 +2605,7 @@ public static class RtfReader
             {
                 RotationRadians = _shapeRotation,
                 IsCustomShape = _shapeGroupDrawShape,
+                StretchesTextToBox = _shapeWordArtStretched,
             };
             if (running)
             {
@@ -2602,6 +2644,27 @@ public static class RtfReader
         /// </summary>
         private const double WordArtAdvance = 0.7;
 
+        /// <summary>
+        /// The height of a one-line header paragraph, in ems of its font: about
+        /// the line height of the sans and serif faces Word documents use
+        /// (11 pt Calibri's header line is 12.4 pt in LibreOffice).
+        /// </summary>
+        private const double HeaderLineHeight = 1.15;
+
+        /// <summary>
+        /// The top of the header paragraph a shape in <paramref name="host"/> is
+        /// anchored to, in points from the page's top edge, or null when that is
+        /// not known without laying the header out: the header's first paragraph
+        /// starts at the header distance, and later ones below lines this reader
+        /// has not measured. Footers grow up from the page's foot, so none of
+        /// theirs is known.
+        /// </summary>
+        private double? HeaderParagraphTop(RtfDestination host) =>
+            host is RtfDestination.Header or RtfDestination.HeaderFirst or RtfDestination.HeaderEven &&
+            (_running.GetValueOrDefault(host)?.ParagraphCount ?? 0) == 0
+                ? _headerDistance / 20d
+                : null;
+
         private IReadOnlyList<RichTextParagraph>? WordArtParagraphs(double width, double height)
         {
             if (!_shapeGtext || string.IsNullOrWhiteSpace(_shapeGtextString))
@@ -2614,8 +2677,18 @@ public static class RtfReader
             if (lines.Length == 0)
                 return null;
 
-            ReportShapeApproximation("wordart", "An RTF WordArt shape was drawn as plain text in its box; its glyphs are not fitted to the text path.");
-            double size = Math.Min(Math.Abs(height) / lines.Length / 1.2, Math.Abs(width) / (lines.Max(line => line.Length) * WordArtAdvance));
+            // The VML text shape types are fitted to the box: the painter
+            // stretches each line across it and the lines down it, so the size
+            // only has to keep every line on one line, as the DOCX reader's
+            // VML WordArt does (no glyph is wider than an em and a tenth).
+            _shapeWordArtStretched = _shapeType is >= 136 and <= 175;
+            ReportShapeApproximation("wordart", _shapeWordArtStretched
+                ? "An RTF WordArt shape's text was stretched to fill its box; its glyphs are not bent along the text path."
+                : "An RTF WordArt shape was drawn as plain text in its box; its glyphs are not fitted to the text path.");
+            double longest = lines.Max(line => line.Length);
+            double size = _shapeWordArtStretched
+                ? Math.Max(1, Math.Abs(width) / (longest * 1.1))
+                : Math.Min(Math.Abs(height) / lines.Length / 1.2, Math.Abs(width) / (longest * WordArtAdvance));
             BColor color = _shapeFillStart.IsEmpty ? BColor.Black : ShapeOpacity(_shapeFillStart, _shapeFillOpacity);
             InlineStyle style = InlineStyle.Default with
             {

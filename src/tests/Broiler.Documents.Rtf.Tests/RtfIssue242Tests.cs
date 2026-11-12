@@ -4,7 +4,8 @@ namespace Broiler.Documents.Rtf.Tests;
 
 /// <summary>
 /// Office conformance issue #242 (rtf-html): the page of a document whose body
-/// holds nothing (dppolyline.rtf).
+/// holds nothing (dppolyline.rtf), and a header watermark aligned with its
+/// paragraph (watermark.rtf).
 /// </summary>
 public sealed class RtfIssue242Tests
 {
@@ -95,5 +96,83 @@ public sealed class RtfIssue242Tests
     {
         // tdf84684.rtf closes its root group before its only \par.
         AssertWriterDefaultPage(Read(@"{\rtf1" + Page + Drawing + @"}{\par}"));
+    }
+
+    private static string HeaderShape(string properties, int right = 8484, int bottom = 4242) =>
+        @"{\rtf1\paperw11906\paperh16838\margl1440\margr1440\margt1440\margb1440\headery708 " +
+        @"{\header \pard\plain\fs22 {\shp{\*\shpinst\shpleft0\shptop0\shpright" + right + @"\shpbottom" + bottom +
+        @"\shpbxcolumn\shpbxignore\shpbypara\shpbyignore{\sp{\sn shapeType}{\sv 136}}" + properties + @"}}\par}" +
+        @"\pard x\par}";
+
+    /// <summary>The side of the square a 424.2 x 212.1 pt box turned 45° sweeps.</summary>
+    private static readonly double Turned = (424.2 + 212.1) * Math.Sqrt(0.5);
+
+    private static string P(string name, object value) => @"{\sp{\sn " + name + @"}{\sv " + value + "}}";
+
+    private static DocumentShape HeaderShapeOf(string rtf) =>
+        Assert.Single(Read(rtf).RunningContent.EffectiveHeaderShapes(PageSelection.Default));
+
+    /// <summary>The centre of a shape the model turns about its top-left corner.</summary>
+    private static (double X, double Y) Centre(DocumentShape shape)
+    {
+        double cos = Math.Cos(shape.RotationRadians), sin = Math.Sin(shape.RotationRadians);
+        return (shape.OffsetX + shape.Width / 2 * cos - shape.Height / 2 * sin,
+            shape.OffsetY + shape.Width / 2 * sin + shape.Height / 2 * cos);
+    }
+
+    [Fact]
+    public void A_Header_Watermark_Centred_On_Its_Paragraph_Is_Kept_On_The_Page()
+    {
+        // watermark.rtf: Word's PowerPlusWaterMarkObject, 424.2 x 212.1 pt turned
+        // 315°, centred on its header paragraph (posrelv 0, which LibreOffice
+        // measures from the paragraph). Its 450 pt bounding square would start
+        // above the page, so Writer moves it down to the page's top edge.
+        DocumentShape shape = HeaderShapeOf(HeaderShape(
+            P("rotation", 20643840) + P("posh", 2) + P("posrelh", 0) + P("posv", 2) + P("posrelv", 0) +
+            P("fGtext", 1) + P("gtextUNICODE", "ASAP") + P("fillColor", 6108695)));
+
+        (double x, double y) = Centre(shape);
+        // The model measures across from the left margin.
+        Assert.Equal((595.3 - 144) / 2, x, 0.01);
+        Assert.Equal(Turned / 2, y, 0.01);
+        Assert.True(shape.StretchesTextToBox);
+        Assert.Equal("ASAP", Assert.Single(shape.Paragraphs).Text);
+    }
+
+    [Fact]
+    public void A_Turned_Shape_Aligned_To_The_Top_Of_Its_Header_Paragraph_Aligns_Its_Bounding_Box()
+    {
+        // soffice: the same shape with posv 1 has its bounding square's top at
+        // the header paragraph's top, the header distance.
+        DocumentShape shape = HeaderShapeOf(HeaderShape(P("rotation", 20643840) + P("posv", 1) + P("fillColor", 255)));
+
+        Assert.Equal(35.4 + Turned / 2, Centre(shape).Y, 0.01);
+    }
+
+    [Fact]
+    public void An_Unturned_Header_Shape_Centred_On_Its_Paragraph_Uses_Its_Line()
+    {
+        // 72 x 36 pt centred on an 11 pt header line at 35.4 pt.
+        DocumentShape shape = HeaderShapeOf(HeaderShape(P("posv", 2) + P("fillColor", 255), 1440, 720));
+
+        Assert.Equal(35.4 + (11 * 1.15 - 36) / 2, shape.OffsetY, 3);
+    }
+
+    [Fact]
+    public void A_Turned_Shape_Centred_On_The_Page_Has_Its_Centre_There()
+    {
+        DocumentShape shape = HeaderShapeOf(HeaderShape(P("rotation", 20643840) + P("posv", 2) + P("posrelv", 1) + P("fillColor", 255)));
+
+        Assert.Equal(841.9 / 2, Centre(shape).Y, 0.01);
+    }
+
+    [Fact]
+    public void A_Header_Shape_Past_The_Page_Foot_Is_Moved_Onto_The_Page()
+    {
+        string rtf = HeaderShape(P("fillColor", 255), 1440, 720).Replace(@"\shptop0", @"\shptop20000").Replace(@"\shpbottom720", @"\shpbottom20720");
+
+        DocumentShape shape = HeaderShapeOf(rtf);
+
+        Assert.Equal(841.9 - 36, shape.OffsetY, 3);
     }
 }
