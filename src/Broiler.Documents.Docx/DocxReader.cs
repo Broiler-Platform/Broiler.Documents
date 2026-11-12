@@ -1786,6 +1786,22 @@ internal static class DocxReader
             ? new DocxDiagram.Cache(DocxDiagram.ConvertTree(canvas, anchor, context.Builder, context.Styles.Theme, DocxNamespaces.Drawing), context.Relationships)
             : context.Images.ReadDiagram(references!, anchor, context.Relationships, context.Builder, context.Styles.Theme);
         if (cache is null) return true;
+        // A locked canvas is a group drawn in its graphic frame: its children are
+        // scaled from the group's child space to the frame's extent, as
+        // LibreOffice imports it (fonts keep their size, so text rewraps).
+        if (canvas is not null && cache.Group.Element(DocxNamespaces.WordGroup + "grpSpPr")?.Element(DocxNamespaces.Drawing + "xfrm") is XElement frame)
+        {
+            XElement? offset = frame.Element(DocxNamespaces.Drawing + "off"), size = frame.Element(DocxNamespaces.Drawing + "ext");
+            if (frame.Element(DocxNamespaces.Drawing + "chOff") is null && offset is not null)
+                frame.Add(new XElement(DocxNamespaces.Drawing + "chOff", offset.Attributes()));
+            if (frame.Element(DocxNamespaces.Drawing + "chExt") is null && size is not null)
+                frame.Add(new XElement(DocxNamespaces.Drawing + "chExt", size.Attributes()));
+            offset?.Remove();
+            size?.Remove();
+            frame.AddFirst(new XElement(DocxNamespaces.Drawing + "off", new XAttribute("x", 0), new XAttribute("y", 0)),
+                new XElement(DocxNamespaces.Drawing + "ext", new XAttribute("cx", (string?)extent?.Attribute("cx") ?? "0"),
+                    new XAttribute("cy", (string?)extent?.Attribute("cy") ?? "0")));
+        }
         XElement placement = new(anchor);
         if (context.Builder.InTableCell)
             context.Builder.AddDiagnosticOnce("docx.diagram.inline", "A saved diagram in a table cell was approximated using its paragraph anchor; cell-relative placement is not fully retained.");

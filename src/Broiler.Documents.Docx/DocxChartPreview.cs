@@ -11,7 +11,7 @@ using Broiler.Graphics.Rendering;
 namespace Broiler.Documents.Docx;
 
 /// <summary>Renders the plot of a clustered column or an area chart from its embedded numeric cache.</summary>
-internal static class DocxChartPreview
+internal static partial class DocxChartPreview
 {
     private static readonly XNamespace C = DocxNamespaces.DrawingChart;
     private static readonly BColor[] SeriesColors =
@@ -29,6 +29,14 @@ internal static class DocxChartPreview
         if (plot?.Element(C + "pieChart") is XElement pie)
             return RenderPie(root, chart!, plot, pie, width, height, theme ?? DocxTheme.Empty);
         XElement? bars = plot?.Element(C + "barChart");
+        if (plot is not null && (plot.Element(C + "bar3DChart") is not null || plot.Element(C + "lineChart") is not null ||
+            bars is not null && Value(bars, "grouping") is null or "clustered"))
+        {
+            if (RenderBars(root, chart!, plot, width, height, theme ?? DocxTheme.Empty) is byte[] drawn)
+                return drawn;
+            if (bars is null || Value(bars, "barDir") == "bar")
+                return null;
+        }
         if (bars is not null && Value(bars, "barDir") == "col" && Value(bars, "grouping") is "stacked" or "percentStacked")
             return RenderStackedColumns(root, chart!, plot!, bars, width, height, theme ?? DocxTheme.Empty);
         if (bars is null || Value(bars, "barDir") != "col" ||
@@ -562,16 +570,23 @@ internal static class DocxChartPreview
     /// <summary>
     /// The automatic value axis Excel and LibreOffice choose: it starts at zero
     /// unless every value lies within a sixth of the largest (then half the data
-    /// range below the smallest), takes a twentieth of the range as headroom,
-    /// and uses the finest 1-2-5 step that splits it into at most ten intervals.
+    /// range below the smallest; a single value is measured from zero), takes a twentieth of the range as headroom (2D only,
+    /// <paramref name="expand"/>),
+    /// and uses the finest 1-2-5 step that splits it into at most ten intervals
+    /// (fewer when the axis has room for fewer labels, <paramref name="maxIntervals"/>).
     /// </summary>
     internal static (double Minimum, double Maximum, double Step) AutoScale(double minimum, double maximum,
-        double? fixedMinimum = null, double? fixedMaximum = null)
+        double? fixedMinimum = null, double? fixedMaximum = null, bool expand = true, int maxIntervals = 10)
     {
         double range = maximum - minimum;
+        // A single value (or many equal ones) is measured from zero.
+        if (!(range > 0))
+            (minimum, maximum, range) = (Math.Min(0, minimum), Math.Max(0, maximum), Math.Abs(minimum));
         double low = minimum > 0 ? (minimum * 6 >= maximum * 5 - 1e-9 * maximum ? Math.Max(0, minimum - range / 2) : 0) : minimum;
         double high = maximum < 0 ? (maximum * 6 <= minimum * 5 - 1e-9 * minimum ? Math.Min(0, maximum + range / 2) : 0) : maximum;
-        double headroom = (high - low) / 20;
+        // A 3D chart's axis is not widened: LibreOffice expands only a 2D
+        // chart's automatic axis when the data come close to its ends.
+        double headroom = expand ? (high - low) / 20 : 0;
         if (high > 0)
             high += headroom;
         if (low < 0)
@@ -583,10 +598,10 @@ internal static class DocxChartPreview
 
         double magnitude = Math.Pow(10, Math.Floor(Math.Log10((high - low) / 10)));
         double step = magnitude;
-        foreach (double factor in (ReadOnlySpan<double>)[1, 2, 5, 10, 20])
+        foreach (double factor in (ReadOnlySpan<double>)[1, 2, 5, 10, 20, 50, 100])
         {
             step = magnitude * factor;
-            if (Math.Ceiling(high / step - 1e-9) - Math.Floor(low / step + 1e-9) <= 10)
+            if (Math.Ceiling(high / step - 1e-9) - Math.Floor(low / step + 1e-9) <= Math.Clamp(maxIntervals, 2, 10))
                 break;
         }
         return (fixedMinimum ?? Math.Floor(low / step + 1e-9) * step, fixedMaximum ?? Math.Ceiling(high / step - 1e-9) * step, step);
