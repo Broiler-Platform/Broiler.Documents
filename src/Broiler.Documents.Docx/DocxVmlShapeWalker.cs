@@ -90,13 +90,24 @@ internal static class DocxVmlShapeWalker
                     {
                         // Apply group alignment once, against the group's full
                         // extent. Centering each child would collapse the group.
+                        // LibreOffice's group is as large as its children, not as
+                        // the box the group states, and that is what it aligns
+                        // (n751077.docx: a page-wide group whose text boxes span
+                        // only its middle is centred by those boxes).
                         string? across = style.GetValueOrDefault("mso-position-horizontal-relative");
                         string? down = style.GetValueOrDefault("mso-position-vertical-relative");
-                        x += Align(style.GetValueOrDefault("mso-position-horizontal"),
-                            (across == "page" ? page.Width : page.ContentWidth) - width);
-                        if (down is "page" or "margin")
-                            y += Align(style.GetValueOrDefault("mso-position-vertical"),
-                                (down == "page" ? page.Height : page.ContentHeight) - height);
+                        string? alignX = style.GetValueOrDefault("mso-position-horizontal");
+                        string? alignY = style.GetValueOrDefault("mso-position-vertical");
+                        (double spanX, double spanY, double shiftX, double shiftY) = (width, height, 0, 0);
+                        if (ChildBounds(shape) is (double minX, double minY, double maxX, double maxY))
+                        {
+                            (shiftX, spanX) = ((minX - ox) * width / cx, (maxX - minX) * width / cx);
+                            (shiftY, spanY) = ((minY - oy) * height / cy, (maxY - minY) * height / cy);
+                        }
+                        if (alignX is "left" or "center" or "right")
+                            x += Align(alignX, (across == "page" ? page.Width : page.ContentWidth) - spanX) - shiftX;
+                        if (down is "page" or "margin" && alignY is "top" or "center" or "bottom")
+                            y += Align(alignY, (down == "page" ? page.Height : page.ContentHeight) - spanY) - shiftY;
                     }
 
                     var inherited = frame is null ? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) : new(frame.Style, StringComparer.OrdinalIgnoreCase);
@@ -134,6 +145,14 @@ internal static class DocxVmlShapeWalker
                     if (angle != 0 || style.ContainsKey("rotation"))
                         style["rotation"] = (angle * 180 / Math.PI).ToString(CultureInfo.InvariantCulture);
                     style.Remove("margin-left"); style.Remove("margin-top");
+                    // A child is placed by the group's coordinates alone. Its own
+                    // alignment, the frame that alignment is measured in and its
+                    // relative size are the ones Word keeps for when the shape is
+                    // ungrouped; LibreOffice applies none of them inside a group
+                    // (n751077.docx, whose text boxes say "centred in the margin").
+                    foreach (string key in new[] { "mso-position-horizontal", "mso-position-vertical", "mso-width-percent", "mso-height-percent",
+                        "mso-position-horizontal-relative", "mso-position-vertical-relative" })
+                        style.Remove(key);
                     foreach (string key in new[] { "mso-position-horizontal-relative", "mso-position-vertical-relative", "z-index" })
                         if (!style.ContainsKey(key) && frame.Style.TryGetValue(key, out string? value)) style[key] = value;
                     shape.SetAttributeValue("style", string.Join(";", style.Select(p => p.Key + ":" + p.Value)));
@@ -197,14 +216,55 @@ internal static class DocxVmlShapeWalker
         _ => 0,
     };
 
+    /// <summary>
+    /// The box a group's direct children cover, in the group's coordinates, or
+    /// null when it has none or one is placed in physical units.
+    /// </summary>
+    private static (double MinX, double MinY, double MaxX, double MaxY)? ChildBounds(XElement group)
+    {
+        double minX = double.MaxValue, minY = double.MaxValue, maxX = double.MinValue, maxY = double.MinValue;
+        foreach (XElement child in group.Elements())
+        {
+            if (child.Name.Namespace != DocxNamespaces.Vml ||
+                child.Name.LocalName is not ("group" or "rect" or "roundrect" or "oval" or "shape" or "image"))
+                continue;
+            Dictionary<string, string> style = DocxVml.ReadStyle((string?)child.Attribute("style"));
+            foreach (string key in new[] { "left", "top", "margin-left", "margin-top", "width", "height" })
+            {
+                if (style.TryGetValue(key, out string? value) &&
+                    !double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out _))
+                    return null;
+            }
+            double left = Unitless(style, "left") + Unitless(style, "margin-left");
+            double top = Unitless(style, "top") + Unitless(style, "margin-top");
+            minX = Math.Min(minX, left);
+            minY = Math.Min(minY, top);
+            maxX = Math.Max(maxX, left + Unitless(style, "width"));
+            maxY = Math.Max(maxY, top + Unitless(style, "height"));
+        }
+        return minX <= maxX && minY <= maxY ? (minX, minY, maxX, maxY) : null;
+    }
+
     private static double Unitless(Dictionary<string, string> style, string key) =>
         double.TryParse(style.GetValueOrDefault(key), NumberStyles.Float, CultureInfo.InvariantCulture, out double value) && double.IsFinite(value) ? value : 0;
     private static string Pt(double value) => value.ToString("R", CultureInfo.InvariantCulture) + "pt";
     private static bool Length(Dictionary<string, string> style, string key, out double value) => DocxVml.TryLength(style.GetValueOrDefault(key), out value);
+    /// <summary>
+    /// A VML pair such as <c>coordorigin</c>. A field left empty is zero, as
+    /// LibreOffice reads it (<c>ConversionHelper::separatePair</c>, then an
+    /// integer that defaults to 0): Word writes <c>coordorigin=",1440"</c> for a
+    /// group whose origin is on the left edge (<c>n751077.docx</c>).
+    /// </summary>
     private static bool Pair(string value, out double x, out double y)
     {
-        string[] parts = value.Split(','); x = y = 0;
-        return parts.Length == 2 && double.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out x) &&
-            double.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out y) && double.IsFinite(x) && double.IsFinite(y);
+        string[] parts = value.Split(',', StringSplitOptions.TrimEntries); x = y = 0;
+        return parts.Length == 2 && Field(parts[0], out x) && Field(parts[1], out y);
+
+        static bool Field(string text, out double result)
+        {
+            result = 0;
+            return text.Length == 0 ||
+                double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out result) && double.IsFinite(result);
+        }
     }
 }
