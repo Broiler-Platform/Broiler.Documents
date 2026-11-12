@@ -982,11 +982,15 @@ internal static class DocxReader
     private static bool HasContextualSpacing(XElement? pPr, string? paragraphStyleId, DocxReadContext context)
     {
         XElement? stated = pPr?.Element(DocxNamespaces.Wordprocessing + "contextualSpacing");
-        if (stated is null)
-        {
-            foreach (XElement properties in context.Styles.ParagraphProperties(paragraphStyleId, context.TableStyle, context.TableConditions))
-                stated = properties.Element(DocxNamespaces.Wordprocessing + "contextualSpacing") ?? stated;
-        }
+        if (stated is not null)
+            return ReadOnOff(stated);
+
+        // A table style's paragraph properties sit under the paragraph
+        // style's; the paragraph style chain is read as Writer imports it.
+        if (context.Styles.StatesContextualSpacing(paragraphStyleId))
+            return context.Styles.ContextualSpacing(paragraphStyleId);
+        foreach (XElement properties in context.Styles.ParagraphProperties(paragraphStyleId, context.TableStyle, context.TableConditions))
+            stated = properties.Element(DocxNamespaces.Wordprocessing + "contextualSpacing") ?? stated;
         return stated is not null && ReadOnOff(stated);
     }
 
