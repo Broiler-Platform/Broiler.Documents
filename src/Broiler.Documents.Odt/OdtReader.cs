@@ -3516,6 +3516,49 @@ internal static class OdtReader
         return false;
     }
 
+    /// <summary>
+    /// ODF's <c>style:text-position</c> (ODF 1.3 §20.374): the position,
+    /// <c>super</c>, <c>sub</c> or a percentage of the font height, then the
+    /// size as a percentage. LibreOffice reads <c>super</c> and <c>sub</c> as its
+    /// automatic positions, and a missing size as 58% of a moved run and 100%
+    /// of one on the baseline (<c>XMLEscapeHeightPropHdl</c>). A run on the
+    /// baseline at full size has no shift (null).
+    /// </summary>
+    internal static bool TryReadTextPosition(string value, out BaselineShift? shift)
+    {
+        shift = null;
+        string[] parts = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0)
+            return false;
+
+        BaselinePosition kind = BaselinePosition.Offset;
+        double offset = 0;
+        if (parts[0] == "super")
+            kind = BaselinePosition.AutoSuperscript;
+        else if (parts[0] == "sub")
+            kind = BaselinePosition.AutoSubscript;
+        else if (!TryPercent(parts[0], out offset))
+            return false;
+
+        double scale = kind == BaselinePosition.Offset && offset == 0 ? 1 : BaselineShift.DefaultScale;
+        if (parts.Length > 1 && TryPercent(parts[1], out double stated) && stated > 0)
+            scale = stated;
+
+        var read = new BaselineShift(kind, Math.Clamp(offset, -1, 1), Math.Clamp(scale, 0.01, 1));
+        shift = read.IsNone ? null : read;
+        return true;
+
+        static bool TryPercent(string text, out double fraction)
+        {
+            fraction = 0;
+            if (!text.EndsWith('%') || !double.TryParse(text.AsSpan(0, text.Length - 1), NumberStyles.Float,
+                    CultureInfo.InvariantCulture, out double percent) || !double.IsFinite(percent))
+                return false;
+            fraction = percent / 100;
+            return true;
+        }
+    }
+
     private static bool IsIgnorableInline(XName name)
     {
         // draw:a is not listed: a clickable picture wraps its frame in one, and
@@ -4175,6 +4218,12 @@ internal static class OdtReader
             if (styles.InvertsTextDisplay && display is "none" or "true")
                 hidden = !hidden;
             style = style with { Hidden = hidden };
+        }
+
+        if ((string?)properties.Attribute(OdtNamespaces.Style + "text-position") is string position &&
+            TryReadTextPosition(position, out BaselineShift? shift))
+        {
+            style = style with { Shift = shift };
         }
 
         string? family =

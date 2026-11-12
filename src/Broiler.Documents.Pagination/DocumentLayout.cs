@@ -4648,7 +4648,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     {
         bool revised = _revisions.Shows && style.Revision is not null;
         style = _revisions.Decorate(style, out bool doubled);
-        BFontStyle font = FontFor(style, sizeScale);
+        BaselineShift? shift = style.Shift is { IsNone: false } stated ? stated : null;
+        BFontStyle font = FontFor(style, sizeScale * (shift?.Scale ?? 1));
         BColor color = LayoutColors.Or(style.Foreground, _settings.DefaultForeground);
         bool underline = style.Underline;
 
@@ -4671,9 +4672,28 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             : (_settings.ItalicFaceAvailable?.Invoke(font.FamilyName) ?? false);
         bool oblique = style.Italic && _settings.SynthesizeItalic && !italicFaceAvailable;
 
+        double rise = 0;
+        if (shift is BaselineShift moved)
+        {
+            // Writer moves the smaller text by the full-size font's metrics and
+            // keeps the line at least as tall as full-size text would make it
+            // (SwSubFont::CalcEscAscent, CalcEscHeight; SwFont::CalcEsc).
+            var (fullAscent, fullDescent, fullGap) = VerticalMetrics(FontFor(style, sizeScale));
+            rise = moved.Position switch
+            {
+                BaselinePosition.AutoSuperscript => fullAscent - ascent,
+                BaselinePosition.AutoSubscript => -(fullDescent - descent),
+                _ => (fullAscent + fullDescent) * moved.Offset,
+            };
+            ascent = Math.Max(fullAscent, ascent + rise);
+            descent = Math.Max(fullDescent, descent - rise);
+            lineGap = fullGap;
+        }
+
         return new LayoutPiece(text, font, color, style.Background, underline, style.Strikethrough, style.LinkHref, null,
             width, ascent, descent, oblique: oblique, lineGap: lineGap)
         {
+            Rise = rise,
             Revised = revised,
             Doubled = doubled,
         };
@@ -4685,7 +4705,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     /// </summary>
     private LayoutPiece MakeCitationPiece(DocumentNote note, InlineStyle style)
     {
-        InlineStyle plain = style with { Note = null, Image = null };
+        InlineStyle plain = style with { Note = null, Image = null, Shift = null };
         LayoutPiece small = MakeTextPiece(_noteLabels.Label(note), plain, _settings.DecorateLinks, CitationScale);
         double rise = FontFor(plain).Size * CitationRise;
         return new LayoutPiece(small.Text, small.Font, small.Color, small.Highlight, small.Underline, small.Strikethrough,

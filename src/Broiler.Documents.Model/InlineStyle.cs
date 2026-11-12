@@ -42,6 +42,12 @@ public readonly record struct InlineStyle
     /// </summary>
     public TextCapitalization Capitalization { get; init; }
 
+    /// <summary>
+    /// The run raised or lowered and set smaller (superscript, subscript), or
+    /// <see langword="null"/> for text on the baseline at its own size.
+    /// </summary>
+    public BaselineShift? Shift { get; init; }
+
     /// <summary>Foreground color, or <see cref="BColor.Empty"/> for the default color.</summary>
     public BColor Foreground { get; init; }
 
