@@ -217,7 +217,8 @@ public sealed class TextWrapExclusions
             descentStep: ClearanceDescentStep.Shallowest,
             fallback: BlockedBandFallback.FullColumnAtCurrentY,
             minUsableWidth: 1.0e-9,
-            defaultSidePolicy: ObstacleSidePolicy.Largest);
+            defaultSidePolicy: ObstacleSidePolicy.Largest,
+            clearanceNeedsOverlap: true);
 
         return new TextBand(band.Left - columnLeft, band.Width);
     }
