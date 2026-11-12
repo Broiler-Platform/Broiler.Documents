@@ -233,6 +233,19 @@ internal static class DocxReader
 
             if (name == DocxNamespaces.Wordprocessing + "tbl")
             {
+                // A table continues the frame its framed paragraphs opened when
+                // its cells state the same frame. LibreOffice does not open a
+                // frame for a table: one that starts the framed run, or a
+                // floating one, stays a table of the body (tdf75573_lostTable.docx,
+                // tdf115094.docx).
+                if (context.Frames?.ActiveProperties is DocxFrameProperties active &&
+                    element.Element(DocxNamespaces.Wordprocessing + "tblPr")?.Element(DocxNamespaces.Wordprocessing + "tblpPr") is null &&
+                    DocxFrameAccumulator.ReadTableProperties(element, context) == active)
+                {
+                    DocxTableReader.Read(element, context.ForFrame(context.Frames.ActiveBuilder!), depth + 1, ReadBlockContent);
+                    continue;
+                }
+
                 context.Frames?.Finish(context);
                 DocxTableReader.Read(element, context, depth + 1, ReadBlockContent);
                 continue;

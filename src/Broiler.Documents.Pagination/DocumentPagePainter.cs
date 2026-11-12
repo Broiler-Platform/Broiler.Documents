@@ -999,6 +999,9 @@ public sealed class DocumentPagePainter
     /// </summary>
     private static void DrawShapeImage(BRenderList list, InlineImage image, BRect destination, Func<InlineImage, BImageHandle?> resolveImage)
     {
+        if (image.Presentation.Shadow is ImageShadow shadow && !shadow.Color.IsEmpty && shadow.Color.A > 0)
+            list.FillRect(shadow.Bounds(destination), shadow.Color);
+
         if (resolveImage(image) is not BImageHandle decoded)
         {
             if (image.MarksMissingPayload || !image.IsMissingPayload)
@@ -1284,14 +1287,38 @@ public sealed class DocumentPagePainter
     private static void DrawImage(BRenderList list, LayoutPiece piece, double baseline, Func<InlineImage, BImageHandle?> resolveImage)
     {
         var destination = new BRect(piece.X, baseline - piece.Ascent, piece.Width, piece.Ascent);
+        ImagePresentation presentation = piece.Image!.Presentation;
+        if (!presentation.IsDefault)
+        {
+            // The line box holds the picture's effect extent around its turned box.
+            TableCellPadding extent = presentation.EffectExtent;
+            double left = Math.Max(0, extent.Left), top = Math.Max(0, extent.Top);
+            destination = new BRect(destination.X + left, destination.Y + top,
+                Math.Max(1, destination.Width - left - Math.Max(0, extent.Right)),
+                Math.Max(1, destination.Height - top - Math.Max(0, extent.Bottom)));
+            if (presentation.Shadow is ImageShadow shadow && !shadow.Color.IsEmpty && shadow.Color.A > 0)
+                list.FillRect(shadow.Bounds(destination), shadow.Color);
+            // A turned picture's bitmap is already turned (ImagePresentation.Apply)
+            // and covers its turned bounding box, centred on the line's box.
+            if (presentation.TurnedBounds is (double width, double height))
+            {
+                destination = new BRect(destination.X + (destination.Width - width) / 2,
+                    destination.Y + (destination.Height - height) / 2, width, height);
+            }
+        }
 
-        if (resolveImage(piece.Image!) is not BImageHandle image)
+        DrawImageInto(list, piece.Image, destination, resolveImage);
+    }
+
+    private static void DrawImageInto(BRenderList list, InlineImage picture, BRect destination, Func<InlineImage, BImageHandle?> resolveImage)
+    {
+        if (resolveImage(picture) is not BImageHandle image)
         {
             // The image did not decode. Draw the box it would have occupied with
             // a cross through it: the page then shows where content is missing
             // instead of quietly closing up around the hole - unless the source
             // prints nothing there (InlineImage.MarksMissingPayload).
-            if (piece.Image!.MarksMissingPayload || !piece.Image.IsMissingPayload)
+            if (picture.MarksMissingPayload || !picture.IsMissingPayload)
                 DrawMissingImage(list, destination);
             return;
         }

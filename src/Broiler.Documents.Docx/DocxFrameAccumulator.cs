@@ -67,7 +67,7 @@ internal sealed class DocxFrameAccumulator
             return;
 
         DocumentShape shape = CreateFrameShape(props, frameDoc.Paragraphs, anchorIndex, context.PlacementPage,
-            context.Sections?.CurrentColumns);
+            context.Sections?.CurrentColumns, frameDoc.Tables);
         context.Builder.AddShape(shape);
 
         // Drawings read inside the frame's paragraphs (a VML group in a framed
@@ -211,6 +211,28 @@ internal sealed class DocxFrameAccumulator
     }
 
     /// <summary>
+    /// The frame a table belongs to: the <c>w:framePr</c> of the first paragraph
+    /// of its first cell. Word writes a table placed in a frame with the
+    /// frame's properties on each of its cell paragraphs, and LibreOffice's
+    /// import moves the table into the frame together with the framed
+    /// paragraphs around it (<c>fdo60957-2.docx</c>: a shaded one-cell table
+    /// between the frame's two paragraphs).
+    /// </summary>
+    public static DocxFrameProperties? ReadTableProperties(XElement table, DocxReadContext context)
+    {
+        XElement? paragraph = table
+            .Elements(DocxNamespaces.Wordprocessing + "tr").FirstOrDefault()?
+            .Elements(DocxNamespaces.Wordprocessing + "tc").FirstOrDefault()?
+            .Elements(DocxNamespaces.Wordprocessing + "p").FirstOrDefault();
+        XElement? pPr = paragraph?.Element(DocxNamespaces.Wordprocessing + "pPr");
+        if (pPr?.Element(DocxNamespaces.Wordprocessing + "framePr") is null)
+            return null;
+
+        string? styleId = DocxValueReader.WordValue(pPr.Element(DocxNamespaces.Wordprocessing + "pStyle"));
+        return ReadProperties(pPr, styleId, context);
+    }
+
+    /// <summary>
     /// The drop cap a <c>w:dropCap</c> paragraph states for the paragraph it
     /// opens, with <paramref name="length"/> characters: <c>w:lines</c> (one
     /// where absent) and <c>w:hSpace</c>, the style chain's beneath the
@@ -264,7 +286,8 @@ internal sealed class DocxFrameAccumulator
         IReadOnlyList<RichTextParagraph> paragraphs,
         int anchorParagraphIndex,
         PageGeometry? page,
-        DocxColumns? columns = null)
+        DocxColumns? columns = null,
+        IReadOnlyList<DocumentTable>? tables = null)
     {
         double pageWidth = page?.Width ?? PageGeometry.A4.Width;
         double marginLeft = page?.MarginLeft ?? PageGeometry.A4.MarginLeft;
@@ -285,7 +308,7 @@ internal sealed class DocxFrameAccumulator
             ? Math.Max(0, (textWidth - sectionColumns.Gap * (sectionColumns.Count - 1)) / sectionColumns.Count)
             : textWidth;
         double width = autoWidth ? columnWidth : frame.Width!.Value / 20d;
-        bool shrinksToText = autoWidth && paragraphs.Count == 1 && frame.HorizontalAlign is null or "left";
+        bool shrinksToText = autoWidth && paragraphs.Count == 1 && tables is not { Count: > 0 } && frame.HorizontalAlign is null or "left";
         double height = frame.Height.HasValue ? Math.Abs((double)frame.Height.Value) / 20d : 0d;
 
         double x = frame.HorizontalAlign switch
@@ -350,7 +373,8 @@ internal sealed class DocxFrameAccumulator
             offsetFromPage: !fromParagraph,
             growsToText: frame.HeightRule != "exact",
             textPadding: padding,
-            outlineWidth: outline.IsVisible ? outline.Width : 1)
+            outlineWidth: outline.IsVisible ? outline.Width : 1,
+            tables: tables)
         {
             ShrinksWidthToText = shrinksToText,
         };
