@@ -27,7 +27,13 @@ public static class RtfReader
         RtfTokenizeResult tokenized = RtfTokenizer.TokenizeCore(content, effective.Limits, retainBinary: true);
         var diagnostics = tokenized.Diagnostics.ToList();
         var tokens = RtfShapeGroups.Expand(tokenized.Tokens, effective.Limits.MaxGroupDepth, diagnostics);
-        return new Worker(effective, diagnostics).Run(tokens);
+        var worker = new Worker(effective, diagnostics, writerDefaultPage: false);
+        DocumentReadResult result = worker.Run(tokens);
+        // A document whose body holds nothing never gives LibreOffice a section
+        // to apply, so it opens on Writer's own default page, whatever page the
+        // document states. Geometry is turned into positions as it is read, so
+        // the document is read again with that page in place.
+        return worker.WroteBody ? result : new Worker(effective, diagnostics, writerDefaultPage: true).Run(tokens);
     }
 
     private struct State
@@ -137,6 +143,31 @@ public static class RtfReader
         private int _marginBottom = 1440;
         private int _headerDistance = 720;
         private int _footerDistance = 720;
+
+        // The page Writer opens a document on when the document never reaches
+        // writerfilter's first section: A4 with 2 cm margins in the reference
+        // LibreOffice. writerfilter applies the RTF page (\paperw and the rest,
+        // Letter when omitted) only when it ends a section, and it opens the
+        // section only at the first run of text, paragraph mark or picture
+        // (checkFirstRun). Text in a shape or text box counts, because
+        // writerfilter reads it in the same stream; a header does not. A
+        // document of drawing objects alone, or of nothing, keeps the default
+        // page whatever it states (dppolyline.rtf, dprect-anchor.rtf,
+        // tdf90097.rtf, custom-doc-props.rtf).
+        private const int WriterPageWidth = 11906;
+        private const int WriterPageHeight = 16838;
+        private const int WriterPageMargin = 1134;
+        private readonly bool _writerDefaultPage;
+        private bool _wroteContent;
+
+        /// <summary>
+        /// Whether the document got any text, paragraph mark or picture outside
+        /// its headers and footers, which is what makes writerfilter apply the
+        /// document's page.
+        /// </summary>
+        public bool WroteBody { get; private set; }
+
+        private void MarkContent() => _wroteContent = true;
 
         // The page the first section states. A section's \pgwsxn and the rest
         // are its own page and override the document's \paperw and the rest,
@@ -289,10 +320,17 @@ public static class RtfReader
 
         private State _state;
 
-        public Worker(DocumentReadOptions options, IReadOnlyList<DocumentDiagnostic> tokenizerDiagnostics)
+        public Worker(DocumentReadOptions options, IReadOnlyList<DocumentDiagnostic> tokenizerDiagnostics, bool writerDefaultPage)
         {
+            _writerDefaultPage = writerDefaultPage;
+            if (writerDefaultPage)
+            {
+                _paperWidth = WriterPageWidth;
+                _paperHeight = WriterPageHeight;
+                _marginLeft = _marginRight = _marginTop = _marginBottom = WriterPageMargin;
+            }
             _diagnostics.AddRange(tokenizerDiagnostics);
-            _builder = new Accumulator(options.Limits.MaxParagraphCount);
+            _builder = new Accumulator(options.Limits.MaxParagraphCount) { OnWrite = MarkContent };
             _table = new RtfTableBuilder(_colors);
             _pageBorders = new RtfPageBorders(_colors);
             _maxParagraphs = options.Limits.MaxParagraphCount;
@@ -340,6 +378,7 @@ public static class RtfReader
                             _shapePropertyName.ToString().Trim() == "pib")
                         {
                             _shapeImage = ReadPicture(tokens, ref next);
+                            MarkContent();
                             break;
                         }
                         if (_state.Dest is RtfDestination.Normal or RtfDestination.FieldResult or
@@ -395,6 +434,7 @@ public static class RtfReader
             FlushPending();
             FinishFrame();
             FinishTable();
+            WroteBody = _wroteContent || _bodySectionPending;
             if (_bodySectionPending)
             {
                 if (_bodySectionHasProperties)
@@ -864,7 +904,7 @@ public static class RtfReader
                     if (_state.Dest == RtfDestination.Normal && _noteText is null)
                     {
                         _state.Dest = RtfDestination.Note;
-                        _noteText = new Accumulator(_maxParagraphs);
+                        _noteText = new Accumulator(_maxParagraphs) { OnWrite = MarkContent };
                         _noteIsEndnote = false;
                         _noteCitationStyle = _stack.Count > 0 ? _stack.Peek().Char : _state.Char;
                         return;
@@ -1066,12 +1106,12 @@ public static class RtfReader
                 // Section geometry, in twips. Held aside and turned into a page
                 // at the end, because a page needs all of it and RTF states it
                 // one control word at a time.
-                case "paperw": if (has) _paperWidth = p; return;
-                case "paperh": if (has) _paperHeight = p; return;
-                case "margl": if (has) _marginLeft = p; return;
-                case "margr": if (has) _marginRight = p; return;
-                case "margt": if (has) _marginTop = p; return;
-                case "margb": if (has) _marginBottom = p; return;
+                case "paperw": if (has && !_writerDefaultPage) _paperWidth = p; return;
+                case "paperh": if (has && !_writerDefaultPage) _paperHeight = p; return;
+                case "margl": if (has && !_writerDefaultPage) _marginLeft = p; return;
+                case "margr": if (has && !_writerDefaultPage) _marginRight = p; return;
+                case "margt": if (has && !_writerDefaultPage) _marginTop = p; return;
+                case "margb": if (has && !_writerDefaultPage) _marginBottom = p; return;
                 case "headery": if (has) _headerDistance = p; return;
                 case "footery": if (has) _footerDistance = p; return;
 
@@ -1081,12 +1121,12 @@ public static class RtfReader
                 // page belongs to that section, which this reader does not read,
                 // and letting it overwrite the first would turn the whole
                 // document landscape for one landscape section at its end.
-                case "pgwsxn": if (has && !_pastFirstSection) _sectionWidth = p; return;
-                case "pghsxn": if (has && !_pastFirstSection) _sectionHeight = p; return;
-                case "marglsxn": if (has && !_pastFirstSection) _sectionLeft = p; return;
-                case "margrsxn": if (has && !_pastFirstSection) _sectionRight = p; return;
-                case "margtsxn": if (has && !_pastFirstSection) _sectionTop = p; return;
-                case "margbsxn": if (has && !_pastFirstSection) _sectionBottom = p; return;
+                case "pgwsxn": if (has && !_pastFirstSection && !_writerDefaultPage) _sectionWidth = p; return;
+                case "pghsxn": if (has && !_pastFirstSection && !_writerDefaultPage) _sectionHeight = p; return;
+                case "marglsxn": if (has && !_pastFirstSection && !_writerDefaultPage) _sectionLeft = p; return;
+                case "margrsxn": if (has && !_pastFirstSection && !_writerDefaultPage) _sectionRight = p; return;
+                case "margtsxn": if (has && !_pastFirstSection && !_writerDefaultPage) _sectionTop = p; return;
+                case "margbsxn": if (has && !_pastFirstSection && !_writerDefaultPage) _sectionBottom = p; return;
                 // \sectd puts the section back to its defaults, which for the
                 // page are the document's.
                 case "sectd":
@@ -1638,6 +1678,10 @@ public static class RtfReader
                         _state.Field?.Instruction.Append(character <= 255 ? RtfCodePage.DecodeByte((byte)character, _state.CodePage) : character);
                     break;
                 case RtfDestination.InfoTitle: _infoTitle.Append(text); break;
+                // writerfilter collects the text of \title, \author and the
+                // other info fields, but text between them, in \info itself,
+                // is a run of body text to it, and opens the first section.
+                case RtfDestination.Info: if (text.Length > 0) MarkContent(); break;
                 case RtfDestination.InfoAuthor: _infoAuthor.Append(text); break;
                 case RtfDestination.InfoSubject: _infoSubject.Append(text); break;
                 case RtfDestination.Generator: _generator.Append(text); break;
@@ -1997,13 +2041,13 @@ public static class RtfReader
                     : _state.Dest;
 
                 if (destination == RtfDestination.ShapeText)
-                    return _shapeText ??= new Accumulator(_maxParagraphs);
+                    return _shapeText ??= new Accumulator(_maxParagraphs) { OnWrite = MarkContent };
 
                 if (destination == RtfDestination.LegacyDrawingText)
-                    return _legacyDrawingText ??= new Accumulator(_maxParagraphs);
+                    return _legacyDrawingText ??= new Accumulator(_maxParagraphs) { OnWrite = MarkContent };
 
                 if (destination == RtfDestination.Note)
-                    return _noteText ??= new Accumulator(_maxParagraphs);
+                    return _noteText ??= new Accumulator(_maxParagraphs) { OnWrite = MarkContent };
 
                 if (!IsRunning(destination))
                     return BodyOrFrame(destination);
@@ -2628,7 +2672,7 @@ public static class RtfReader
                 return _builder;
 
             _frameKey = _state.Frame;
-            return _frameText ??= new Accumulator(_maxParagraphs);
+            return _frameText ??= new Accumulator(_maxParagraphs) { OnWrite = MarkContent };
         }
 
         /// <summary>
@@ -3234,6 +3278,9 @@ public static class RtfReader
         /// <summary>The paragraph a shape met right now would be anchored to.</summary>
         public int ParagraphCount => _paragraphs.Count;
         public bool HasPendingText => _current.Length > 0;
+
+        /// <summary>Called whenever text, a paragraph mark or a break is written.</summary>
+        public Action? OnWrite { get; init; }
         private readonly int _maxParagraphs = maxParagraphs;
         private RichTextParagraph _current = RichTextParagraph.Create(string.Empty, InlineStyle.Default, ParagraphStyle.Default);
 
@@ -3262,6 +3309,7 @@ public static class RtfReader
                 EndParagraph(style);
 
             ColumnBreakPending = true;
+            OnWrite?.Invoke();
         }
 
         /// <summary>
@@ -3286,6 +3334,7 @@ public static class RtfReader
                 EndParagraph(style);
 
             PageBreakPending = true;
+            OnWrite?.Invoke();
             return !displaced;
         }
 
@@ -3295,6 +3344,7 @@ public static class RtfReader
             if (LimitHit || text.Length == 0)
                 return;
             _current = _current.InsertText(_current.Length, text, style);
+            OnWrite?.Invoke();
         }
 
         public void EndParagraph(ParagraphStyle style, InlineStyle mark = default)
@@ -3309,6 +3359,7 @@ public static class RtfReader
 
             _paragraphs.Add(_current.WithParagraphStyle(Spend(style)).WithMarkStyle(mark));
             _current = RichTextParagraph.Create(string.Empty, InlineStyle.Default, style);
+            OnWrite?.Invoke();
         }
 
         /// <summary>
