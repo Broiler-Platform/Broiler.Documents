@@ -59,7 +59,9 @@ internal sealed class OdtImageLoader(
         foreach (XElement image in ImageAlternatives(frame))
         {
             foundImage = true;
-            PicturePart? candidate = ReadPicture(image, diagnostics, out LoadResult candidateResult);
+            // An alternative read only to see whether it outranks the one in
+            // hand reports nothing: whatever it lacks, a picture is drawn.
+            PicturePart? candidate = ReadPicture(image, part is null ? diagnostics : SilentDiagnostics.Instance, out LoadResult candidateResult);
             if (part is null)
                 lastResult = candidateResult;
             if (candidate is not null && (part is null || candidate.Quality > part.Quality))
@@ -183,7 +185,7 @@ internal sealed class OdtImageLoader(
         string folder = OdtPackage.NormalizePath(href);
         if (folder.Length == 0 || OdtPackage.FindEntry(_archive, folder + "/content.xml") is not ZipArchiveEntry entry)
             return null;
-        XDocument? content = OdtPackage.LoadEntryXml(entry, _limits, [], "odt.chart");
+        XDocument? content = OdtPackage.LoadEntryXml(entry, _limits, [], "odt.xml");
         if (content?.Root is not XElement root || OdtChartPreview.Render(root, width, height) is not byte[] png)
             return null;
         return new PicturePart(png, "image/png", Path.GetFileName(folder));
@@ -563,4 +565,14 @@ internal sealed class OdtImageLoader(
 internal interface IOdtImageDiagnostics
 {
     void AddDiagnosticOnce(string code, string message);
+}
+
+/// <summary>A diagnostic sink that keeps nothing.</summary>
+internal sealed class SilentDiagnostics : IOdtImageDiagnostics
+{
+    public static SilentDiagnostics Instance { get; } = new();
+
+    public void AddDiagnosticOnce(string code, string message)
+    {
+    }
 }
