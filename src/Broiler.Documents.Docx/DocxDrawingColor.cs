@@ -155,7 +155,14 @@ internal static class DocxDrawingColor
             if (transform.Name.Namespace != DocxNamespaces.Drawing) continue;
             string kind = transform.Name.LocalName;
             bool flag = kind is "comp" or "inv" or "gray" or "gamma" or "invGamma";
-            if (!long.TryParse((string?)transform.Attribute("val"), NumberStyles.Integer, CultureInfo.InvariantCulture, out long raw) && !flag)
+            string? text = (string?)transform.Attribute("val");
+            long raw;
+            // Strict OOXML writes a percentage as "15%" rather than 15000.
+            if (text is not null && text.EndsWith('%') &&
+                double.TryParse(text.AsSpan(0, text.Length - 1), NumberStyles.Float, CultureInfo.InvariantCulture, out double percent) &&
+                double.IsFinite(percent) && Math.Abs(percent) < 1e9)
+                raw = (long)Math.Round(percent * 1000);
+            else if (!long.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out raw) && !flag)
                 continue;
             double value = raw / 100000d;
             switch (kind)

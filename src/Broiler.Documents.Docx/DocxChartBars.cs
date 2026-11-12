@@ -83,8 +83,33 @@ internal static partial class DocxChartPreview
             ? Math.Clamp(parsedGap, 0, 500) : 150;
         int overlap = int.TryParse(Value(bars, "overlap"), NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out int parsedOverlap)
             ? Math.Clamp(parsedOverlap, -100, 100) : 0;
-        BarLayout layout = LayoutBars(root, chart, plot, series.Select(item => item.Name).ToList(), levels, categories, series.Count, horizontal, threeD,
+        List<string> names = series.Select(item => item.Name).ToList();
+        BarLayout layout = LayoutBars(root, chart, plot, names, levels, categories, series.Count, horizontal, threeD,
             axisMinimum, axisMaximum, step, gap, width, height);
+        // LibreOffice allows no more intervals than the axis has room for
+        // labels (VCartesianAxis::estimateMaximumAutoMainIncrementCount).
+        if (Number(valueAxis?.Element(C + "majorUnit")) is null && Shown(valueAxis))
+        {
+            double size = TextScale(width, height) * (TextSize(valueAxis!.Element(C + "txPr")) ?? TextSize(root.Element(C + "txPr")) ?? 10);
+            double length = horizontal ? layout.Right - layout.Left : layout.Bottom - layout.Top;
+            double needed = 1.2 * size;
+            if (horizontal)
+            {
+                int ticks = (int)Math.Min(1000, Math.Round((axisMaximum - axisMinimum) / step));
+                for (int tick = 0; tick <= ticks; tick++)
+                    needed = Math.Max(needed, TextWidth(FormatTick(axisMinimum + step * tick), size));
+            }
+            int most = (int)Math.Clamp(Math.Floor(length / needed), 2, 10);
+            if (most < 10)
+            {
+                (axisMinimum, axisMaximum, step) = AutoScale(minimum, maximum,
+                    Number(scaling?.Element(C + "min")), Number(scaling?.Element(C + "max")), expand: !threeD, maxIntervals: most);
+                if (!(axisMaximum - axisMinimum > 1e-100) || !(step > 0) || (axisMaximum - axisMinimum) / step > 1000)
+                    return null;
+                layout = LayoutBars(root, chart, plot, names, levels, categories, series.Count, horizontal, threeD,
+                    axisMinimum, axisMaximum, step, gap, width, height);
+            }
+        }
 
         double scale = Math.Min(2, 1024 / Math.Max(width, height));
         int pixelsWide = Math.Max(1, (int)Math.Ceiling(width * scale));
@@ -126,7 +151,7 @@ internal static partial class DocxChartPreview
             if (threeD)
             {
                 Draw3DWalls(canvas, left, top, right, bottom, depthX, depthY, intervals, step, axisMinimum, Along,
-                    gridlines is not null && !hidden ? grid : BColor.Empty, gridWidth, (float)Math.Max(1, 0.75 * scale));
+                    gridlines is not null && !hidden ? grid : BColor.Empty, gridWidth, (float)Math.Max(1, 0.75 * scale), scale);
             }
             else if (gridlines is not null && !hidden)
             {
@@ -134,9 +159,9 @@ internal static partial class DocxChartPreview
                 {
                     float at = Along(axisMinimum + step * tick);
                     if (horizontal)
-                        canvas.DrawLine(new PointF(at, top), new PointF(at, bottom), grid, gridWidth);
+                        Rule(canvas, new PointF(at, top), new PointF(at, bottom), grid, gridWidth, scale);
                     else
-                        canvas.DrawLine(new PointF(left, at), new PointF(right, at), grid, gridWidth);
+                        Rule(canvas, new PointF(left, at), new PointF(right, at), grid, gridWidth, scale);
                 }
             }
 
@@ -176,16 +201,16 @@ internal static partial class DocxChartPreview
                 if (AxisLine(categoryAxis, theme, scale, out BColor axis, out float axisWidth))
                 {
                     if (horizontal)
-                        canvas.DrawLine(new PointF(baseline, top), new PointF(baseline, bottom), axis, axisWidth);
+                        Rule(canvas, new PointF(baseline, top), new PointF(baseline, bottom), axis, axisWidth, scale);
                     else
-                        canvas.DrawLine(new PointF(left, baseline), new PointF(right, baseline), axis, axisWidth);
+                        Rule(canvas, new PointF(left, baseline), new PointF(right, baseline), axis, axisWidth, scale);
                 }
                 if (AxisLine(valueAxis, theme, scale, out axis, out axisWidth))
                 {
                     if (horizontal)
-                        canvas.DrawLine(new PointF(left, bottom), new PointF(right, bottom), axis, axisWidth);
+                        Rule(canvas, new PointF(left, bottom), new PointF(right, bottom), axis, axisWidth, scale);
                     else
-                        canvas.DrawLine(new PointF(left, top), new PointF(left, bottom), axis, axisWidth);
+                        Rule(canvas, new PointF(left, top), new PointF(left, bottom), axis, axisWidth, scale);
                 }
             }
             DrawLegendKeys(canvas, root, chart, series, horizontal, width, height, scale);
@@ -205,16 +230,17 @@ internal static partial class DocxChartPreview
         IReadOnlyList<Dictionary<int, string>> levels, int categories, int seriesCount, bool horizontal, bool threeD,
         double axisMinimum, double axisMaximum, double step, int gap, double width, double height)
     {
+        double textScale = TextScale(width, height);
         double baseSize = TextSize(root.Element(C + "txPr")) ?? 10;
         double marginX = width * 0.02, marginY = height * 0.02;
         double left = marginX, right = width - marginX, top = marginY, bottom = height - marginY;
         if (Titled(chart))
-            top += 2.5 * (TextSize(chart.Element(C + "title")?.Element(C + "txPr")) ??
+            top += 2.5 * textScale * (TextSize(chart.Element(C + "title")?.Element(C + "txPr")) ??
                 TextSize(chart.Element(C + "title")?.Element(C + "tx")?.Element(C + "rich")) ?? 18);
 
         if (chart.Element(C + "legend") is XElement legendElement && Value(legendElement, "overlay") is not ("1" or "true"))
         {
-            double size = TextSize(legendElement.Element(C + "txPr")) ?? baseSize;
+            double size = textScale * (TextSize(legendElement.Element(C + "txPr")) ?? baseSize);
             XElement? manual = legendElement.Element(C + "layout")?.Element(C + "manualLayout");
             if (manual is not null && Number(manual.Element(C + "x")) is double legendX)
             {
@@ -228,16 +254,16 @@ internal static partial class DocxChartPreview
                 switch (Value(legendElement, "legendPos") ?? "r")
                 {
                     case "r" or "tr":
-                        right -= longest + 1.2 * size + 9;
+                        right -= longest + 2.1 * size;
                         break;
                     case "l":
-                        left += longest + 1.2 * size + 9;
+                        left += longest + 2.1 * size;
                         break;
                     case "t":
-                        top += 1.25 * size + 10;
+                        top += 2.35 * size;
                         break;
                     case "b":
-                        bottom -= 1.25 * size + 10;
+                        bottom -= 2.35 * size;
                         break;
                 }
             }
@@ -245,8 +271,8 @@ internal static partial class DocxChartPreview
 
         XElement? valueAxis = plot.Element(C + "valAx");
         XElement? categoryAxis = plot.Element(C + "catAx") ?? plot.Element(C + "dateAx");
-        double valueSize = TextSize(valueAxis?.Element(C + "txPr")) ?? baseSize;
-        double categorySize = TextSize(categoryAxis?.Element(C + "txPr")) ?? baseSize;
+        double valueSize = textScale * (TextSize(valueAxis?.Element(C + "txPr")) ?? baseSize);
+        double categorySize = textScale * (TextSize(categoryAxis?.Element(C + "txPr")) ?? baseSize);
         XElement? manualPlot = plot.Element(C + "layout")?.Element(C + "manualLayout");
         bool edge = manualPlot is not null && Value(manualPlot, "xMode") == "edge" && Value(manualPlot, "yMode") == "edge" &&
             Number(manualPlot.Element(C + "x")) is double && Number(manualPlot.Element(C + "y")) is double &&
@@ -282,10 +308,29 @@ internal static partial class DocxChartPreview
                     left += valueWidth + LabelGap(valueAxis);
                 if (Shown(categoryAxis))
                 {
-                    // Category labels wrap at their category's width.
-                    double room = (right - left) / Math.Max(1, categories) * 0.95;
-                    int lines = levels.Count == 0 ? 1 : levels[0].Values.Select(text => WrappedLines(text, categorySize, room)).DefaultIfEmpty(1).Max();
-                    bottom -= Math.Min(lines, 4) * 1.2 * categorySize + LabelGap(categoryAxis) + Math.Max(0, levels.Count - 1) * (1.2 * categorySize + 2.5);
+                    double extra = LabelGap(categoryAxis) + Math.Max(0, levels.Count - 1) * (1.2 * categorySize + 2.5);
+                    double angle = LabelRotation(categoryAxis!);
+                    IEnumerable<string> texts = levels.Count == 0 ? [] : levels[0].Values;
+                    if (Math.Abs(Math.Abs(angle) - 90) < 0.5)
+                    {
+                        // Upright labels break at about three fifths of the room below the title.
+                        double room = 0.6 * (bottom - top);
+                        double longest = texts.Select(text => Math.Min(TextWidth(text, categorySize), room)).DefaultIfEmpty(0).Max();
+                        bottom -= longest + extra;
+                    }
+                    else if (angle != 0)
+                    {
+                        double radians = angle * Math.PI / 180;
+                        double longest = texts.Select(text => TextWidth(text, categorySize)).DefaultIfEmpty(0).Max();
+                        bottom -= longest * Math.Abs(Math.Sin(radians)) + 1.2 * categorySize * Math.Abs(Math.Cos(radians)) + extra;
+                    }
+                    else
+                    {
+                        // Category labels wrap at their category's width.
+                        double room = (right - left) / Math.Max(1, categories) * 0.95;
+                        int lines = texts.Select(text => WrappedLines(text, categorySize, room)).DefaultIfEmpty(1).Max();
+                        bottom -= Math.Min(lines, 4) * 1.2 * categorySize + extra;
+                    }
                 }
             }
         }
@@ -314,24 +359,24 @@ internal static partial class DocxChartPreview
     /// front axis, and the floor's front and right edges close the box.
     /// </summary>
     private static void Draw3DWalls(BCanvas canvas, float left, float top, float right, float bottom, float depthX, float depthY,
-        int intervals, double step, double axisMinimum, Func<double, float> along, BColor grid, float gridWidth, float lineWidth)
+        int intervals, double step, double axisMinimum, Func<double, float> along, BColor grid, float gridWidth, float lineWidth, double scale)
     {
         if (!grid.IsEmpty)
         {
             for (int tick = 0; tick <= intervals; tick++)
             {
                 float y = along(axisMinimum + step * tick);
-                canvas.DrawLine(new PointF(left + depthX, y - depthY), new PointF(right + depthX, y - depthY), grid, gridWidth);
-                canvas.DrawLine(new PointF(left, y), new PointF(left + depthX, y - depthY), grid, gridWidth);
+                Rule(canvas, new PointF(left + depthX, y - depthY), new PointF(right + depthX, y - depthY), grid, gridWidth, scale);
+                Rule(canvas, new PointF(left, y), new PointF(left + depthX, y - depthY), grid, gridWidth, scale);
             }
         }
-        canvas.DrawLine(new PointF(left + depthX, top - depthY), new PointF(left + depthX, bottom - depthY), WallLine, lineWidth);
-        canvas.DrawLine(new PointF(right + depthX, top - depthY), new PointF(right + depthX, bottom - depthY), WallLine, lineWidth);
-        canvas.DrawLine(new PointF(left, top), new PointF(left, bottom), WallLine, lineWidth);
-        canvas.DrawLine(new PointF(left, bottom), new PointF(right, bottom), WallLine, lineWidth);
-        canvas.DrawLine(new PointF(right, bottom), new PointF(right + depthX, bottom - depthY), WallLine, lineWidth);
-        canvas.DrawLine(new PointF(left, bottom), new PointF(left + depthX, bottom - depthY), WallLine, lineWidth);
-        canvas.DrawLine(new PointF(left + depthX, bottom - depthY), new PointF(right + depthX, bottom - depthY), WallLine, lineWidth);
+        Rule(canvas, new PointF(left + depthX, top - depthY), new PointF(left + depthX, bottom - depthY), WallLine, lineWidth, scale);
+        Rule(canvas, new PointF(right + depthX, top - depthY), new PointF(right + depthX, bottom - depthY), WallLine, lineWidth, scale);
+        Rule(canvas, new PointF(left, top), new PointF(left, bottom), WallLine, lineWidth, scale);
+        Rule(canvas, new PointF(left, bottom), new PointF(right, bottom), WallLine, lineWidth, scale);
+        Rule(canvas, new PointF(right, bottom), new PointF(right + depthX, bottom - depthY), WallLine, lineWidth, scale);
+        Rule(canvas, new PointF(left, bottom), new PointF(left + depthX, bottom - depthY), WallLine, lineWidth, scale);
+        Rule(canvas, new PointF(left + depthX, bottom - depthY), new PointF(right + depthX, bottom - depthY), WallLine, lineWidth, scale);
     }
 
     /// <summary>
@@ -369,6 +414,25 @@ internal static partial class DocxChartPreview
         canvas.FillGlyphContours([Ellipse(cx, top + offset, radiusX, radiusY, 0, 2 * Math.PI)], Shade(color, 0.95));
     }
 
+    /// <summary>
+    /// Draws a line. A horizontal or vertical one is filled as whole pixels, at
+    /// least a point wide in the picture, so that it survives the picture's
+    /// scaling to the page instead of falling between two sampled rows.
+    /// </summary>
+    private static void Rule(BCanvas canvas, PointF from, PointF to, BColor color, float width, double scale)
+    {
+        if (from.X != to.X && from.Y != to.Y)
+        {
+            canvas.DrawLine(from, to, color, width);
+            return;
+        }
+        float thickness = MathF.Max(1, MathF.Round(MathF.Max(width, (float)scale)));
+        if (from.Y == to.Y)
+            canvas.FillRect(new RectangleF(MathF.Min(from.X, to.X), MathF.Round(from.Y - thickness / 2), MathF.Abs(to.X - from.X), thickness), color);
+        else
+            canvas.FillRect(new RectangleF(MathF.Round(from.X - thickness / 2), MathF.Min(from.Y, to.Y), thickness, MathF.Abs(to.Y - from.Y)), color);
+    }
+
     private static PointF[] Ellipse(float cx, float cy, float rx, float ry, double from, double to)
     {
         int steps = 48;
@@ -396,7 +460,7 @@ internal static partial class DocxChartPreview
     {
         if (chart.Element(C + "legend") is not XElement legend)
             return;
-        double size = TextSize(legend.Element(C + "txPr")) ?? TextSize(root.Element(C + "txPr")) ?? 10;
+        double size = TextScale(width, height) * (TextSize(legend.Element(C + "txPr")) ?? TextSize(root.Element(C + "txPr")) ?? 10);
         double key = 0.7 * size;
         IEnumerable<BarSeries> entries = reversed ? Enumerable.Reverse(series) : series;
         var keys = new List<(double X, double Y, BColor Color)>();
@@ -455,6 +519,15 @@ internal static partial class DocxChartPreview
         return line.Element(A + "noFill") is null && line.Element(A + "solidFill") is null;
     }
 
+    /// <summary>The rotation an axis's text body states, in degrees (a:bodyPr rot, in 60000ths).</summary>
+    private static double LabelRotation(XElement axis)
+    {
+        string? rotation = (string?)axis.Element(C + "txPr")?.Element(A + "bodyPr")?.Attribute("rot");
+        // -60000000 is the "unset" value Office writes.
+        return int.TryParse(rotation, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out int value) &&
+            value is >= -5400000 and <= 5400000 ? value / 60000.0 : 0;
+    }
+
     private static bool Titled(XElement chart) =>
         chart.Element(C + "title") is not null && Value(chart, "autoTitleDeleted") is not ("1" or "true");
 
@@ -464,6 +537,14 @@ internal static partial class DocxChartPreview
     /// <summary>The distance from an axis to its labels: tick marks outside it add their length.</summary>
     private static double LabelGap(XElement? axis) =>
         2.25 + (axis is not null && (Value(axis, "majorTickMark") ?? "cross") is "out" or "cross" ? 3 : 0);
+
+    /// <summary>
+    /// How much LibreOffice scales a chart's text: its sizes are relative to a
+    /// 16 cm by 9 cm page, and a chart drawn at another size scales them by the
+    /// smaller of its two ratios (<c>RelativeSizeHelper::calculate</c>).
+    /// </summary>
+    internal static double TextScale(double width, double height) =>
+        Math.Clamp(Math.Min(width / (16 / 2.54 * 72), height / (9 / 2.54 * 72)), 0.1, 10);
 
     /// <summary>The font size the first run properties of a text body state, in points.</summary>
     private static double? TextSize(XElement? body)
