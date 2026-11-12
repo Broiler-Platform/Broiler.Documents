@@ -195,16 +195,17 @@ internal static class OdtReader
         styles.PageFillBounds = OdtMetadata.PageFillBounds(metadata.Producer);
         styles.LegacyShapeColors = OdtMetadata.LegacyShapeColors(metadata.Producer);
         XElement? master = ResolveMasterPage(content, styles);
-        PageGeometry? page = ReadPageGeometry(master, styles, diagnostics);
+        // A document with no master page at all is on Writer's default page
+        // style: A4 with 2 cm margins (hiddenSectionsAroundPageBreak.fodt,
+        // bookmark_order.fodt). A master page whose layout says nothing usable
+        // keeps the caller's page fallback.
+        PageGeometry? page = ReadPageGeometry(master, styles, diagnostics) ?? (master is null ? WriterDefaultPage : null);
         RichTextDocument document = ReadContent(content, styles, images, page, options.Limits, diagnostics, master);
         document = document.WithRunningContent(
             ReadRunningContent(master, styles, images, options.Limits, diagnostics));
-        // A layout-free form uses Writer's default A4 content area for the
-        // control coordinates. Preserve the caller's page fallback for other
-        // layout-free documents.
-        PageGeometry? formPage = master is null && content.Descendants(OdtNamespaces.Draw + "control").Any()
-            ? new PageGeometry(595.3, 841.89, 56.69, 56.69, 56.69, 56.69) : null;
-        document = document.WithPageGeometry(page ?? document.PageGeometry ?? formPage);
+        // The page the content settled on wins: an opening paragraph on
+        // Writer's built-in Landscape style turns the first page.
+        document = document.WithPageGeometry(document.PageGeometry ?? page);
         document = document.WithStyleDefaults(ReadStyleDefaults(styles) with
         {
             ShrinksJustifiedLines = OdtRevisions.ConfigFlag(settings, "JustifyLinesWithShrinking"),
@@ -333,13 +334,20 @@ internal static class OdtReader
                 if (masters is null || !masters.TryGetValue(name, out XElement? master))
                 {
                     // Writer can name its built-in Landscape style without
-                    // serializing a master-page definition for it.
-                    if (name == "Landscape" && index > 0)
+                    // serializing a master-page definition for it. Named by the
+                    // opening paragraph, it is the first page's style.
+                    if (name == "Landscape")
                     {
-                        page ??= new PageGeometry(595.3, 841.89, 56.69, 56.69, 56.69, 56.69);
+                        page ??= WriterDefaultPage;
                         starts[0] = starts[0] with { Page = starts[0].Page ?? page };
                         PageGeometry landscape = page.Width >= page.Height ? page : page with { Width = page.Height, Height = page.Width };
                         context.ActivePage = landscape;
+                        if (index == 0)
+                        {
+                            page = landscape;
+                            starts[0] = starts[0] with { Page = landscape, Number = styles.PageNumberStart(family, style) };
+                            return false;
+                        }
                         if (starts[^1].Index == index)
                             starts.RemoveAt(starts.Count - 1);
                         starts.Add((index, landscape, starts[^1].Running, null, styles.PageNumberStart(family, style)));
@@ -376,7 +384,7 @@ internal static class OdtReader
         RichTextDocument built = builder.Build();
         if (starts.Count == 1 && (starts[0].Sequence is null || starts[0].Sequence!.Styles.Count == 1) && starts[0].Number is null &&
             parity.Count == 0)
-            return built;
+            return page is null ? built : built.WithPageGeometry(page);
         int[] edges = [.. starts.Select(start => start.Index)
             .Concat(built.Sections.SelectMany(section => new[] { section.ParagraphIndex, section.ParagraphEnd }))
             .Append(built.ParagraphCount).Distinct().Order()];
@@ -443,6 +451,12 @@ internal static class OdtReader
     /// kept as the floor rather than as the rule.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// Writer's default page style where a document states none: A4 with
+    /// 2 cm margins on every side.
+    /// </summary>
+    private static readonly PageGeometry WriterDefaultPage = new(595.3, 841.89, 56.69, 56.69, 56.69, 56.69);
+
     private static XElement? ResolveMasterPage(XDocument content, OdtStyles styles)
     {
         XElement? masterStyles = styles.MasterStyles;
@@ -2565,7 +2579,25 @@ internal static class OdtReader
                 // reporting genuinely unknown children instead of treating the
                 // generation instructions as lost paragraphs.
                 XName source = OdtNamespaces.Text + (name.LocalName + "-source");
+                int indexStart = builder.CurrentParagraphIndex;
                 ReadBlockContent(element.Elements().Where(child => child.Name != source), context, list: null, depth + 1);
+                // An index that was never generated is still a section with
+                // one empty paragraph in Writer, a line tall
+                // (IndexElementsInHiddenSections.fodt).
+                if (builder.CurrentParagraphIndex == indexStart)
+                {
+                    InlineStyle mark = InlineStyle.Default;
+                    foreach (XElement properties in context.Styles.TextPropertiesForParagraph(null))
+                        mark = ApplyTextProperties(properties, mark, context.Styles, builder);
+                    ParagraphStyle empty = context.TakeBreak() switch
+                    {
+                        OdtBreak.Page => ParagraphStyle.Default with { PageBreakBefore = true },
+                        OdtBreak.Column => ParagraphStyle.Default with { ColumnBreakBefore = true },
+                        _ => ParagraphStyle.Default,
+                    };
+                    builder.StartParagraph(empty, mark);
+                    builder.FinishParagraph();
+                }
                 continue;
             }
 
@@ -4181,9 +4213,17 @@ internal static class OdtReader
             FontSizePoints = style.FontSize is float size && size > 0
                 ? size
                 : DocumentStyleDefaults.FallbackFontSizePoints,
-            FontFamily = string.IsNullOrWhiteSpace(style.FontFamily) ? null : style.FontFamily,
+            // Writer's own default Western face where neither the default
+            // style nor Standard names one (bookmark_order.fodt).
+            FontFamily = string.IsNullOrWhiteSpace(style.FontFamily) ? WriterDefaultFontFamily : style.FontFamily,
         };
     }
+
+    /// <summary>
+    /// The face Writer sets text in when a document names none: the first of
+    /// its default Western text fonts (<c>VCL.xcu</c>, <c>DefaultFontType::LATIN_TEXT</c>).
+    /// </summary>
+    private const string WriterDefaultFontFamily = "Liberation Serif";
 
     private static InlineStyle ApplyTextProperties(
         XElement? properties,
