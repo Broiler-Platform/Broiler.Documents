@@ -105,6 +105,19 @@ public sealed class DocumentLayoutIssue242BlankTests
     }
 
     [Fact]
+    public void A_Private_Use_Character_The_Face_Lacks_Takes_The_Missing_Glyphs_Advance()
+    {
+        if (!File.Exists(HostSerif))
+            return;
+        using var service = new DocumentFontService();
+        service.AddFontFile("Liberation Serif", HostSerif);
+        ResolvedFontFace face = service.ResolveFace("Liberation Serif")!;
+        int notdef = face.TrueType!.GetAdvanceWidth(0);
+
+        Assert.Equal(40.0 * notdef / face.UnitsPerEm, face.GetAdvancePoints("\uF0E7", 40), 6);
+    }
+
+    [Fact]
     public void Contours_Are_Filled_By_The_Non_Zero_Rule()
     {
         // A square with a square hole wound the other way: the ring is filled,

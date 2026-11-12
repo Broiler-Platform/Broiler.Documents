@@ -437,15 +437,27 @@ public sealed class DocumentPagePainter
     }
 
     /// <summary>
-    /// Draws a piece's text, with each character its face has no glyph for
-    /// drawn as the face's missing glyph (<c>.notdef</c>).
+    /// Draws a piece's text, with each private-use character its face has no
+    /// glyph for drawn as the face's missing glyph (<c>.notdef</c>).
     /// </summary>
     /// <remarks>
+    /// <para>
     /// The renderer draws a character its face lacks as a built-in block
-    /// question mark. LibreOffice draws the face's own missing glyph, after
-    /// looking for the character in the other installed faces: a box in DejaVu
-    /// Sans, nothing in Liberation Serif, whose <c>.notdef</c> has no contours.
+    /// question mark. LibreOffice first looks for the character in the other
+    /// installed faces, and only where none has it draws the face's own
+    /// missing glyph: a box in DejaVu Sans, nothing in Liberation Serif, whose
+    /// <c>.notdef</c> has no contours. A private-use character, which is what a
+    /// symbol font's text is (Wingdings' arrow at U+F0E7), is in no face of the
+    /// reference set, so the missing glyph is what LibreOffice draws.
+    /// </para>
+    /// <para>
+    /// Other characters are left to the renderer: LibreOffice draws Arabic
+    /// from another face that has it, and East Asian text in the run's East
+    /// Asian font, neither of which this layout models. Drawing the Latin
+    /// face's empty <c>.notdef</c> there left tdf130314.docx's Chinese
+    /// paragraphs blank where LibreOffice draws boxes.
     /// Where the face's outlines are not known, the text is drawn as it is.
+    /// </para>
     /// </remarks>
     private void DrawRun(BRenderList list, LayoutPiece piece, BTextRun run, double originY, double baseline)
     {
@@ -496,19 +508,10 @@ public sealed class DocumentPagePainter
         return false;
     }
 
-    /// <summary>
-    /// True for a character the face has no glyph for and that draws one:
-    /// spaces, controls and format characters draw nothing either way.
-    /// </summary>
-    private static bool IsMissingGlyph(int codepoint, TrueTypeFont font)
-    {
-        if (font.GetGlyphIndex(codepoint) != 0)
-            return false;
-        System.Globalization.UnicodeCategory category = System.Globalization.CharUnicodeInfo.GetUnicodeCategory(codepoint);
-        return category is not (System.Globalization.UnicodeCategory.SpaceSeparator or
-            System.Globalization.UnicodeCategory.LineSeparator or System.Globalization.UnicodeCategory.ParagraphSeparator or
-            System.Globalization.UnicodeCategory.Control or System.Globalization.UnicodeCategory.Format);
-    }
+    /// <summary>True for a private-use character the face has no glyph for (<see cref="DrawRun"/>).</summary>
+    private static bool IsMissingGlyph(int codepoint, TrueTypeFont font) =>
+        System.Globalization.CharUnicodeInfo.GetUnicodeCategory(codepoint) == System.Globalization.UnicodeCategory.PrivateUse &&
+        font.GetGlyphIndex(codepoint) == 0;
 
     /// <summary>
     /// Fills closed polygons by the non-zero winding rule, as a glyph's
