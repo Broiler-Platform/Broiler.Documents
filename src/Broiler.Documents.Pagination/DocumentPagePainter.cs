@@ -217,9 +217,18 @@ public sealed class DocumentPagePainter
         double radius = Math.Min(bounds.Width, bounds.Height) / 6;
         BPoint apex = new(bounds.Left + bounds.Width / 2, bounds.Top);
         BPoint lowerLeft = new(bounds.Left, bounds.Bottom), lowerRight = new(bounds.Right, bounds.Bottom);
+        IReadOnlyList<IReadOnlyList<(double X, double Y)>>? paths = shape.OutlinePaths is { Count: > 0 } outline ? outline : null;
         if (shape.Fill is ShapeFill fill)
         {
-            if (shape.Geometry == ShapeGeometry.Ellipse)
+            if (paths is not null && fill.Image is null && fill.Hatch is null)
+            {
+                // The painter cannot clip a gradient to the outline, so its
+                // middle colour fills it, which keeps the shape's form.
+                BColor color = fill.IsGradient ? fill.ColorAt(0.5) : fill.Start;
+                foreach (IReadOnlyList<(double X, double Y)> path in paths)
+                    FillPolygon(list, PolygonCorners(bounds, path), color);
+            }
+            else if (shape.Geometry == ShapeGeometry.Ellipse)
             {
                 if (!fill.IsGradient && fill.Image is null && fill.Hatch is null)
                     list.Append(new BRenderCommand.FillRoundedRect(shape.Bounds, fill.Start, shape.Bounds.Width / 2, shape.Bounds.Height / 2));
@@ -259,7 +268,16 @@ public sealed class DocumentPagePainter
         if (!shape.Outline.IsEmpty && shape.Outline.A > 0)
         {
             double thickness = shape.OutlineWidth == 0 ? HairlineWidth : shape.OutlineWidth;
-            if (shape.Geometry == ShapeGeometry.Ellipse)
+            if (paths is not null)
+            {
+                foreach (IReadOnlyList<(double X, double Y)> path in paths)
+                {
+                    List<BPoint> corners = PolygonCorners(bounds, path);
+                    for (int i = 0; i < corners.Count; i++)
+                        DrawSegment(list, corners[i], corners[(i + 1) % corners.Count], shape.Outline, thickness);
+                }
+            }
+            else if (shape.Geometry == ShapeGeometry.Ellipse)
                 list.Append(new BRenderCommand.StrokeRoundedRect(shape.Bounds, shape.Outline, shape.Bounds.Width / 2, shape.Bounds.Height / 2, thickness));
             else if (shape.Geometry == ShapeGeometry.RoundedRectangle)
                 list.StrokeRoundedRect(bounds, shape.Outline, radius, radius, thickness);
@@ -426,6 +444,97 @@ public sealed class DocumentPagePainter
             list.FillRect(new BRect(bounds.Left - (width / 2), bounds.Top, width, bounds.Height), shape.Outline);
         else if (bounds.Height <= 0 && bounds.Width > 0)
             list.FillRect(new BRect(bounds.Left, bounds.Top - (width / 2), bounds.Width, width), shape.Outline);
+    }
+
+    /// <summary>The corners of one of a shape's outline polygons on the page.</summary>
+    private static List<BPoint> PolygonCorners(BRect bounds, IReadOnlyList<(double X, double Y)> path)
+    {
+        var corners = new List<BPoint>(path.Count);
+        foreach ((double x, double y) in path)
+        {
+            var corner = new BPoint(bounds.Left + x * bounds.Width, bounds.Top + y * bounds.Height);
+            if (corners.Count == 0 || corners[^1] != corner)
+                corners.Add(corner);
+        }
+        if (corners.Count > 1 && corners[0] == corners[^1])
+            corners.RemoveAt(corners.Count - 1);
+        return corners;
+    }
+
+    /// <summary>
+    /// Fills a simple polygon, convex or not - a star's points - as the
+    /// triangles ear clipping cuts it into.
+    /// </summary>
+    private static void FillPolygon(BRenderList list, List<BPoint> corners, BColor color)
+    {
+        if (corners.Count < 3)
+            return;
+        double area = 0;
+        for (int i = 0; i < corners.Count; i++)
+        {
+            BPoint a = corners[i], b = corners[(i + 1) % corners.Count];
+            area += a.X * b.Y - b.X * a.Y;
+        }
+        double orientation = Math.Sign(area);
+        if (orientation == 0)
+            return;
+
+        // Neighbouring triangles each shade their shared edge half way, which
+        // leaves a pale seam across an opaque fill; grown a little about their
+        // centres they overlap there instead.
+        double grow = color.A == 255 ? 0.3 : 0;
+
+        var remaining = new List<BPoint>(corners);
+        int guard = remaining.Count * remaining.Count;
+        int index = 0;
+        while (remaining.Count > 3 && guard-- > 0)
+        {
+            int count = remaining.Count;
+            BPoint previous = remaining[(index + count - 1) % count], current = remaining[index % count], next = remaining[(index + 1) % count];
+            if (Cross(previous, current, next) * orientation > 0 && !ContainsCorner(remaining, previous, current, next, orientation))
+            {
+                Fill(previous, current, next);
+                remaining.RemoveAt(index % count);
+                index = Math.Max(0, index - 1);
+                continue;
+            }
+            index = (index + 1) % count;
+        }
+
+        if (remaining.Count == 3)
+            Fill(remaining[0], remaining[1], remaining[2]);
+        else
+        {
+            // Not simple after all: fan it rather than leave a hole.
+            for (int i = 1; i + 1 < remaining.Count; i++)
+                Fill(remaining[0], remaining[i], remaining[i + 1]);
+        }
+
+        void Fill(BPoint a, BPoint b, BPoint c)
+        {
+            double cx = (a.X + b.X + c.X) / 3, cy = (a.Y + b.Y + c.Y) / 3;
+            list.FillTriangle(Grown(a), Grown(b), Grown(c), color);
+
+            BPoint Grown(BPoint p)
+            {
+                double dx = p.X - cx, dy = p.Y - cy, length = Math.Sqrt(dx * dx + dy * dy);
+                return length <= 0 || grow == 0 ? p : new BPoint(p.X + dx / length * grow, p.Y + dy / length * grow);
+            }
+        }
+
+        static double Cross(BPoint a, BPoint b, BPoint c) => (b.X - a.X) * (c.Y - b.Y) - (b.Y - a.Y) * (c.X - b.X);
+
+        static bool ContainsCorner(List<BPoint> points, BPoint a, BPoint b, BPoint c, double orientation)
+        {
+            foreach (BPoint p in points)
+            {
+                if (p == a || p == b || p == c)
+                    continue;
+                if (Cross(a, b, p) * orientation >= 0 && Cross(b, c, p) * orientation >= 0 && Cross(c, a, p) * orientation >= 0)
+                    return true;
+            }
+            return false;
+        }
     }
 
     /// <summary>The midpoints of a box's four edges, the corners of the diamond it holds.</summary>

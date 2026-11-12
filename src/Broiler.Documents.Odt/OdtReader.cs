@@ -190,6 +190,16 @@ internal static class OdtReader
             if ((string?)field.Attribute(OdtNamespaces.Meta + "name") is { Length: > 0 } name)
                 styles.UserDefinedFields.TryAdd(name, field.Value);
         }
+        foreach ((string field, XName name) in new[]
+        {
+            ("creation-date", OdtNamespaces.Meta + "creation-date"),
+            ("modification-date", OdtNamespaces.DublinCore + "date"),
+            ("print-date", OdtNamespaces.Meta + "print-date"),
+        })
+        {
+            if (meta?.Element(name)?.Value is { Length: > 0 } stated)
+                styles.DocumentDates[field] = stated;
+        }
         styles.InvertsTextDisplay = OdtMetadata.WrittenByOpenOffice2(metadata.Producer);
         styles.EmptyDbFieldHidesParagraph = OdtRevisions.ConfigFlag(settings, "EmptyDbFieldHidesPara");
         styles.WordGridMetrics = OdtRevisions.ConfigFlag(settings, "MsWordCompGridMetrics");
@@ -865,6 +875,8 @@ internal static class OdtReader
                 ? new TableCellPadding(left, outerTop, right, outerBottom) : default,
             BorderPadding = padding,
             TextGrid = ReadTextGrid(properties, styles.WordGridMetrics),
+            HeaderSpacing = hasHeader && header is not null ? GrowingBandSpacing(header, "margin-bottom") : 0,
+            FooterSpacing = hasFooter && footer is not null ? GrowingBandSpacing(footer, "margin-top") : 0,
         };
 
         if (geometry.IsUsable)
@@ -1031,6 +1043,19 @@ internal static class OdtReader
             ? Math.Max(height, gap)
             : height + gap;
     }
+
+    /// <summary>
+    /// The space a band that grows keeps between its content and the body: its
+    /// <paramref name="spacing"/>, which Writer adds below a header (above a
+    /// footer) however tall its content is. pagecounttest.ott's one-line header
+    /// with no least height and 0.499 cm of spacing starts the body 0.499 cm
+    /// below the line. A fixed band holds its spacing, and dynamic spacing lets
+    /// the content use it, so neither keeps any.
+    /// </summary>
+    private static double GrowingBandSpacing(XElement properties, string spacing) =>
+        IsFixedBand(properties) || (string?)properties.Attribute(OdtNamespaces.Style + "dynamic-spacing") == "true"
+            ? 0
+            : Math.Max(0, Length(properties, spacing));
 
     /// <summary>
     /// True for a band of fixed height (<c>svg:height</c> and no
@@ -1215,6 +1240,7 @@ internal static class OdtReader
                 (string?)graphic?.Attribute(OdtNamespaces.Draw + "auto-grow-height") != "false",
             WrapMargins = ReadWrapMargins(graphic),
             MinimumWrapRoom = MinimumWrapRoom(graphic),
+            OutlinePaths = ReadOutlinePaths(drawing, width, height, rotation),
         };
         context.Builder.AddShape(shape);
         if (context.PageRelativeShapes is { } pageRelative &&
@@ -1349,6 +1375,23 @@ internal static class OdtReader
             "diamond" => ShapeGeometry.Diamond,
             _ => ShapeGeometry.Rectangle,
         };
+    }
+
+    /// <summary>
+    /// The polygons a custom shape of no box geometry of its own draws - a
+    /// star, a cube, an arrow - from its enhanced path
+    /// (<see cref="OdtCustomShapePath"/>), or null to draw the box.
+    /// pagecounttest.ott's four- and five-pointed stars and its cube were drawn
+    /// as boxes.
+    /// </summary>
+    private static IReadOnlyList<IReadOnlyList<(double X, double Y)>>? ReadOutlinePaths(XElement drawing, double width, double height, double rotation)
+    {
+        if (drawing.Name != OdtNamespaces.Draw + "custom-shape" || ReadShapeGeometry(drawing) != ShapeGeometry.Rectangle)
+            return null;
+        XElement? geometry = drawing.Element(OdtNamespaces.Draw + "enhanced-geometry");
+        return (string?)geometry?.Attribute(OdtNamespaces.Draw + "type") is "rectangle" or "rect"
+            ? null
+            : OdtCustomShapePath.Read(geometry, width, height, rotation);
     }
 
     private static bool TryReadShapeRotation(XElement drawing, out double angle, out double x, out double y)
@@ -3220,6 +3263,12 @@ internal static class OdtReader
                 continue;
             }
 
+            if (DateFieldText(element, context.Styles) is string date)
+            {
+                builder.AppendLiteral(date, style);
+                continue;
+            }
+
             if (name == OdtNamespaces.Text + "script")
                 continue;
 
@@ -3250,6 +3299,45 @@ internal static class OdtReader
             if (element.HasElements || !string.IsNullOrEmpty(element.Value))
                 ReadInlineContent(element, context, style, depth + 1);
         }
+    }
+
+    /// <summary>
+    /// The text LibreOffice shows for a date field it formats again on load,
+    /// or null where the cached text stands.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Writer keeps a date field's value and shows it through the field's data
+    /// style (<c>SwDateTimeField</c>, <c>SwDocInfoField</c>), so the text a
+    /// producer cached in another locale is not what it draws: ooo96040-2.odt
+    /// caches "10. Nov 2008" for a modification date whose automatically ordered
+    /// style reads "Nov 10, 2008" in en-US.
+    /// </para>
+    /// <para>
+    /// A fixed <c>text:date</c> shows its <c>text:date-value</c>. A document
+    /// date (<c>text:creation-date</c>, <c>text:modification-date</c>,
+    /// <c>text:print-date</c>) shows its own value when fixed and the date
+    /// <c>meta.xml</c> holds otherwise. A <c>text:date</c> that is not fixed
+    /// shows the day it is opened, which a renderer cannot reproduce, and a
+    /// field with no data style or one <see cref="OdtDataStyles"/> cannot
+    /// format keeps the cached text.
+    /// </para>
+    /// </remarks>
+    private static string? DateFieldText(XElement field, OdtStyles styles)
+    {
+        if (field.Name.Namespace != OdtNamespaces.Text ||
+            field.Name.LocalName is not ("date" or "creation-date" or "modification-date" or "print-date") ||
+            (string?)field.Attribute(OdtNamespaces.Style + "data-style-name") is not string styleName ||
+            !styles.NumberFormats.TryGetValue(styleName, out XElement? format))
+            return null;
+
+        bool isFixed = (string?)field.Attribute(OdtNamespaces.Text + "fixed") == "true";
+        string? value = isFixed ? (string?)field.Attribute(OdtNamespaces.Text + "date-value")
+            : field.Name.LocalName == "date" ? null
+            : styles.DocumentDates.GetValueOrDefault(field.Name.LocalName);
+        return OdtDataStyles.TryParseDateValue(value, out DateTime date) && OdtDataStyles.TryFormatDate(format, date, out string text)
+            ? text
+            : null;
     }
 
     /// <summary>
@@ -4323,6 +4411,7 @@ internal static class OdtReader
             // Writer's own default Western face where neither the default
             // style nor Standard names one (bookmark_order.fodt).
             FontFamily = string.IsNullOrWhiteSpace(style.FontFamily) ? WriterDefaultFontFamily : style.FontFamily,
+            RunningBandsEndAtLastLine = true,
         };
     }
 

@@ -116,6 +116,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     private double? _headerDistance;
     private double? _footerDistance;
     private (bool Header, bool Footer) _fixedBands;
+    private (double Header, double Footer) _bandSpacing;
     private PageFrame? _frame;
     private IReadOnlyList<DocumentShape> _documentShapes = [];
     private ShapeFill? _background;
@@ -256,6 +257,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         _headerDistance = document.PageGeometry?.HeaderDistance;
         _footerDistance = document.PageGeometry?.FooterDistance;
         _fixedBands = (document.PageGeometry?.FixedHeaderHeight == true, document.PageGeometry?.FixedFooterHeight == true);
+        _bandSpacing = (document.PageGeometry?.HeaderSpacing ?? 0, document.PageGeometry?.FooterSpacing ?? 0);
         _frame = null;
         _grid = null;
         _offBody = 0;
@@ -349,7 +351,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             {
                 _frame = FrameFor(
                     pages.Count + 1, setup, setup.MarginTopPoints, setup.MarginBottomPoints,
-                    _headerDistance, _footerDistance, setup.ContentLeftPoints, setup.ContentWidthPoints, _fixedBands);
+                    _headerDistance, _footerDistance, setup.ContentLeftPoints, setup.ContentWidthPoints, _fixedBands, _bandSpacing);
             }
             else
             {
@@ -357,7 +359,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 _frame = FrameFor(
                     pages.Count + 1, setup, Math.Clamp(page.MarginTop, 0, setup.HeightPoints - 1), page.MarginBottom,
                     page.HeaderDistance, page.FooterDistance, left, Math.Max(1, setup.WidthPoints - page.MarginRight - left),
-                    (page.FixedHeaderHeight, page.FixedFooterHeight));
+                    (page.FixedHeaderHeight, page.FixedFooterHeight), (page.HeaderSpacing, page.FooterSpacing));
             }
 
             // A page with a line text grid sets its body's lines on the grid's
@@ -2102,7 +2104,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             ? current.Number == number ? current : FrameFor(number, setup, current)
             : FrameFor(
                 number, setup, setup.MarginTopPoints, setup.MarginBottomPoints,
-                _headerDistance, _footerDistance, setup.ContentLeftPoints, setup.ContentWidthPoints, _fixedBands);
+                _headerDistance, _footerDistance, setup.ContentLeftPoints, setup.ContentWidthPoints, _fixedBands, _bandSpacing);
 
         int pageNumber = _numbering.Number + number - _numbering.Page;
         var runningBorders = new List<LayoutCell>();
@@ -2303,6 +2305,11 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     /// margin itself, with no room between, drew no header on any page.
     /// </para>
     /// <para>
+    /// An ODF band keeps its spacing (<see cref="PageGeometry.HeaderSpacing"/>,
+    /// <see cref="PageGeometry.FooterSpacing"/>) between its content and the
+    /// text however tall it grows, where Word's text only clears the header.
+    /// </para>
+    /// <para>
     /// A band with no declared distance is centred in its margin and moves
     /// nothing, and a band that would take more than half of the text's height
     /// moves nothing either: it is reported and left out, as one taller than
@@ -2310,7 +2317,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     /// </para>
     /// </remarks>
     private PageFrame FrameFor(int number, DocumentPageBox setup, double marginTop, double marginBottom,
-        double? headerDistance, double? footerDistance, double left, double width, (bool Header, bool Footer) fixedBands = default)
+        double? headerDistance, double? footerDistance, double left, double width, (bool Header, bool Footer) fixedBands = default,
+        (double Header, double Footer) bandSpacing = default)
     {
         double top = marginTop;
         double bottom = Math.Max(top + 1, setup.HeightPoints - marginBottom);
@@ -2325,7 +2333,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 headerParagraphs = [RichTextParagraph.Empty];
             double header = RunningHeight(headerParagraphs, setup, left, width, _running.EffectiveHeaderTables(selection),
                 _running.EffectiveHeaderShapes(selection));
-            double overrun = fromTop + header - top;
+            double overrun = fromTop + header + bandSpacing.Header - top;
             if (header > 0 && overrun > 0 && overrun <= (bottom - top) / 2)
                 top += overrun;
         }
@@ -2334,17 +2342,17 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         {
             double footer = RunningHeight(_running.EffectiveFooter(selection), setup, left, width, _running.EffectiveFooterTables(selection),
                 _running.EffectiveFooterShapes(selection));
-            double overrun = fromBottom + footer - (setup.HeightPoints - bottom);
+            double overrun = fromBottom + footer + bandSpacing.Footer - (setup.HeightPoints - bottom);
             if (footer > 0 && overrun > 0 && overrun <= (bottom - top) / 2)
                 bottom -= overrun;
         }
 
-        return new PageFrame(number, marginTop, marginBottom, headerDistance, footerDistance, left, width, top, bottom, fixedBands);
+        return new PageFrame(number, marginTop, marginBottom, headerDistance, footerDistance, left, width, top, bottom, fixedBands, bandSpacing);
     }
 
     /// <summary>Page <paramref name="number"/>'s frame on the paper and margins of <paramref name="like"/>.</summary>
     private PageFrame FrameFor(int number, DocumentPageBox setup, PageFrame like) =>
-        FrameFor(number, setup, like.MarginTop, like.MarginBottom, like.HeaderDistance, like.FooterDistance, like.Left, like.Width, like.FixedBands);
+        FrameFor(number, setup, like.MarginTop, like.MarginBottom, like.HeaderDistance, like.FooterDistance, like.Left, like.Width, like.FixedBands, like.BandSpacing);
 
     /// <summary>
     /// The paper a page is laid out on: the margins and band distances it takes
@@ -2361,7 +2369,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         double Width,
         double TextTop,
         double TextBottom,
-        (bool Header, bool Footer) FixedBands = default);
+        (bool Header, bool Footer) FixedBands = default,
+        (double Header, double Footer) BandSpacing = default);
 
     /// <summary>
     /// Adds a shape hanging from a body paragraph to the exclusions, its box
@@ -2482,6 +2491,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 StretchesTextToBox = shape.StretchesTextToBox,
                 TextOutline = shape.TextOutline,
                 TextOutlineWidth = shape.TextOutlineWidth,
+                OutlinePaths = shape.OutlinePaths,
             });
         }
 
@@ -2558,6 +2568,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 StretchesTextToBox = shape.StretchesTextToBox,
                 TextOutline = shape.TextOutline,
                 TextOutlineWidth = shape.TextOutlineWidth,
+                OutlinePaths = shape.OutlinePaths,
             });
         }
 
@@ -4632,6 +4643,10 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             spaceBelowPrevious = Math.Max(0, paragraph.Style.SpacingAfter);
             height += spaceBelowPrevious;
         }
+
+        // Writer's band ends at its last line; its own spacing parts it from the body.
+        if (_styleDefaults.RunningBandsEndAtLastLine && lines.Count > 0)
+            height -= spaceBelowPrevious;
 
         return (lines, height);
     }

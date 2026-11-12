@@ -221,6 +221,14 @@ public sealed class DocumentShape(
     public IReadOnlyList<(double X, double Y)>? WrapPolygon { get; init; }
 
     /// <summary>
+    /// The closed polygons the shape is drawn as, in place of
+    /// <see cref="Geometry"/>: a star's or an arrow's outline, each polygon's
+    /// corners as fractions of the box's width and height. Null draws
+    /// <see cref="Geometry"/>.
+    /// </summary>
+    public IReadOnlyList<IReadOnlyList<(double X, double Y)>>? OutlinePaths { get; init; }
+
+    /// <summary>
     /// The least room, in points, a line needs beside a shape that wraps on its
     /// larger side; with less on both sides the line goes below it. Zero lets
     /// text into any gap. Writer keeps text out of a gap narrower than 2 cm
@@ -400,6 +408,7 @@ public sealed class DocumentShape(
             TextOutlineWidth = TextOutlineWidth,
             WrapMargins = WrapMargins,
             WrapPolygon = WrapPolygon,
+            OutlinePaths = OutlinePaths,
             MinimumWrapRoom = MinimumWrapRoom,
             BoundedByPage = BoundedByPage,
             OffsetXFromColumn = OffsetXFromColumn,

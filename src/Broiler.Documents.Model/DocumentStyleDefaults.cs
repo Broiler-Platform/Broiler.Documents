@@ -188,6 +188,20 @@ public sealed record DocumentStyleDefaults
     public bool CollapsesParagraphSpacing { get; init; }
 
     /// <summary>
+    /// Whether a header or footer ends at its last line, without the space its
+    /// last paragraph asks for below it.
+    /// </summary>
+    /// <remarks>
+    /// Writer lays an ODF band out so: a header whose two paragraphs each have
+    /// 1 cm below them, with 0.5 cm of header spacing, starts the body 0.5 cm
+    /// below the second line, and a footer's last line sits on the bottom
+    /// margin (soffice 24.2, tdf134472.odt). The band's own spacing
+    /// (<see cref="PageGeometry.HeaderSpacing"/>) is what separates it from the
+    /// body.
+    /// </remarks>
+    public bool RunningBandsEndAtLastLine { get; init; }
+
+    /// <summary>
     /// The space a block that asks for <paramref name="spaceAbove"/> opens
     /// with below one that left <paramref name="spaceBelowPrevious"/> beneath
     /// it, which the caller has already added.
