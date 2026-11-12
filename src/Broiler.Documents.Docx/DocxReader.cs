@@ -1860,6 +1860,7 @@ internal static class DocxReader
             WrapMargins = Wrap == ShapeWrap.None ? null : Margins,
             WrapPolygon = Wrap == ShapeWrap.None ? null : ReadWrapPolygon(anchor),
             BoundedByPage = !context.Builder.InTableCell,
+            OffsetXFromColumn = FromColumn(anchor, context),
         });
         return true;
     }
@@ -2060,6 +2061,7 @@ internal static class DocxReader
                 {
                     WrapMargins = Wrap == ShapeWrap.None ? null : Margins,
                     BoundedByPage = !context.Builder.InTableCell,
+                    OffsetXFromColumn = FromColumn(anchor, context),
                 });
             }
             else if (child.Name == DocxNamespaces.WordGroup + "grpSp" && depth < MaxGroupDepth)
@@ -2202,9 +2204,18 @@ internal static class DocxReader
             TextFlow = ReadShapeTextFlow(wsp.Element(DocxNamespaces.WordShape + "bodyPr")),
             WrapMargins = Wrap == ShapeWrap.None ? null : Margins,
             BoundedByPage = !context.Builder.InTableCell,
+            OffsetXFromColumn = FromColumn(anchor, context),
         });
         return true;
     }
+
+    /// <summary>
+    /// Whether an anchored object outside a table is placed across from the left
+    /// of the column its paragraph is in: <c>relativeFrom="column"</c>, and
+    /// <c>"character"</c>, which this reader places as the column.
+    /// </summary>
+    private static bool FromColumn(XElement anchor, DocxReadContext context) =>
+        !context.Builder.InTableCell && RelativeFrom(anchor, "positionH") is "column" or "character";
 
     /// <summary>
     /// Whether an object anchored in a table cell is placed in the cell, as

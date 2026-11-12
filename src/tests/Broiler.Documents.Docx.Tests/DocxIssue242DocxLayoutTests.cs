@@ -96,4 +96,21 @@ public sealed class DocxIssue242DocxLayoutTests
         Assert.False(paragraphs[1].Style.RightToLeft);
         Assert.False(paragraphs[2].Style.RightToLeft);
     }
+
+    [Theory]
+    [InlineData("column", true)]
+    [InlineData("character", true)]
+    [InlineData("margin", false)]
+    [InlineData("page", false)]
+    public void An_Anchor_Placed_From_Its_Column_Says_So(string relativeFrom, bool fromColumn)
+    {
+        string run = DocxTestPackage.AnchoredDrawingRun("rId7", 914400, 457200)
+            .Replace("<wp:positionH relativeFrom=\"column\">", "<wp:positionH relativeFrom=\"" + relativeFrom + "\">", StringComparison.Ordinal);
+        DocumentReadResult result = DocxTestPackage.ReadWithMedia(
+            "<w:p>" + run + "<w:r><w:t>body</w:t></w:r></w:p>",
+            DocxTestPackage.ImageRelationship("rId7", "media/image1.png"),
+            new Dictionary<string, byte[]>(StringComparer.Ordinal) { ["word/media/image1.png"] = DocxTestPackage.OnePixelPng });
+
+        Assert.Equal(fromColumn, Assert.Single(result.Document.Shapes).OffsetXFromColumn);
+    }
 }

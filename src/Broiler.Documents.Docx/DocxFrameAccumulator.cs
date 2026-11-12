@@ -101,6 +101,7 @@ internal sealed class DocxFrameAccumulator
             WrapMargins = inner.WrapMargins,
             WrapPolygon = inner.WrapPolygon,
             BoundedByPage = inner.BoundedByPage,
+            OffsetXFromColumn = inner.OffsetXFromColumn,
         };
     }
 

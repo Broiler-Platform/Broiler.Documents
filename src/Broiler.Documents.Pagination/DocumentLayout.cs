@@ -122,6 +122,12 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     private DocumentStyleDefaults _styleDefaults = DocumentStyleDefaults.Default;
     private TextWrapExclusions _wrap = new();
     private readonly Dictionary<int, double> _paragraphTops = [];
+
+    /// <summary>
+    /// How far right of the text area's left the column each body paragraph
+    /// was set in starts, for shapes placed from their column.
+    /// </summary>
+    private readonly Dictionary<int, double> _paragraphColumns = [];
     private readonly Dictionary<DocumentShape, double> _grownHeights = [];
     private readonly Dictionary<DocumentShape, double> _grownWidths = [];
     private readonly Dictionary<DocumentShape, IReadOnlyList<RichTextParagraph>> _linkedParagraphs = [];
@@ -260,6 +266,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         _raisedNoteLabels = document.NoteNumbering.RaisedLabels;
         _noteBlocks.Clear();
         _paragraphTops.Clear();
+        _paragraphColumns.Clear();
         _grownHeights.Clear();
         _grownWidths.Clear();
         _asCharLines.Clear();
@@ -1055,7 +1062,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                             if (shape.Wraps && !shape.IsPageAnchored &&
                                 _paragraphTops.TryGetValue(shape.ParagraphIndex, out double anchor))
                             {
-                                _wrap.Add(shape, shape.TopOnPage(anchor), height: BoxHeight(shape), width: BoxWidth(shape));
+                                AddWrap(shape, shape.TopOnPage(anchor));
                             }
                         }
 
@@ -1132,13 +1139,14 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         void ReanchorParagraph(int index)
         {
             _paragraphTops[index] = y;
+            _paragraphColumns[index] = columns.Offset(column);
             _wrap = new TextWrapExclusions();
             AddPageExclusions(pages.Count + 1);
             foreach (DocumentShape shape in _documentShapes)
             {
                 if (shape.Wraps && !shape.IsPageAnchored &&
                     _paragraphTops.TryGetValue(shape.ParagraphIndex, out double anchor))
-                    _wrap.Add(shape, shape.TopOnPage(anchor), height: BoxHeight(shape), width: BoxWidth(shape));
+                    AddWrap(shape, shape.TopOnPage(anchor));
             }
             AddFloatExclusions();
         }
@@ -1544,6 +1552,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                     break;
             }
             _paragraphTops.TryAdd(paragraphIndex, y);
+            _paragraphColumns[paragraphIndex] = columns.Offset(column);
 
             // A paragraph whose text and mark are all hidden takes no room, as
             // LibreOffice hides it; the break it asked for was taken above.
@@ -1560,7 +1569,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             foreach (DocumentShape shape in _documentShapes)
             {
                 if (shape.Wraps && !shape.IsPageAnchored && shape.ParagraphIndex == paragraphIndex)
-                    _wrap.Add(shape, shape.TopOnPage(y), height: BoxHeight(shape), width: BoxWidth(shape));
+                    AddWrap(shape, shape.TopOnPage(y));
             }
 
             // Word honors spacing above the opening paragraph. Subsequent
@@ -2343,6 +2352,19 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         (bool Header, bool Footer) FixedBands = default);
 
     /// <summary>
+    /// Adds a shape hanging from a body paragraph to the exclusions, its box
+    /// starting at <paramref name="top"/>, and across from its column where it
+    /// is placed from one.
+    /// </summary>
+    private void AddWrap(DocumentShape shape, double top) =>
+        _wrap.Add(shape, top, 1, BoxHeight(shape), BoxWidth(shape), ColumnShift(shape));
+
+    /// <summary>How far right a shape placed from its paragraph's column moves.</summary>
+    private double ColumnShift(DocumentShape shape) =>
+        shape.OffsetXFromColumn && !shape.OffsetXFromCell && !shape.IsPageAnchored
+            ? _paragraphColumns.GetValueOrDefault(shape.ParagraphIndex) : 0;
+
+    /// <summary>
     /// Adds the wrapping shapes anchored to page <paramref name="number"/> to the
     /// exclusions, which are page-local and were just emptied for it.
     /// </summary>
@@ -2471,7 +2493,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             return placed;
 
         var cellTextAreas = new Dictionary<int, (double Left, double Width)>();
-        if (_documentShapes.Any(shape => shape.OffsetXFromCell || shape.IsAsCharacter))
+        if (_documentShapes.Any(shape => shape.OffsetXFromCell || shape.IsAsCharacter || shape.OffsetXFromColumn))
             foreach (LayoutLine line in sourceLines)
                 cellTextAreas.TryAdd(line.ParagraphIndex, (line.TextAreaLeft, line.TextAreaWidth));
 
@@ -2491,7 +2513,12 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             }
 
             var area = shape.OffsetXFromCell && cellTextAreas.TryGetValue(shape.ParagraphIndex, out var cellArea)
-                ? cellArea : (Left: setup.ContentLeftPoints, Width: setup.ContentWidthPoints);
+                ? cellArea : (Left: setup.ContentLeftPoints + ColumnShift(shape), Width: setup.ContentWidthPoints);
+            // From the column the paragraph's lines ended up in, balanced
+            // columns included.
+            if (shape.OffsetXFromColumn && !shape.OffsetXFromCell && !shape.IsPageAnchored &&
+                cellTextAreas.TryGetValue(shape.ParagraphIndex, out var placedArea))
+                area = (placedArea.Left, setup.ContentWidthPoints);
             // An as-character frame sits in its line, so in its text column
             // (tdf132420: one frame per paragraph in a three-column section).
             if (!shape.OffsetXFromCell && shape.IsAsCharacter && !shape.IsPageAnchored && !shape.OffsetFromPage &&
@@ -3374,7 +3401,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             }
 
             double shapeTop = shape.TopOnPage(anchorTop);
-            double shapeLeft = setup.ContentLeftPoints + shape.OffsetX;
+            double shapeLeft = setup.ContentLeftPoints + shape.OffsetX + ColumnShift(shape);
             double shapeWidth = BoxWidth(shape);
             double shapeHeight = BoxHeight(shape);
             if (shapeWidth <= 0 || shapeHeight <= 0)

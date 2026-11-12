@@ -79,7 +79,15 @@ public sealed class TextWrapExclusions
     /// layout made it taller than it states, as it does for a shape that
     /// <see cref="DocumentShape.GrowsToText"/>.
     /// </remarks>
-    public void Add(DocumentShape shape, double top, double scale = 1, double? height = null, double? width = null)
+    public void Add(DocumentShape shape, double top, double scale = 1, double? height = null, double? width = null) =>
+        Add(shape, top, scale, height, width, shift: 0);
+
+    /// <summary>
+    /// Records a shape's box moved <paramref name="shift"/> to the right of
+    /// where its <see cref="DocumentShape.OffsetX"/> puts it: the left of the
+    /// text column it is placed from (<see cref="DocumentShape.OffsetXFromColumn"/>).
+    /// </summary>
+    public void Add(DocumentShape shape, double top, double scale, double? height, double? width, double shift)
     {
         double boxHeight = height ?? shape.Height;
         double boxWidth = width ?? shape.Width;
@@ -91,13 +99,14 @@ public sealed class TextWrapExclusions
         double marginTop = shape.WrapMargins is { } wmT ? Math.Max(0, wmT.Top) * scale : margin;
         double marginRight = shape.WrapMargins is { } wmR ? Math.Max(0, wmR.Right) * scale : margin;
         double marginBottom = shape.WrapMargins is { } wmB ? Math.Max(0, wmB.Bottom) * scale : margin;
+        double offsetX = shape.OffsetX + shift;
         var rect = new ExclusionRect(
-            (shape.OffsetX * scale) - marginLeft,
+            (offsetX * scale) - marginLeft,
             top - marginTop,
-            ((shape.OffsetX + boxWidth) * scale) + marginRight,
+            ((offsetX + boxWidth) * scale) + marginRight,
             top + (boxHeight * scale) + marginBottom);
         IReadOnlyList<ExclusionRect> rects = shape.WrapPolygon is { Count: >= 3 } polygon && shape.Wrap == ShapeWrap.Square
-            ? PolygonBands(polygon, shape.OffsetX * scale, top, boxWidth * scale, boxHeight * scale,
+            ? PolygonBands(polygon, offsetX * scale, top, boxWidth * scale, boxHeight * scale,
                 marginLeft, marginTop, marginRight, marginBottom)
             : [rect];
 

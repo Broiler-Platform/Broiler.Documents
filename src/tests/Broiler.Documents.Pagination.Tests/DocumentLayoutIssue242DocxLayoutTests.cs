@@ -126,4 +126,50 @@ public sealed class DocumentLayoutIssue242DocxLayoutTests
         Assert.True(latin[1].X < latin[2].X);
         Assert.Equal(540, latin[2].X + latin[2].Width, 3);
     }
+
+    /// <summary>
+    /// Two columns of 228 points with a 12-point gap on a Letter page; the
+    /// third paragraph opens the second column and holds a 100-point square
+    /// placed 10 points across from its column's left, keeping text above and
+    /// below it.
+    /// </summary>
+    private static LayoutPage ColumnShape(bool fromColumn)
+    {
+        RichTextParagraph[] paragraphs =
+        [
+            Line("left one"), Line("left two"),
+            RichTextParagraph.Create("right", InlineStyle.Default, ParagraphStyle.Default with
+            {
+                ColumnBreakBefore = true, LineHeightRule = LineHeightRule.Exact, LineHeight = 12,
+            }),
+            Line("right two"),
+        ];
+        RichTextDocument document = RichTextDocument.FromParagraphs(paragraphs)
+            .WithSections([new DocumentSection(0, 4, 2, 12)])
+            .WithShapes([new DocumentShape(2, 10, 0, 100, 100, fill: ShapeFill.Solid(Broiler.Graphics.Color.BColor.Red),
+                wrap: ShapeWrap.TopAndBottom, behindText: false) { OffsetXFromColumn = fromColumn }]);
+        return Assert.Single(Layout(document).Pages);
+    }
+
+    [Fact]
+    public void A_Shape_Placed_From_Its_Column_Stands_In_The_Column_Of_Its_Paragraph()
+    {
+        // fdo43573-2-min.docx: wp:positionH relativeFrom="column" in the right
+        // column of two is measured from that column's left (LibreOffice 24.2).
+        LayoutPage page = ColumnShape(fromColumn: true);
+        LayoutShape shape = Assert.Single(page.Shapes);
+        Assert.Equal(72 + 240 + 10, shape.Bounds.Left, 3);
+
+        // The left column's text is not pushed below a frame that does not
+        // reach into it; the right column's is.
+        Assert.Equal(84, page.Lines.Single(line => line.ParagraphIndex == 1).Top, 3);
+        Assert.True(page.Lines.Single(line => line.ParagraphIndex == 2).Top >= 72 + 100);
+    }
+
+    [Fact]
+    public void A_Shape_Placed_From_The_Text_Area_Stands_At_Its_Left()
+    {
+        LayoutShape shape = Assert.Single(ColumnShape(fromColumn: false).Shapes);
+        Assert.Equal(72 + 10, shape.Bounds.Left, 3);
+    }
 }
