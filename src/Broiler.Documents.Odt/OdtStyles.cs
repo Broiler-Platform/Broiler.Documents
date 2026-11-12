@@ -35,6 +35,14 @@ internal sealed class OdtStyles : IOdtImageDiagnostics
 {
     public Dictionary<string, string> UserDefinedFields { get; } = new(StringComparer.Ordinal);
 
+    /// <summary>
+    /// The document's dates from <c>meta.xml</c> as stated, by the date field
+    /// that shows each: <c>creation-date</c> (<c>meta:creation-date</c>),
+    /// <c>modification-date</c> (<c>dc:date</c>) and <c>print-date</c>
+    /// (<c>meta:print-date</c>).
+    /// </summary>
+    public Dictionary<string, string> DocumentDates { get; } = new(StringComparer.Ordinal);
+
     /// <summary>The two style families this codec resolves.</summary>
     public const string ParagraphFamily = "paragraph";
 
@@ -297,8 +305,32 @@ internal sealed class OdtStyles : IOdtImageDiagnostics
         ZipArchiveEntry? stylesEntry = OdtPackage.FindEntry(archive, OdtNamespaces.StylesPart);
         XElement? stylesRoot = stylesEntry is null
             ? null
-            : OdtPackage.LoadEntryXml(stylesEntry, limits, diagnostics, "odt.styles")?.Root;
+            : OdtPackage.LoadEntryXml(stylesEntry, limits, diagnostics, "odt.styles", LoadOptions.PreserveWhitespace)?.Root;
+        if (stylesRoot is not null)
+            DropLayoutWhitespace(stylesRoot);
         return Load(stylesRoot, content.Root, limits, diagnostics);
+    }
+
+    /// <summary>
+    /// Drops the white space between the elements of <c>styles.xml</c> and keeps
+    /// it where it is text: in a header's or footer's paragraphs, and in a data
+    /// style's <c>number:text</c> and <c>number:currency-symbol</c>. A currency
+    /// style's <c>&lt;number:text&gt; &lt;/number:text&gt;</c> is the space
+    /// between "€" and "100,00", and a <c>text:span</c> holding one space is a
+    /// word gap in a header.
+    /// </summary>
+    private static void DropLayoutWhitespace(XElement root)
+    {
+        foreach (XText text in root.DescendantNodes().OfType<XText>().Where(text => string.IsNullOrWhiteSpace(text.Value)).ToList())
+        {
+            XElement? parent = text.Parent;
+            bool isText = parent is not null && (
+                parent.Name == OdtNamespaces.Number + "text" ||
+                parent.Name == OdtNamespaces.Number + "currency-symbol" ||
+                parent.AncestorsAndSelf().Any(element => element.Name == OdtNamespaces.Text + "p" || element.Name == OdtNamespaces.Text + "h"));
+            if (!isText)
+                text.Remove();
+        }
     }
 
     /// <summary>
@@ -395,7 +427,7 @@ internal sealed class OdtStyles : IOdtImageDiagnostics
                 .ToDictionary(group => group.Key, group => group.Last(), StringComparer.Ordinal),
             NumberFormats = new[] { stylesRoot, contentRoot }.Where(root => root is not null)
                 .SelectMany(root => root!.Descendants().Where(element =>
-                    element.Name == OdtNamespaces.Number + "number-style" || element.Name == OdtNamespaces.Number + "time-style"))
+                    element.Name.Namespace == OdtNamespaces.Number && element.Name.LocalName.EndsWith("-style", StringComparison.Ordinal)))
                 .Where(element => element.Attribute(OdtNamespaces.Style + "name") is not null)
                 .GroupBy(element => (string)element.Attribute(OdtNamespaces.Style + "name")!, StringComparer.Ordinal)
                 .ToDictionary(group => group.Key, group => group.Last(), StringComparer.Ordinal),

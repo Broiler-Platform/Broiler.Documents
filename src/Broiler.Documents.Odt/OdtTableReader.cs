@@ -204,20 +204,113 @@ internal static class OdtTableReader
         return list;
     }
 
+    /// <summary>
+    /// The blocks a cell shows: its paragraphs, or the value it holds where
+    /// Writer shows that instead.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Writer gives a cell that holds a value and a data style the value's
+    /// formatted text in place of the text the producer cached
+    /// (<c>SwXMLTableContext::MakeTableBox</c>, then the box's number format), so
+    /// fdo60842.odt's empty date and currency cells read "18/02/2012" and
+    /// "500 000,00", and a cell with <c>office:string-value</c> shows that
+    /// string ("USD") instead of its paragraph ("This text should not appear").
+    /// </para>
+    /// <para>
+    /// soffice shows where it stops. A cell of one paragraph whose text is plain
+    /// or in spans is replaced, the paragraph's style and its first span's kept;
+    /// one of several paragraphs, or with a field or a frame, keeps them. A cell
+    /// with no data style, or a text one, keeps its text. A General cell of value
+    /// zero keeps its text, empty or not, which is how such a cell stays a label.
+    /// A formula is left to its cached result, as is anything
+    /// <see cref="OdtDataStyles"/> cannot format.
+    /// </para>
+    /// </remarks>
     private static IEnumerable<XElement> DisplayCellContent(XElement cell, OdtStyles styles)
     {
-        // For a General-format numeric cell the stored value is authoritative.
-        // Keep rich/multi-paragraph content and explicit number formats unchanged.
-        XElement? paragraph = cell.Elements().FirstOrDefault();
-        if ((string?)cell.Attribute(OdtNamespaces.Office + "value-type") == "float" &&
-            cell.Elements().Count() == 1 && paragraph?.Name == OdtNamespaces.Text + "p" && !paragraph.HasElements &&
-            styles.HasGeneralNumberFormat((string?)cell.Attribute(OdtNamespaces.Table + "style-name")) &&
-            double.TryParse((string?)cell.Attribute(OdtNamespaces.Office + "value"), NumberStyles.Float, CultureInfo.InvariantCulture, out double value) && double.IsFinite(value))
+        List<XElement> blocks = [.. cell.Elements()];
+        XElement? paragraph = blocks.Count == 1 && blocks[0].Name == OdtNamespaces.Text + "p" ? blocks[0] : null;
+        bool replaceable = blocks.Count == 0 || (paragraph is not null && HoldsPlainText(paragraph));
+        if (!replaceable || cell.Attribute(OdtNamespaces.Table + "formula") is not null)
+            return blocks;
+
+        string? type = (string?)cell.Attribute(OdtNamespaces.Office + "value-type");
+        if (type is null or "string")
         {
-            var displayed = new XElement(paragraph) { Value = value.ToString("G15", styles.NumberCulture) };
-            return [displayed];
+            return (string?)cell.Attribute(OdtNamespaces.Office + "string-value") is string stated
+                ? [Displayed(paragraph, stated)]
+                : blocks;
         }
-        return cell.Elements();
+
+        string? styleName = (string?)cell.Attribute(OdtNamespaces.Table + "style-name");
+        if (styles.DataFormatFor("table-cell", styleName) is not XElement format)
+            return blocks;
+
+        if (type == "date")
+        {
+            return OdtDataStyles.TryParseDateValue((string?)cell.Attribute(OdtNamespaces.Office + "date-value"), out DateTime date) &&
+                OdtDataStyles.TryFormatDate(format, date, out string shown)
+                    ? [Displayed(paragraph, shown)]
+                    : blocks;
+        }
+
+        if (type is not ("float" or "currency" or "percentage" or "boolean") ||
+            !TryReadValue(cell, type, out double value))
+            return blocks;
+
+        if (styles.HasGeneralNumberFormat(styleName))
+        {
+            return value == 0
+                ? blocks
+                : [Displayed(paragraph, value.ToString("G15", styles.NumberCulture))];
+        }
+
+        return OdtDataStyles.TryFormatNumber(format, value, styles.NumberFormats, out string text)
+            ? [Displayed(paragraph, text)]
+            : blocks;
+    }
+
+    private static bool TryReadValue(XElement cell, string type, out double value)
+    {
+        value = 0;
+        if (type == "boolean")
+        {
+            string? stated = (string?)cell.Attribute(OdtNamespaces.Office + "boolean-value");
+            if (stated is "true" or "false")
+            {
+                value = stated == "true" ? 1 : 0;
+                return true;
+            }
+            return false;
+        }
+
+        return double.TryParse((string?)cell.Attribute(OdtNamespaces.Office + "value"), NumberStyles.Float, CultureInfo.InvariantCulture, out value) &&
+            double.IsFinite(value);
+    }
+
+    /// <summary>
+    /// True for a paragraph of text alone: text, spans of it, spaces, tabs,
+    /// line breaks and bookmarks, which Writer replaces with a value; not a
+    /// field, a frame or a note, which it keeps.
+    /// </summary>
+    private static bool HoldsPlainText(XElement paragraph) =>
+        paragraph.Descendants().All(element => element.Name.Namespace == OdtNamespaces.Text && element.Name.LocalName is
+            "span" or "s" or "tab" or "line-break" or "soft-page-break" or "bookmark" or "bookmark-start" or "bookmark-end");
+
+    /// <summary>
+    /// The cell's paragraph showing <paramref name="text"/>: its attributes kept,
+    /// and the text in a copy of its first span, whose character style the
+    /// replaced text had.
+    /// </summary>
+    private static XElement Displayed(XElement? paragraph, string text)
+    {
+        var displayed = new XElement(OdtNamespaces.Text + "p", paragraph?.Attributes() ?? []);
+        if (paragraph?.Descendants(OdtNamespaces.Text + "span").FirstOrDefault() is XElement span)
+            displayed.Add(new XElement(span.Name, span.Attributes(), text));
+        else
+            displayed.Add(text);
+        return displayed;
     }
 
     private static double? TablePercent(XElement table, OdtStyles styles) =>

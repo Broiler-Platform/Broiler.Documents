@@ -190,6 +190,16 @@ internal static class OdtReader
             if ((string?)field.Attribute(OdtNamespaces.Meta + "name") is { Length: > 0 } name)
                 styles.UserDefinedFields.TryAdd(name, field.Value);
         }
+        foreach ((string field, XName name) in new[]
+        {
+            ("creation-date", OdtNamespaces.Meta + "creation-date"),
+            ("modification-date", OdtNamespaces.DublinCore + "date"),
+            ("print-date", OdtNamespaces.Meta + "print-date"),
+        })
+        {
+            if (meta?.Element(name)?.Value is { Length: > 0 } stated)
+                styles.DocumentDates[field] = stated;
+        }
         styles.InvertsTextDisplay = OdtMetadata.WrittenByOpenOffice2(metadata.Producer);
         styles.EmptyDbFieldHidesParagraph = OdtRevisions.ConfigFlag(settings, "EmptyDbFieldHidesPara");
         styles.PageFillBounds = OdtMetadata.PageFillBounds(metadata.Producer);
@@ -3083,6 +3093,12 @@ internal static class OdtReader
                 continue;
             }
 
+            if (DateFieldText(element, context.Styles) is string date)
+            {
+                builder.AppendLiteral(date, style);
+                continue;
+            }
+
             if (name == OdtNamespaces.Text + "script")
                 continue;
 
@@ -3113,6 +3129,45 @@ internal static class OdtReader
             if (element.HasElements || !string.IsNullOrEmpty(element.Value))
                 ReadInlineContent(element, context, style, depth + 1);
         }
+    }
+
+    /// <summary>
+    /// The text LibreOffice shows for a date field it formats again on load,
+    /// or null where the cached text stands.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Writer keeps a date field's value and shows it through the field's data
+    /// style (<c>SwDateTimeField</c>, <c>SwDocInfoField</c>), so the text a
+    /// producer cached in another locale is not what it draws: ooo96040-2.odt
+    /// caches "10. Nov 2008" for a modification date whose automatically ordered
+    /// style reads "Nov 10, 2008" in en-US.
+    /// </para>
+    /// <para>
+    /// A fixed <c>text:date</c> shows its <c>text:date-value</c>. A document
+    /// date (<c>text:creation-date</c>, <c>text:modification-date</c>,
+    /// <c>text:print-date</c>) shows its own value when fixed and the date
+    /// <c>meta.xml</c> holds otherwise. A <c>text:date</c> that is not fixed
+    /// shows the day it is opened, which a renderer cannot reproduce, and a
+    /// field with no data style or one <see cref="OdtDataStyles"/> cannot
+    /// format keeps the cached text.
+    /// </para>
+    /// </remarks>
+    private static string? DateFieldText(XElement field, OdtStyles styles)
+    {
+        if (field.Name.Namespace != OdtNamespaces.Text ||
+            field.Name.LocalName is not ("date" or "creation-date" or "modification-date" or "print-date") ||
+            (string?)field.Attribute(OdtNamespaces.Style + "data-style-name") is not string styleName ||
+            !styles.NumberFormats.TryGetValue(styleName, out XElement? format))
+            return null;
+
+        bool isFixed = (string?)field.Attribute(OdtNamespaces.Text + "fixed") == "true";
+        string? value = isFixed ? (string?)field.Attribute(OdtNamespaces.Text + "date-value")
+            : field.Name.LocalName == "date" ? null
+            : styles.DocumentDates.GetValueOrDefault(field.Name.LocalName);
+        return OdtDataStyles.TryParseDateValue(value, out DateTime date) && OdtDataStyles.TryFormatDate(format, date, out string text)
+            ? text
+            : null;
     }
 
     /// <summary>
