@@ -2298,6 +2298,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             {
                 RotationRadians = shape.RotationRadians,
                 TextFlow = shape.TextFlow,
+                OutlinePaths = shape.OutlinePaths,
             });
         }
 
@@ -2366,6 +2367,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             {
                 RotationRadians = shape.RotationRadians,
                 TextFlow = shape.TextFlow,
+                OutlinePaths = shape.OutlinePaths,
             });
         }
 

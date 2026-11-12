@@ -6,7 +6,8 @@ namespace Broiler.Documents.Cli.Tests;
 /// <summary>
 /// Office conformance issue 242, read from ODF and laid out end to end: a
 /// header taller than its least height keeps its spacing above the body, as
-/// pagecounttest.ott's does.
+/// pagecounttest.ott's does, and a custom shape is drawn as the outline its
+/// enhanced path states.
 /// </summary>
 public sealed class OdtIssue242OdtTextLayoutTests
 {
@@ -88,5 +89,59 @@ public sealed class OdtIssue242OdtTextLayoutTests
         (RichTextDocument document, _) = Read("fo:min-height=\"0pt\" fo:margin-bottom=\"14pt\" style:dynamic-spacing=\"true\"");
 
         Assert.Equal(0, document.PageGeometry!.HeaderSpacing);
+    }
+
+    [Fact]
+    public void A_Custom_Shape_Is_Drawn_As_Its_Enhanced_Path()
+    {
+        // pagecounttest.ott's four-pointed star: its inner corners are
+        // equations of the shape's modifier.
+        string star = "<text:p><draw:custom-shape text:anchor-type=\"paragraph\" draw:style-name=\"blue\" svg:width=\"200pt\" svg:height=\"200pt\" svg:x=\"0pt\" svg:y=\"0pt\">" +
+            "<draw:enhanced-geometry svg:viewBox=\"0 0 21600 21600\" draw:type=\"star4\" draw:modifiers=\"8100\" " +
+            "draw:enhanced-path=\"M 0 10800 L ?f4 ?f4 10800 0 ?f3 ?f4 21600 10800 ?f3 ?f3 10800 21600 ?f4 ?f3 0 10800 Z N\">" +
+            "<draw:equation draw:name=\"f0\" draw:formula=\"7600\"/><draw:equation draw:name=\"f1\" draw:formula=\"?f0 *$0 /10800\"/>" +
+            "<draw:equation draw:name=\"f2\" draw:formula=\"?f0 -?f1 \"/><draw:equation draw:name=\"f3\" draw:formula=\"10800+?f2 \"/>" +
+            "<draw:equation draw:name=\"f4\" draw:formula=\"10800-?f2 \"/></draw:enhanced-geometry></draw:custom-shape></text:p>";
+        (RichTextDocument document, LayoutResult layout) = Read("fo:min-height=\"0pt\"", star);
+
+        var path = Assert.Single(Assert.Single(document.Shapes).OutlinePaths!);
+        Assert.Equal(8, path.Count - 1);
+        double inner = (10800 - (7600 - 7600 * 8100.0 / 10800)) / 21600;
+        Assert.Equal((inner, inner), (path[1].X, path[1].Y));
+        Assert.Equal((0.5, 0.0), path[2]);
+        Assert.Same(document.Shapes[0].OutlinePaths, Assert.Single(layout.Pages[0].Shapes).OutlinePaths);
+    }
+
+    [Fact]
+    public void A_Mirrored_Turned_Shape_Is_Mirrored_On_The_Page()
+    {
+        // flip_and_rotate.odt: Writer mirrors the turned shape, so the outline
+        // mirrored in its box is turned back by twice the angle, here a half turn.
+        string shape = "<text:p><draw:custom-shape text:anchor-type=\"paragraph\" draw:style-name=\"blue\" svg:width=\"100pt\" svg:height=\"100pt\" " +
+            "draw:transform=\"rotate (1.5707963267949) translate (100pt 200pt)\">" +
+            "<draw:enhanced-geometry svg:viewBox=\"0 0 100 100\" draw:type=\"mso-spt100\" draw:mirror-vertical=\"true\" " +
+            "draw:enhanced-path=\"M 0 0 L 100 0 0 100 Z N\"/></draw:custom-shape></text:p>";
+        (RichTextDocument document, _) = Read("fo:min-height=\"0pt\"", shape);
+
+        var path = Assert.Single(Assert.Single(document.Shapes).OutlinePaths!);
+        (double X, double Y)[] expected = [(1, 0), (0, 0), (1, 1)];
+        Assert.Equal(expected.Length, path.Count);
+        for (int i = 0; i < expected.Length; i++)
+        {
+            Assert.Equal(expected[i].X, path[i].X, 6);
+            Assert.Equal(expected[i].Y, path[i].Y, 6);
+        }
+    }
+
+    [Theory]
+    [InlineData("M 0 0 C 10 10 20 20 30 30 Z N")]
+    [InlineData("M 0 0 L $0 0 0 100 Z N")]
+    public void A_Path_Of_Curves_Or_Unknown_Values_Keeps_The_Box(string path)
+    {
+        string shape = "<text:p><draw:custom-shape text:anchor-type=\"paragraph\" draw:style-name=\"blue\" svg:width=\"100pt\" svg:height=\"100pt\">" +
+            "<draw:enhanced-geometry svg:viewBox=\"0 0 100 100\" draw:type=\"mso-spt100\" draw:enhanced-path=\"" + path + "\"/></draw:custom-shape></text:p>";
+        (RichTextDocument document, _) = Read("fo:min-height=\"0pt\"", shape);
+
+        Assert.Null(Assert.Single(document.Shapes).OutlinePaths);
     }
 }

@@ -1167,6 +1167,7 @@ internal static class OdtReader
                 (string?)graphic?.Attribute(OdtNamespaces.Draw + "auto-grow-height") != "false",
             WrapMargins = ReadWrapMargins(graphic),
             MinimumWrapRoom = MinimumWrapRoom(graphic),
+            OutlinePaths = ReadOutlinePaths(drawing, width, height, rotation),
         };
         context.Builder.AddShape(shape);
         if (context.PageRelativeShapes is { } pageRelative &&
@@ -1301,6 +1302,23 @@ internal static class OdtReader
             "diamond" => ShapeGeometry.Diamond,
             _ => ShapeGeometry.Rectangle,
         };
+    }
+
+    /// <summary>
+    /// The polygons a custom shape of no box geometry of its own draws - a
+    /// star, a cube, an arrow - from its enhanced path
+    /// (<see cref="OdtCustomShapePath"/>), or null to draw the box.
+    /// pagecounttest.ott's four- and five-pointed stars and its cube were drawn
+    /// as boxes.
+    /// </summary>
+    private static IReadOnlyList<IReadOnlyList<(double X, double Y)>>? ReadOutlinePaths(XElement drawing, double width, double height, double rotation)
+    {
+        if (drawing.Name != OdtNamespaces.Draw + "custom-shape" || ReadShapeGeometry(drawing) != ShapeGeometry.Rectangle)
+            return null;
+        XElement? geometry = drawing.Element(OdtNamespaces.Draw + "enhanced-geometry");
+        return (string?)geometry?.Attribute(OdtNamespaces.Draw + "type") is "rectangle" or "rect"
+            ? null
+            : OdtCustomShapePath.Read(geometry, width, height, rotation);
     }
 
     private static bool TryReadShapeRotation(XElement drawing, out double angle, out double x, out double y)
