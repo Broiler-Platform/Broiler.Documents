@@ -97,6 +97,21 @@ public sealed record PageGeometry(
     /// <summary>The numbers set beside the body's lines, or null for none.</summary>
     public LineNumbering? LineNumbering { get; init; }
 
+    /// <summary>
+    /// The space a header keeps between its content and the text when it grows
+    /// past the band it reserves, in points. ODF states it as the header style's
+    /// <c>fo:margin-bottom</c>: LibreOffice's header is as tall as its content,
+    /// at least <c>fo:min-height</c>, and the text starts that space below it.
+    /// Zero for a format whose text simply clears the header, as Word's does.
+    /// </summary>
+    public double HeaderSpacing { get; init; }
+
+    /// <summary>
+    /// The space a footer keeps between the text and its content when it grows
+    /// past its band, in points: the footer style's <c>fo:margin-top</c>.
+    /// </summary>
+    public double FooterSpacing { get; init; }
+
     /// <summary>True when the text area is divided into more than one column.</summary>
     public bool HasColumns => ColumnCount > 1;
 

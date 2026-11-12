@@ -852,6 +852,8 @@ internal static class OdtReader
             BorderInsets = borders != default || padding != default
                 ? new TableCellPadding(left, outerTop, right, outerBottom) : default,
             BorderPadding = padding,
+            HeaderSpacing = hasHeader && header is not null ? GrowingBandSpacing(header, "margin-bottom") : 0,
+            FooterSpacing = hasFooter && footer is not null ? GrowingBandSpacing(footer, "margin-top") : 0,
         };
 
         if (geometry.IsUsable)
@@ -968,6 +970,19 @@ internal static class OdtReader
             ? Math.Max(height, gap)
             : height + gap;
     }
+
+    /// <summary>
+    /// The space a band that grows keeps between its content and the body: its
+    /// <paramref name="spacing"/>, which Writer adds below a header (above a
+    /// footer) however tall its content is. pagecounttest.ott's one-line header
+    /// with no least height and 0.499 cm of spacing starts the body 0.499 cm
+    /// below the line. A fixed band holds its spacing, and dynamic spacing lets
+    /// the content use it, so neither keeps any.
+    /// </summary>
+    private static double GrowingBandSpacing(XElement properties, string spacing) =>
+        IsFixedBand(properties) || (string?)properties.Attribute(OdtNamespaces.Style + "dynamic-spacing") == "true"
+            ? 0
+            : Math.Max(0, Length(properties, spacing));
 
     /// <summary>
     /// True for a band of fixed height (<c>svg:height</c> and no
@@ -4194,6 +4209,7 @@ internal static class OdtReader
                 ? size
                 : DocumentStyleDefaults.FallbackFontSizePoints,
             FontFamily = string.IsNullOrWhiteSpace(style.FontFamily) ? null : style.FontFamily,
+            RunningBandsEndAtLastLine = true,
         };
     }
 
