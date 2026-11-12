@@ -2003,6 +2003,17 @@ internal static class DocxReader
     /// </remarks>
     private static bool ReadShapeGroup(XElement group, XElement anchor, double width, double height, DocxReadContext context)
     {
+        // A group of one shape is that shape in the group's box: LibreOffice
+        // imports the child over the whole group, wherever its own a:xfrm puts
+        // it in the child space. shape-in-floattable.docx's text box, a third
+        // of its group's width at the group's right, draws its "Hello" at the
+        // group's corner; groupshape-theme-font.docx's box takes the group's
+        // full height. A diagram's saved drawing, which is read as a group
+        // here, is not imported that way.
+        if (!context.InDiagram && group.Elements().Where(IsGroupMember).ToList() is [XElement only] &&
+            only.Name == DocxNamespaces.WordShape + "wsp")
+            return ReadDrawnShape(only, anchor, 0, 0, width, height, context);
+
         XElement? transform = group.Element(DocxNamespaces.WordGroup + "grpSpPr")?.Element(DocxNamespaces.Drawing + "xfrm");
         (double childX, double childY, double childWidth, double childHeight) = ChildSpace(transform);
         var frame = new GroupFrame(
@@ -2017,6 +2028,11 @@ internal static class DocxReader
         ReadGroupChildren(group, frame, anchor, context, ref read, depth: 0);
         return read > 0;
     }
+
+    /// <summary>Whether a group's child element is one of its members, not its properties.</summary>
+    private static bool IsGroupMember(XElement child) =>
+        child.Name == DocxNamespaces.WordShape + "wsp" || child.Name == DocxNamespaces.Picture + "pic" ||
+        child.Name == DocxNamespaces.WordGroup + "grpSp" || child.Name == DocxNamespaces.WordGroup + "graphicFrame";
 
     private static void ReadGroupChildren(
         XElement group, GroupFrame frame, XElement anchor, DocxReadContext context, ref int read, int depth)

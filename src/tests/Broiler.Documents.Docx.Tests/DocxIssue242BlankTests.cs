@@ -100,4 +100,47 @@ public sealed class DocxIssue242BlankTests
         Assert.DoesNotContain("T", Shown(document.Paragraphs[0]));
         Assert.DoesNotContain("F", Shown(document.Paragraphs[0]));
     }
+
+    private static string Group(string children) =>
+        "<w:p><w:r><w:drawing>" +
+        "<wp:inline xmlns:wp=\"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing\">" +
+        "<wp:extent cx=\"2540000\" cy=\"1270000\"/>" +
+        "<a:graphic xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\">" +
+        "<a:graphicData uri=\"http://schemas.microsoft.com/office/word/2010/wordprocessingGroup\">" +
+        "<wpg:wgp xmlns:wpg=\"http://schemas.microsoft.com/office/word/2010/wordprocessingGroup\" " +
+        "xmlns:wps=\"http://schemas.microsoft.com/office/word/2010/wordprocessingShape\">" +
+        "<wpg:cNvGrpSpPr/><wpg:grpSpPr><a:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"2540000\" cy=\"1270000\"/>" +
+        "<a:chOff x=\"0\" y=\"0\"/><a:chExt cx=\"20000\" cy=\"10000\"/></a:xfrm></wpg:grpSpPr>" +
+        children +
+        "</wpg:wgp></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>";
+
+    private static string Box(long x, long y, long cx, long cy, string text) =>
+        "<wps:wsp><wps:cNvSpPr txBox=\"1\"/><wps:spPr><a:xfrm><a:off x=\"" + x + "\" y=\"" + y + "\"/>" +
+        "<a:ext cx=\"" + cx + "\" cy=\"" + cy + "\"/></a:xfrm><a:prstGeom prst=\"rect\"/>" +
+        "<a:solidFill><a:srgbClr val=\"FFFFFF\"/></a:solidFill></wps:spPr>" +
+        "<wps:txbx><w:txbxContent><w:p><w:r><w:t>" + text + "</w:t></w:r></w:p></w:txbxContent></wps:txbx>" +
+        "<wps:bodyPr/></wps:wsp>";
+
+    [Fact]
+    public void A_Group_Of_One_Shape_Draws_It_Over_The_Whole_Group()
+    {
+        // shape-in-floattable.docx: the one text box sits at the group's right
+        // in its child space; LibreOffice imports it over the whole group.
+        DocumentShape shape = Assert.Single(DocxTestPackage.ReadBody(Group(Box(12000, 6000, 8000, 3000, "Hello"))).Document.Shapes);
+
+        Assert.Equal(0, shape.OffsetX, 3);
+        Assert.Equal(200, shape.Width, 3);
+        Assert.Equal(100, shape.Height, 3);
+    }
+
+    [Fact]
+    public void A_Group_Of_Two_Shapes_Still_Places_Each_In_The_Child_Space()
+    {
+        RichTextDocument document = DocxTestPackage.ReadBody(
+            Group(Box(12000, 6000, 8000, 3000, "Hello") + Box(0, 0, 2000, 1000, "x"))).Document;
+
+        Assert.Equal(2, document.Shapes.Count);
+        Assert.Equal(120, document.Shapes[0].OffsetX, 3);
+        Assert.Equal(80, document.Shapes[0].Width, 3);
+    }
 }
