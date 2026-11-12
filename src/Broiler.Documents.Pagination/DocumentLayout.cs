@@ -1355,10 +1355,10 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                     for (int index = rowNumber - 1; index < groupEnd && index < table.Rows.Count; index++)
                     {
                         int spanEnd = index + 1;
-                        foreach (CellLines cellContent in composedRows[index].Contents.Where(c => c.Cell is { RowSpan: > 1 }))
+                        foreach (CellLines cellContent in composedRows[index].Contents.Where(c => c.Cell is not null && c.Span > 1))
                         {
                             double accumulated = 0;
-                            int maxSpan = Math.Min(composedRows.Count, index + cellContent.Cell!.RowSpan);
+                            int maxSpan = Math.Min(composedRows.Count, index + cellContent.Span);
                             for (int r = index; r < maxSpan; r++)
                             {
                                 accumulated += composedRows[r].Height;
@@ -1380,8 +1380,14 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                     bool continuesBrokenKeepChain = rowNumber > 1 && table.Rows[rowNumber - 2].KeepWithNext &&
                         !composedRows[rowNumber - 1].Contents.Any(c => c.Cell is { RowSpan: > 1 });
 
+                    // Rows held together only by a merged cell's text break
+                    // between them as Writer breaks them: the rows that fit stay,
+                    // with the lines of the merged cell that fit beside them, and
+                    // the rest of its text continues on the next page beside the
+                    // rows it still spans (tdf128959.docx).
                     if (groupEnd > rowNumber && !continuesBrokenKeepChain && !setup.Continuous &&
-                        requiredToKeep <= contentBottom - pageTop && y + requiredToKeep > contentBottom && ColumnHasContent())
+                        requiredToKeep <= contentBottom - pageTop && y + requiredToKeep > contentBottom && ColumnHasContent() &&
+                        (inHeader || table.KeepTogether || !SplitMergedRows(composedRows, table, rowNumber - 1, groupEnd, contentBottom - y)))
                         ContinueTable(inHeader, composedRow);
                     RowBox? row = composedRow;
                     while (row is not null && !truncated)
@@ -2642,6 +2648,130 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     }
 
     /// <summary>
+    /// Breaks a group of rows that a merged cell's text holds together between
+    /// two of its rows, where <paramref name="room"/> runs out: the rows that fit
+    /// keep the lines of each merged cell that end beside them, and the rest of
+    /// such a cell moves to the first row left over, which draws its box for the
+    /// rows it still spans. This is Writer's follow flow line: a table breaks at
+    /// any row, and a cell spanning the break continues in the follow.
+    /// </summary>
+    /// <returns>
+    /// False, changing nothing, when no row of the group fits, when a row is to
+    /// be kept with the next, or when a merged cell crossing the break would
+    /// leave none of its text before it.
+    /// </returns>
+    private static bool SplitMergedRows(List<RowBox> rows, DocumentTable table, int start, int end, double room)
+    {
+        for (int r = start; r < end - 1; r++)
+        {
+            if (table.Rows[r].KeepWithNext)
+                return false;
+        }
+
+        int split = start;
+        double used = 0;
+        while (split < end - 1 && used + rows[split].Height <= room + 0.01)
+            used += rows[split++].Height;
+        if (split == start)
+            return false;
+
+        var moves = new List<(int Row, CellLines Content, double Kept, double Cut)>();
+        for (int m = start; m < split; m++)
+        {
+            foreach (CellLines content in rows[m].Contents)
+            {
+                if (content.Cell is null || content.Span <= 1 || m + content.Span <= split)
+                    continue;
+                double kept = 0;
+                for (int r = m; r < split; r++)
+                    kept += rows[r].Height;
+                double? cut = content.Pieces.FirstOrDefault(piece => piece.Bottom > kept + 0.01) is { Bottom: > 0 } piece
+                    ? piece.Top : null;
+                if (cut is double top && top <= 0.01)
+                    return false;
+                moves.Add((m, content, kept, cut ?? content.Height));
+            }
+        }
+        if (moves.Count == 0)
+            return false;
+
+        foreach ((int m, CellLines content, double kept, double cut) in moves)
+        {
+            RowBox master = rows[m];
+            int span = content.Span;
+            int last = Math.Min(rows.Count, m + span);
+            CellBox? box = master.Boxes.FirstOrDefault(candidate => ReferenceEquals(candidate.Cell, content.Cell));
+            if (box is not null)
+                box.ExtraHeight = kept - master.Height;
+
+            var before = new List<LayoutLine>();
+            var after = new List<LayoutLine>();
+            foreach (LayoutLine line in content.Lines)
+            {
+                if (line.Top < cut - 0.01)
+                {
+                    before.Add(line);
+                    continue;
+                }
+
+                bool shown = master.Lines.Remove(line);
+                line.Top -= cut;
+                line.ClipHeight = null;
+                if (shown || line.Top < kept)
+                    after.Add(line);
+            }
+
+            var cellsBefore = new List<LayoutCell>();
+            var cellsAfter = new List<LayoutCell>();
+            foreach (LayoutCell nested in content.Cells)
+            {
+                if (nested.Bounds.Top < cut - 0.01)
+                {
+                    cellsBefore.Add(nested);
+                    continue;
+                }
+
+                master.Cells.Remove(nested);
+                nested.Bounds = new BRect(nested.Bounds.Left, nested.Bounds.Top - cut, nested.Bounds.Width, nested.Bounds.Height);
+                cellsAfter.Add(nested);
+            }
+
+            int index = master.Contents.IndexOf(content);
+            master.Contents[index] = new CellLines(before, cellsBefore,
+                [.. content.Pieces.Where(piece => piece.Top < cut - 0.01)], Math.Min(cut, content.Height), content.Cell, IsSplit: true,
+                SpanRows: split - m);
+
+            RowBox follow = rows[split];
+            double remaining = Math.Max(0, content.Height - cut);
+            var pieces = content.Pieces.Where(piece => piece.Top >= cut - 0.01)
+                .Select(piece => new CutPiece(piece.Top - cut, piece.Bottom - cut)).ToList();
+            follow.Lines.AddRange(after);
+            follow.Cells.AddRange(cellsAfter);
+            follow.Contents.Add(new CellLines(after, cellsAfter, pieces, remaining, content.Cell, IsSplit: true, SpanRows: last - split));
+            // The rows the rest spans grow to hold it, the last that may.
+            double deficit = remaining;
+            for (int r = split; r < last; r++)
+                deficit -= rows[r].Height;
+            for (int grow = last - 1; deficit > 0 && grow >= split; grow--)
+            {
+                if (table.Rows[grow].ExactHeight)
+                    continue;
+                rows[grow].Height += deficit;
+                break;
+            }
+
+            if (box is not null)
+            {
+                double below = 0;
+                for (int r = split + 1; r < last; r++)
+                    below += rows[r].Height;
+                follow.Boxes.Add(new CellBox(box.Left, box.Width, box.Cell) { ExtraHeight = below });
+            }
+        }
+        return true;
+    }
+
+    /// <summary>
     /// Grows a spanning cell's box down over the rows it covers, now that their
     /// heights are known.
     /// </summary>
@@ -3281,8 +3411,16 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     /// One cell's composed lines, in order, the boxes of any table nested in it,
     /// the pieces it may be cut between, and the height they take.
     /// </summary>
-    private sealed record CellLines(List<LayoutLine> Lines, List<LayoutCell> Cells, List<CutPiece> Pieces, double Height, TableCell? Cell = null, bool IsSplit = false)
+    private sealed record CellLines(List<LayoutLine> Lines, List<LayoutCell> Cells, List<CutPiece> Pieces, double Height, TableCell? Cell = null, bool IsSplit = false,
+        int? SpanRows = null)
     {
+        /// <summary>
+        /// The rows this content covers from its own row on: the cell's row span,
+        /// or what is left of it for the part of a merged cell that continues on
+        /// a later page.
+        /// </summary>
+        public int Span => SpanRows ?? Cell?.RowSpan ?? 1;
+
         public static CellLines Empty => new([], [], [], 0);
     }
 
