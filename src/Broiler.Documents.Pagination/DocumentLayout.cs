@@ -158,6 +158,16 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
     private const double SeparatorBlock = SeparatorGap + SeparatorThickness + SeparatorGap;
 
+    /// <summary>Writer's layout unit, a twentieth of a point.</summary>
+    private const double Twip = 0.05;
+
+    /// <summary>
+    /// The family a symbol character is drawn in when its own font has no
+    /// face: LibreOffice's default serif face, Liberation Serif where the
+    /// references are made.
+    /// </summary>
+    private const string SymbolFallbackFamily = "serif";
+
     /// <summary>
     /// U+2028 LINE SEPARATOR, which is how the model spells a break inside a
     /// paragraph. Every codec reads and writes it - <c>text:line-break</c>,
@@ -4040,10 +4050,17 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         var lines = new List<LayoutLine>();
         var cells = new List<LayoutCell>();
         bool first = true;
+        int count = 0;
         foreach (LayoutLine line in content.Lines)
         {
             line.Top += bounds.Top + down;
-            if (shape.TextOverflow || (line.Top >= bounds.Top && line.Top + (line.ClipHeight ?? line.Height) <= bounds.Bottom + 0.01))
+            // Writer sets each line at a whole number of twips, rounding its
+            // proportional height down, so a line that this layout ends a
+            // fraction past the frame's foot can still fit in Writer's: the
+            // picture line of test_msword_hang.docx ends 0.05 points past it
+            // here and fills the frame to the twip in LibreOffice.
+            double tolerance = Math.Max(0.01, ++count * Twip);
+            if (shape.TextOverflow || (line.Top >= bounds.Top && line.Top + (line.ClipHeight ?? line.Height) <= bounds.Bottom + tolerance))
             {
                 lines.Add(line);
             }
@@ -5209,6 +5226,14 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         {
             text = SymbolFontText.Recode(text);
             style = style with { FontFamily = null };
+        }
+        else if (style.IsSymbolCharacter && _settings.TextMeasurer is Fonts.PaginationFontAdapter fonts &&
+                 !fonts.HasFace(style.FontFamily))
+        {
+            // A symbol character in a font there is no face for is drawn in
+            // the default serif face, as LibreOffice replaces a symbol font
+            // it lacks (InlineStyle.IsSymbolCharacter).
+            style = style with { FontFamily = SymbolFallbackFamily };
         }
 
         if (style.Capitalization != TextCapitalization.SmallCaps)

@@ -161,6 +161,16 @@ public sealed class ResolvedFontFace
                 return _trueType.GetAdvanceWidth(glyphIndex);
             }
 
+            // A private-use character the face lacks - a symbol font's text set
+            // in another face - is drawn as the face's missing glyph, and takes
+            // its advance, as LibreOffice sets it.
+            if (System.Globalization.CharUnicodeInfo.GetUnicodeCategory(codepoint) == System.Globalization.UnicodeCategory.PrivateUse)
+            {
+                int missing = _trueType.GetAdvanceWidth(0);
+                if (missing > 0)
+                    return missing;
+            }
+
             // Non-breaking space fallback to standard space advance when explicit glyph is absent
             if (glyphIndex == 0 && (codepoint == 0x00A0 || codepoint == 0x202F || codepoint == 0x2007))
             {
