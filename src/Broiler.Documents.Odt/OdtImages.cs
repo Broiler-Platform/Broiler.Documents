@@ -49,15 +49,21 @@ internal sealed class OdtImageLoader(
     public InlineImage? Read(XElement frame, IOdtImageDiagnostics diagnostics, PageGeometry? inlinePage = null,
         double? frameTextWidth = null)
     {
+        // LibreOffice reads every alternative and keeps the best
+        // (MultiImageImportHelper::solveMultipleImages): a vector format over
+        // any bitmap, SVG first, then the first of equals. One it cannot use
+        // does not hide the others.
         PicturePart? part = null;
         bool foundImage = false;
         LoadResult lastResult = LoadResult.Missing;
         foreach (XElement image in ImageAlternatives(frame))
         {
             foundImage = true;
-            part = ReadPicture(image, diagnostics, out lastResult);
-            if (part is not null)
-                break;
+            PicturePart? candidate = ReadPicture(image, diagnostics, out LoadResult candidateResult);
+            if (part is null)
+                lastResult = candidateResult;
+            if (candidate is not null && (part is null || candidate.Quality > part.Quality))
+                part = candidate;
         }
 
         (double width, double height) = ReadExtent(frame, inlinePage, frameTextWidth);
@@ -334,14 +340,36 @@ internal sealed class OdtImageLoader(
             return null;
         }
 
-        string? contentType = 
+        string? contentType =
             OdtImageFormats.ContentTypeForMediaType(_manifest.MediaTypeFor(path)) ??
             DocumentImageFormats.ContentTypeForExtension(Path.GetExtension(path)) ??
             DocumentImageFormats.ContentTypeForSignature(data);
-        if (contentType is null && RasterizeMetafile(data) is byte[] png)
-            (data, contentType) = (png, "image/png");
+        return Decode(data, contentType, Path.GetFileNameWithoutExtension(path), diagnostics, out result);
+    }
 
-        if (contentType is null && SvmRasterizer.IsBlank(data))
+    /// <summary>
+    /// Turns a picture's bytes into something the model carries: a bitmap as
+    /// it is, or a metafile or SVG rasterized to a PNG. WMF lands in the
+    /// format failure, as do metafiles and SVGs that draw something the
+    /// rasterizers do not understand and anything stored under an extension
+    /// this codec does not decode. One that draws nothing at all is blank.
+    /// </summary>
+    private static PicturePart? Decode(byte[] data, string? contentType, string name, IOdtImageDiagnostics diagnostics, out LoadResult result)
+    {
+        int quality = QualityOf(contentType);
+        if (contentType is null)
+        {
+            if (SvmRasterizer.IsSvm(data))
+                quality = 1000;
+            else if (EmfRasterizer.IsEmf(data))
+                quality = 1020;
+            else if (SvgRasterizer.IsSvg(data))
+                quality = 1030;
+            if (RasterizeMetafile(data) is byte[] png)
+                (data, contentType) = (png, "image/png");
+        }
+
+        if (contentType is null && (SvmRasterizer.IsBlank(data) || SvgRasterizer.IsBlank(data)))
         {
             result = LoadResult.Blank;
             return null;
@@ -349,9 +377,6 @@ internal sealed class OdtImageLoader(
 
         if (contentType is null)
         {
-            // SVG and WMF land here, as do metafiles that draw nothing the
-            // rasterizers understand and anything stored under an extension this
-            // codec does not decode.
             diagnostics.AddDiagnosticOnce(
                 "odt.image.format",
                 "An ODT picture used an image format this codec does not carry and was skipped.");
@@ -360,8 +385,18 @@ internal sealed class OdtImageLoader(
         }
 
         result = LoadResult.Success;
-        return new PicturePart(data, contentType, Path.GetFileNameWithoutExtension(path));
+        return new PicturePart(data, contentType, name) { Quality = quality };
     }
+
+    /// <summary>LibreOffice's ranking of a bitmap's format among a frame's alternatives (getQualityIndex).</summary>
+    private static int QualityOf(string? contentType) => contentType switch
+    {
+        "image/bmp" => 10,
+        "image/gif" => 20,
+        "image/jpeg" => 30,
+        "image/png" => 40,
+        _ => 0,
+    };
 
     /// <summary>
     /// Rasterizes the replacement picture LibreOffice stores for a chart or OLE
@@ -376,6 +411,8 @@ internal sealed class OdtImageLoader(
             return SvmRasterizer.RenderPng(data);
         if (EmfRasterizer.IsEmf(data))
             return EmfRasterizer.RenderPng(data);
+        if (SvgRasterizer.IsSvg(data))
+            return SvgRasterizer.RenderPng(data);
         return null;
     }
 
@@ -431,27 +468,7 @@ internal sealed class OdtImageLoader(
             return null;
         }
 
-        string? contentType = DocumentImageFormats.ContentTypeForSignature(data);
-        if (contentType is null && RasterizeMetafile(data) is byte[] png)
-            (data, contentType) = (png, "image/png");
-
-        if (contentType is null && SvmRasterizer.IsBlank(data))
-        {
-            result = LoadResult.Blank;
-            return null;
-        }
-
-        if (contentType is null)
-        {
-            diagnostics.AddDiagnosticOnce(
-                "odt.image.format",
-                "An ODT picture used an image format this codec does not carry and was skipped.");
-            result = LoadResult.Format;
-            return null;
-        }
-
-        result = LoadResult.Success;
-        return new PicturePart(data, contentType, "image");
+        return Decode(data, DocumentImageFormats.ContentTypeForSignature(data), "image", diagnostics, out result);
     }
 
     /// <summary>
@@ -510,7 +527,11 @@ internal sealed class OdtImageLoader(
         return (altText, (string?)frame.Attribute(OdtNamespaces.Draw + "name"));
     }
 
-    private sealed record PicturePart(byte[] Data, string ContentType, string Name);
+    private sealed record PicturePart(byte[] Data, string ContentType, string Name)
+    {
+        /// <summary>How LibreOffice ranks the source format among a frame's alternatives.</summary>
+        public int Quality { get; init; }
+    }
 }
 
 /// <summary>The once-per-code diagnostic sink the image loader reports through.</summary>
