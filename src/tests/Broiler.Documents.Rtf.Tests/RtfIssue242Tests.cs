@@ -5,7 +5,8 @@ namespace Broiler.Documents.Rtf.Tests;
 /// <summary>
 /// Office conformance issue #242 (rtf-html): the page of a document whose body
 /// holds nothing (dppolyline.rtf), and a header watermark aligned with its
-/// paragraph (watermark.rtf).
+/// paragraph (watermark.rtf), and a group's text boxes fitted to their text
+/// (groupshape.rtf).
 /// </summary>
 public sealed class RtfIssue242Tests
 {
@@ -174,5 +175,32 @@ public sealed class RtfIssue242Tests
         DocumentShape shape = HeaderShapeOf(rtf);
 
         Assert.Equal(841.9 - 36, shape.OffsetY, 3);
+    }
+
+    private static string Group(string firstText) =>
+        @"{\rtf1" + Page + @"{\shpgrp{\*\shpinst\shpleft0\shptop0\shpright4000\shpbottom2000" +
+        @"{\sp{\sn groupLeft}{\sv 0}}{\sp{\sn groupTop}{\sv 0}}{\sp{\sn groupRight}{\sv 4000}}{\sp{\sn groupBottom}{\sv 2000}}" +
+        @"{\shp{\*\shpinst{\sp{\sn relLeft}{\sv 0}}{\sp{\sn relTop}{\sv 0}}{\sp{\sn relRight}{\sv 2000}}{\sp{\sn relBottom}{\sv 2000}}" +
+        @"{\sp{\sn shapeType}{\sv 202}}{\shptxt " + firstText + @"}}}" +
+        @"{\shp{\*\shpinst{\sp{\sn relLeft}{\sv 2000}}{\sp{\sn relTop}{\sv 0}}{\sp{\sn relRight}{\sv 4000}}{\sp{\sn relBottom}{\sv 2000}}" +
+        @"{\sp{\sn shapeType}{\sv 1}}{\shptxt baz}}}}}\par}";
+
+    [Fact]
+    public void A_Groups_Drawing_Text_Box_Fits_Its_Text()
+    {
+        // groupshape.rtf: LibreOffice shrinks each text box about its text.
+        RichTextDocument document = Read(Group("foo"));
+
+        Assert.True(document.Shapes[0].FitsText);
+        Assert.False(document.Shapes[1].FitsText);
+    }
+
+    [Fact]
+    public void A_Groups_Text_Frame_Keeps_Its_Box()
+    {
+        // fdo66040.rtf: with a table the children are text frames, drawn as stated.
+        RichTextDocument document = Read(Group(@"foo\par\pard\intbl A\cell B\cell\trowd\cellx1000\cellx2000\row\pard bar"));
+
+        Assert.All(document.Shapes, shape => Assert.False(shape.FitsText));
     }
 }

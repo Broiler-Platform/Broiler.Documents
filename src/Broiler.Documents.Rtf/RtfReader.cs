@@ -2606,6 +2606,12 @@ public static class RtfReader
                 RotationRadians = _shapeRotation,
                 IsCustomShape = _shapeGroupDrawShape,
                 StretchesTextToBox = _shapeWordArtStretched,
+                // A group's text box that LibreOffice imports as a drawing shape
+                // grows and shrinks about its text: one line per paragraph,
+                // unwrapped, centred across the box it states, from its top
+                // (groupshape.rtf; soffice cut-downs: a long line runs past the
+                // box on both sides, a second paragraph adds a line).
+                FitsText = _shapeGroupDrawShape && _shapeType == 202 && paragraphs.Count > 0,
             };
             if (running)
             {
