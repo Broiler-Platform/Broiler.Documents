@@ -1,7 +1,7 @@
 {
   "$schema": "corpus-baseline.schema.json",
   "schemaVersion": 1,
-  "updated": "2026-11-08",
+  "updated": "2026-11-12",
   "policy": {
     "records": "Only the round trips that lose something or warn about something. Everything this corpus can do that is absent from the list below is asserted to round trip clean, so a new loss fails by not being listed.",
     "reproduce": "A row that stops reproducing fails too. That is deliberate: a fix should arrive with this file updated, so the shrinking of the suspected-defect list is a thing somebody can point at.",
@@ -4431,16 +4431,14 @@
       "source": "docx",
       "via": "rtf",
       "differences": [
-        "text@p0: text differs: \"Text around ￼ the image here.\" vs \"Text around  the image here.\""
+        "inline-style@p0: formatting differs from character 0: font size default vs 11"
       ],
-      "diagnostics": [
-        "rtf.embedded"
-      ],
+      "diagnostics": [],
       "state": "documented",
       "reference": "docs/notes/rtf.md",
-      "why": "The RTF writer emits the picture correctly, as a \\pict destination carrying the PNG. The RTF *reader* skips it: docs/notes/rtf.md lists \\pict among the skipped destinations and it is reported as rtf.embedded, which escalates to the shared capability code when a caller asks for embedded decoding. Both halves are covered by RtfWriterTests and RtfEmbeddedObjectReportTests. This row was previously recorded as a silent writer defect, which was wrong on every count - the baseline was filtering info diagnostics out, so the report it makes was invisible here.",
-      "reviewer": "Claude Opus 5, on the writer-losses pass",
-      "decided": "2026-09-05"
+      "why": "RTF writes the inherited 11-point DOCX default as an explicit run size. The embedded PNG survives.",
+      "reviewer": "Codex",
+      "decided": "2026-11-12"
     },
     {
       "sample": "image",
@@ -4537,22 +4535,6 @@
       "why": "Not yet classified. A row regenerated into this file starts as a suspected defect on purpose: an unreviewed difference should read as one until somebody says otherwise.",
       "reviewer": null,
       "decided": null
-    },
-    {
-      "sample": "image",
-      "source": "html",
-      "via": "rtf",
-      "differences": [
-        "text@p0: text differs: \"Text around ￼ the image here.\" vs \"Text around  the image here.\""
-      ],
-      "diagnostics": [
-        "rtf.embedded"
-      ],
-      "state": "documented",
-      "reference": "docs/notes/rtf.md",
-      "why": "The RTF reader skips the \\pict destination and reports rtf.embedded, as documented in docs/notes/rtf.md.",
-      "reviewer": "Claude Opus 5, on the writer-losses pass",
-      "decided": "2026-10-25"
     },
     {
       "sample": "image",
@@ -4677,22 +4659,6 @@
       "state": "documented",
       "reference": "docs/notes/odt.md",
       "why": "Markdown has no image dimensions (autoxauto); the ODT writer defaults unspecified image dimensions to 1 inch (72x72 pt) and reports odt.image.size.",
-      "reviewer": "Claude Opus 5, on the writer-losses pass",
-      "decided": "2026-10-25"
-    },
-    {
-      "sample": "image",
-      "source": "markdown",
-      "via": "rtf",
-      "differences": [
-        "text@p0: text differs: \"Text around ￼ the image here.\" vs \"Text around  the image here.\""
-      ],
-      "diagnostics": [
-        "rtf.embedded"
-      ],
-      "state": "documented",
-      "reference": "docs/notes/rtf.md",
-      "why": "The RTF reader skips the \\pict destination and reports rtf.embedded, as documented in docs/notes/rtf.md.",
       "reviewer": "Claude Opus 5, on the writer-losses pass",
       "decided": "2026-10-25"
     },
@@ -4891,22 +4857,6 @@
     {
       "sample": "image",
       "source": "odt",
-      "via": "rtf",
-      "differences": [
-        "text@p0: text differs: \"Text around ￼ the image here.\" vs \"Text around  the image here.\""
-      ],
-      "diagnostics": [
-        "rtf.embedded"
-      ],
-      "state": "documented",
-      "reference": "docs/notes/rtf.md",
-      "why": "The RTF writer emits the picture correctly, as a \\pict destination carrying the PNG. The RTF *reader* skips it: docs/notes/rtf.md lists \\pict among the skipped destinations and it is reported as rtf.embedded, which escalates to the shared capability code when a caller asks for embedded decoding. Both halves are covered by RtfWriterTests and RtfEmbeddedObjectReportTests. This row was previously recorded as a silent writer defect, which was wrong on every count - the baseline was filtering info diagnostics out, so the report it makes was invisible here.",
-      "reviewer": "Claude Opus 5, on the writer-losses pass",
-      "decided": "2026-09-05"
-    },
-    {
-      "sample": "image",
-      "source": "odt",
       "via": "tsv",
       "differences": [
         "text@p0: text differs: \"Text around ￼ the image here.\" vs \"Text around  the image here.\"",
@@ -4942,28 +4892,61 @@
       "source": "rtf",
       "via": "csv",
       "differences": [
+        "text@p0: text differs: \"Text around ￼ the image here.\" vs \"Text around  the image here.\"",
         "table.grid-mismatch@p?: table count differs: 0 vs 1"
       ],
       "diagnostics": [
+        "csv.image.omitted",
         "csv.text.outside-table"
       ],
       "state": "suspected-defect",
       "reference": null,
-      "why": "Not yet classified. A row regenerated into this file starts as a suspected defect on purpose: an unreviewed difference should read as one until somebody says otherwise.",
+      "why": "CSV drops the decoded image and reports csv.image.omitted. The paragraph also acquires a table on read-back.",
       "reviewer": null,
       "decided": null
     },
     {
       "sample": "image",
       "source": "rtf",
+      "via": "html",
+      "differences": [],
+      "diagnostics": [
+        "html.image.datauri"
+      ],
+      "state": "documented",
+      "reference": "docs/notes/html.md",
+      "why": "HTML reports that the PNG is embedded as a data URI. The round trip preserves the image and its dimensions.",
+      "reviewer": "Codex",
+      "decided": "2026-11-12"
+    },
+    {
+      "sample": "image",
+      "source": "rtf",
+      "via": "markdown",
+      "differences": [
+        "inline-style@p0: formatting differs from character 12: image size 36x36 vs autoxauto"
+      ],
+      "diagnostics": [
+        "markdown.image.datauri"
+      ],
+      "state": "documented",
+      "reference": "docs/notes/markdown.md",
+      "why": "Markdown embeds the PNG as a data URI. Its image syntax carries no display dimensions, so the 36-point dimensions read back as automatic.",
+      "reviewer": "Codex",
+      "decided": "2026-11-12"
+    },
+    {
+      "sample": "image",
+      "source": "rtf",
       "via": "ods",
       "differences": [
+        "inline-style@p0: formatting differs from character 12: image present only on the left (image/png)",
         "table.grid-mismatch@p?: table count differs: 0 vs 1"
       ],
       "diagnostics": [],
       "state": "suspected-defect",
       "reference": null,
-      "why": "Not yet classified. A row regenerated into this file starts as a suspected defect on purpose: an unreviewed difference should read as one until somebody says otherwise.",
+      "why": "The spreadsheet round trip loses the decoded PNG payload and introduces a table.",
       "reviewer": null,
       "decided": null
     },
@@ -4972,14 +4955,16 @@
       "source": "rtf",
       "via": "tsv",
       "differences": [
+        "text@p0: text differs: \"Text around ￼ the image here.\" vs \"Text around  the image here.\"",
         "table.grid-mismatch@p?: table count differs: 0 vs 1"
       ],
       "diagnostics": [
+        "csv.image.omitted",
         "csv.text.outside-table"
       ],
       "state": "suspected-defect",
       "reference": null,
-      "why": "Not yet classified. A row regenerated into this file starts as a suspected defect on purpose: an unreviewed difference should read as one until somebody says otherwise.",
+      "why": "TSV drops the decoded image and reports csv.image.omitted. The paragraph also acquires a table on read-back.",
       "reviewer": null,
       "decided": null
     },
@@ -4988,12 +4973,13 @@
       "source": "rtf",
       "via": "xlsx",
       "differences": [
+        "inline-style@p0: formatting differs from character 12: image present only on the left (image/png)",
         "table.grid-mismatch@p?: table count differs: 0 vs 1"
       ],
       "diagnostics": [],
       "state": "suspected-defect",
       "reference": null,
-      "why": "Not yet classified. A row regenerated into this file starts as a suspected defect on purpose: an unreviewed difference should read as one until somebody says otherwise.",
+      "why": "The spreadsheet round trip loses the decoded PNG payload and introduces a table.",
       "reviewer": null,
       "decided": null
     },
@@ -10439,6 +10425,10 @@
       "source": "odt",
       "via": "csv",
       "differences": [
+        "paragraph-style@p0: keep with next True vs False",
+        "paragraph-style@p0: spacing before 12 vs 0",
+        "paragraph-style@p0: spacing after 6 vs 0",
+        "inline-style@p0: formatting differs from character 0: bold True vs False",
         "extra@p?: paragraph only in the right document: \"\"",
         "paragraph-style@p1: alignment Center vs Left",
         "paragraph-style@p1: indent level 2 vs 0",
@@ -10449,15 +10439,18 @@
         "extra@p?: paragraph only in the right document: \"\"",
         "paragraph-style@p2: list Bullet vs None",
         "paragraph-style@p2: indent level 1 vs 0",
-        "paragraph-style@p2: left indent 18 vs 0",
+        "paragraph-style@p2: left indent 36 vs 0",
+        "paragraph-style@p2: first line indent -18 vs 0",
         "extra@p?: paragraph only in the right document: \"\"",
         "paragraph-style@p3: list Bullet vs None",
         "paragraph-style@p3: indent level 1 vs 0",
-        "paragraph-style@p3: left indent 18 vs 0",
+        "paragraph-style@p3: left indent 36 vs 0",
+        "paragraph-style@p3: first line indent -18 vs 0",
         "extra@p?: paragraph only in the right document: \"\"",
         "paragraph-style@p4: list Bullet vs None",
         "paragraph-style@p4: indent level 2 vs 0",
-        "paragraph-style@p4: left indent 36 vs 0",
+        "paragraph-style@p4: left indent 54 vs 0",
+        "paragraph-style@p4: first line indent -18 vs 0",
         "text@p5: text differs: \"spaces   then a tab\u2028after a break\" vs \"\"",
         "extra@p?: paragraph only in the right document: \"spaces   then a tab\"",
         "extra@p?: paragraph only in the right document: \"after a break\"",
@@ -10482,7 +10475,7 @@
       ],
       "state": "suspected-defect",
       "reference": null,
-      "why": "Not yet classified. A row regenerated into this file starts as a suspected defect on purpose: an unreviewed difference should read as one until somebody says otherwise.",
+      "why": "CSV drops the imported heading and list formatting and changes the paragraph and table structure.",
       "reviewer": null,
       "decided": null
     },
@@ -10491,19 +10484,14 @@
       "source": "odt",
       "via": "docx",
       "differences": [
+        "inline-style@p0: formatting differs from character 0: font size 18.2 vs 18",
         "paragraph-style@p1: left indent 28.346 vs 28.35",
-        "paragraph-style@p1: spacing before 5.669 vs 5.65",
-        "paragraph-style@p2: left indent 18 vs 36",
-        "paragraph-style@p2: first line indent 0 vs -18",
-        "paragraph-style@p3: left indent 18 vs 36",
-        "paragraph-style@p3: first line indent 0 vs -18",
-        "paragraph-style@p4: left indent 36 vs 54",
-        "paragraph-style@p4: first line indent 0 vs -18"
+        "paragraph-style@p1: spacing before 5.669 vs 5.65"
       ],
       "diagnostics": [],
       "state": "suspected-defect",
       "reference": "docs/guides/corpus-suite.md",
-      "why": "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. Previous classification rationale (does not cover all newly observed differences): Unit precision, not loss. 5.669pt is 0.2cm, which the RTF writer expresses in whole twips and reads back as 5.65pt. A format that measures in twips cannot carry a centimetre exactly.",
+      "why": "DOCX preserves the imported list offsets. The round trip quantizes font size to half-points and paragraph dimensions to twips.",
       "reviewer": null,
       "decided": null
     },
@@ -10512,9 +10500,16 @@
       "source": "odt",
       "via": "html",
       "differences": [
+        "paragraph-style@p0: keep with next True vs False",
         "paragraph-style@p2: list Bullet vs None",
+        "paragraph-style@p2: indent level 1 vs 2",
+        "paragraph-style@p2: first line indent -18 vs 0",
         "paragraph-style@p3: list Bullet vs None",
+        "paragraph-style@p3: indent level 1 vs 2",
+        "paragraph-style@p3: first line indent -18 vs 0",
         "paragraph-style@p4: list Bullet vs None",
+        "paragraph-style@p4: indent level 2 vs 3",
+        "paragraph-style@p4: first line indent -18 vs 0",
         "table.grid-mismatch@p?: table count differs: 1 vs 0"
       ],
       "diagnostics": [
@@ -10523,7 +10518,7 @@
       ],
       "state": "suspected-defect",
       "reference": "docs/guides/corpus-suite.md",
-      "why": "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. Previous classification rationale (does not cover all newly observed differences): The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list. The exact left-indent loss was removed after the HTML writer began preserving point offsets; remaining list/table limitations are unchanged.",
+      "why": "HTML loses keep-with-next and list semantics, changes the list level and hanging indent, and flattens the table.",
       "reviewer": null,
       "decided": null
     },
@@ -10532,12 +10527,22 @@
       "source": "odt",
       "via": "markdown",
       "differences": [
+        "paragraph-style@p0: keep with next True vs False",
+        "paragraph-style@p0: spacing before 12 vs 0",
+        "paragraph-style@p0: spacing after 6 vs 0",
+        "inline-style@p0: formatting differs from character 0: font family \"Liberation Sans\" vs default",
         "paragraph-style@p1: alignment Center vs Left",
         "paragraph-style@p1: indent level 2 vs 0",
         "paragraph-style@p1: left indent 28.346 vs 0",
         "paragraph-style@p1: line spacing 1.5 vs 1",
         "paragraph-style@p1: spacing before 5.669 vs 0",
         "inline-style@p1: formatting differs from character 0: font size 18 vs default",
+        "paragraph-style@p2: left indent 36 vs 18",
+        "paragraph-style@p2: first line indent -18 vs 0",
+        "paragraph-style@p3: left indent 36 vs 18",
+        "paragraph-style@p3: first line indent -18 vs 0",
+        "paragraph-style@p4: left indent 54 vs 36",
+        "paragraph-style@p4: first line indent -18 vs 0",
         "inline-style@p6: formatting differs from character 0: underline True vs False",
         "table.grid-mismatch@p?: table count differs: 1 vs 0"
       ],
@@ -10548,7 +10553,7 @@
       ],
       "state": "suspected-defect",
       "reference": "docs/guides/corpus-suite.md",
-      "why": "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. Previous classification rationale (does not cover all newly observed differences): Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
+      "why": "Markdown drops heading typography and spacing, loses the exact list offsets and underlining, and flattens the table.",
       "reviewer": null,
       "decided": null
     },
@@ -10583,12 +10588,20 @@
       "via": "odt",
       "differences": [
         "paragraph-style@p1: left indent 28.346 vs 28.347",
+        "paragraph-style@p2: left indent 36 vs 18",
+        "paragraph-style@p2: first line indent -18 vs 0",
+        "paragraph-style@p3: left indent 36 vs 18",
+        "paragraph-style@p3: first line indent -18 vs 0",
+        "paragraph-style@p4: left indent 54 vs 36",
+        "paragraph-style@p4: first line indent -18 vs 0",
         "table.cell-layout@p8: column width count 0 vs 2"
       ],
-      "diagnostics": [],
+      "diagnostics": [
+        "odt.list.indent"
+      ],
       "state": "suspected-defect",
       "reference": "docs/guides/corpus-suite.md",
-      "why": "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. List geometry, indent precision, or the odt.list.indent diagnostic needs codec-level review.",
+      "why": "The ODT writer reports odt.list.indent and loses the imported hanging indents and exact list offsets. Paragraph indent precision and table column widths also differ.",
       "reviewer": null,
       "decided": null
     },
@@ -10597,17 +10610,25 @@
       "source": "odt",
       "via": "rtf",
       "differences": [
+        "paragraph-style@p0: keep with next True vs False",
+        "inline-style@p0: formatting differs from character 0: font size 18.2 vs 18",
         "paragraph-style@p1: left indent 28.346 vs 28.35",
         "paragraph-style@p1: spacing before 5.669 vs 5.65",
         "paragraph-style@p2: list Bullet vs None",
+        "paragraph-style@p2: indent level 1 vs 2",
+        "paragraph-style@p2: first line indent -18 vs 0",
         "paragraph-style@p3: list Bullet vs None",
+        "paragraph-style@p3: indent level 1 vs 2",
+        "paragraph-style@p3: first line indent -18 vs 0",
         "paragraph-style@p4: list Bullet vs None",
+        "paragraph-style@p4: indent level 2 vs 3",
+        "paragraph-style@p4: first line indent -18 vs 0",
         "table.cell-layout@p8: column width count 0 vs 2"
       ],
       "diagnostics": [],
       "state": "suspected-defect",
       "reference": "docs/guides/corpus-suite.md",
-      "why": "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. Previous classification rationale (does not cover all newly observed differences): Unit precision, not loss. 5.669pt is 0.2cm, which the RTF writer expresses in whole twips and reads back as 5.65pt. A format that measures in twips cannot carry a centimetre exactly. The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list. Left-indent rounding to an 18-point level is fixed; only native RTF twip quantization (28.346 to 28.35 points) remains for that offset.",
+      "why": "RTF loses heading keep-with-next and list semantics, changes the list level and hanging indent, and quantizes font size and paragraph dimensions. The round trip also introduces explicit table column widths.",
       "reviewer": null,
       "decided": null
     },
@@ -10616,6 +10637,10 @@
       "source": "odt",
       "via": "tsv",
       "differences": [
+        "paragraph-style@p0: keep with next True vs False",
+        "paragraph-style@p0: spacing before 12 vs 0",
+        "paragraph-style@p0: spacing after 6 vs 0",
+        "inline-style@p0: formatting differs from character 0: bold True vs False",
         "extra@p?: paragraph only in the right document: \"\"",
         "paragraph-style@p1: alignment Center vs Left",
         "paragraph-style@p1: indent level 2 vs 0",
@@ -10626,15 +10651,18 @@
         "extra@p?: paragraph only in the right document: \"\"",
         "paragraph-style@p2: list Bullet vs None",
         "paragraph-style@p2: indent level 1 vs 0",
-        "paragraph-style@p2: left indent 18 vs 0",
+        "paragraph-style@p2: left indent 36 vs 0",
+        "paragraph-style@p2: first line indent -18 vs 0",
         "extra@p?: paragraph only in the right document: \"\"",
         "paragraph-style@p3: list Bullet vs None",
         "paragraph-style@p3: indent level 1 vs 0",
-        "paragraph-style@p3: left indent 18 vs 0",
+        "paragraph-style@p3: left indent 36 vs 0",
+        "paragraph-style@p3: first line indent -18 vs 0",
         "extra@p?: paragraph only in the right document: \"\"",
         "paragraph-style@p4: list Bullet vs None",
         "paragraph-style@p4: indent level 2 vs 0",
-        "paragraph-style@p4: left indent 36 vs 0",
+        "paragraph-style@p4: left indent 54 vs 0",
+        "paragraph-style@p4: first line indent -18 vs 0",
         "text@p5: text differs: \"spaces   then a tab\u2028after a break\" vs \"\"",
         "extra@p?: paragraph only in the right document: \"spaces   then a tab after a break\"",
         "extra@p?: paragraph only in the right document: \"\"",
@@ -10658,7 +10686,7 @@
       ],
       "state": "suspected-defect",
       "reference": null,
-      "why": "Not yet classified. A row regenerated into this file starts as a suspected defect on purpose: an unreviewed difference should read as one until somebody says otherwise.",
+      "why": "TSV drops the imported heading and list formatting and changes the paragraph and table structure.",
       "reviewer": null,
       "decided": null
     },
