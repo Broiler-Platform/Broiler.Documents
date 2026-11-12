@@ -27,7 +27,10 @@ are in the [issue #236](office-issue-236-odt-images.md),
   `graphicsXXX` lists the PNG first). An SVG the rasterizer declines still
   leaves the PNG. Alternatives read after the first readable one report no
   diagnostics.
-- **Writer's default page.** A document with no master page now has Writer's
+- **Writer's default page.** (On merging, this cluster's own commit for it was
+  dropped: the odt-layout cluster made the same change, with Writer's default
+  font and Heading style as well; see `office-issue-242-odt-layout.md`.)
+  A document with no master page now has Writer's
   Default Page Style, A4 with 2 cm margins, which until now only a layout-free
   form got. Other layout-free documents fell back to the caller's page, with
   1 in margins. 196 corpus samples have no master page: nearly all are small
