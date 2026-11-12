@@ -69,6 +69,11 @@ internal sealed class OdtImageLoader(
         (double width, double height) = ReadExtent(frame, inlinePage, frameTextWidth);
         (string? altText, string? name) = ReadDescription(frame);
 
+        // A chart with no replacement picture that can be drawn is drawn from
+        // its own content, as LibreOffice renders it live.
+        if (part is null && ReadChart(frame, width, height) is PicturePart chart)
+            part = chart;
+
         if (part is null)
         {
             if (!foundImage)
@@ -162,6 +167,26 @@ internal sealed class OdtImageLoader(
 
         ImageCount++;
         return picture.WithResourceId(id2);
+    }
+
+    /// <summary>
+    /// Draws the chart an embedded object in the package holds
+    /// (<c>draw:object xlink:href="./Object 1"</c>, its <c>content.xml</c> an
+    /// <c>office:chart</c>), at the frame's size. Null for anything
+    /// <see cref="OdtChartPreview"/> does not draw.
+    /// </summary>
+    private PicturePart? ReadChart(XElement frame, double width, double height)
+    {
+        string? href = (string?)frame.Element(OdtNamespaces.Draw + "object")?.Attribute(OdtNamespaces.XLink + "href");
+        if (string.IsNullOrWhiteSpace(href) || !(width > 0) || !(height > 0) || LinksOutsidePackage(href))
+            return null;
+        string folder = OdtPackage.NormalizePath(href);
+        if (folder.Length == 0 || OdtPackage.FindEntry(_archive, folder + "/content.xml") is not ZipArchiveEntry entry)
+            return null;
+        XDocument? content = OdtPackage.LoadEntryXml(entry, _limits, [], "odt.chart");
+        if (content?.Root is not XElement root || OdtChartPreview.Render(root, width, height) is not byte[] png)
+            return null;
+        return new PicturePart(png, "image/png", Path.GetFileName(folder));
     }
 
     private static bool IsAudio(XElement plugin) =>
