@@ -62,6 +62,15 @@ public sealed class PaginationFontAdapter : IDocumentTextMeasurer
 
     public bool HasItalicFace(string? family) => _fontService.HasItalicFace(family);
 
+    /// <summary>
+    /// True when <paramref name="family"/> resolves to a face of its own, not to
+    /// the host's fallback or a metric model standing in for one.
+    /// </summary>
+    public bool HasFace(string? family) =>
+        !string.IsNullOrWhiteSpace(family) &&
+        _fontService.ResolveWithOutcome(family).Outcome is FontResolutionOutcome.ExactMatch or
+            FontResolutionOutcome.StyleMatch or FontResolutionOutcome.DirectoryMatch;
+
     public double GetWhitespaceWidth(BFontStyle font) => MeasureAdvance(" ", font);
 
     public bool HasUnmappedVerticalCjk(string text, BFontStyle font)

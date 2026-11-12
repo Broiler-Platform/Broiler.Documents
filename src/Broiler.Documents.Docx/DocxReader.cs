@@ -1421,7 +1421,9 @@ internal static class DocxReader
                 {
                     string? font = (string?)child.Attribute(DocxNamespaces.Wordprocessing + "font");
                     builder.AppendText(((char)symbol).ToString(),
-                        string.IsNullOrWhiteSpace(font) ? style : style with { FontFamily = font });
+                        string.IsNullOrWhiteSpace(font)
+                            ? style with { IsSymbolCharacter = true }
+                            : style with { FontFamily = font, IsSymbolCharacter = true });
                 }
                 else
                 {
