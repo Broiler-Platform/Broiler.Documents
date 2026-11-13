@@ -137,7 +137,7 @@ public sealed class PdfPageBreakTests
     public void Columns_Laid_Out_As_One_Are_Reported()
     {
         RichTextDocument document = RichTextDocument.FromPlainText("body")
-            .WithSections([new DocumentSection(0, 1, 2, 36)]);
+            .WithSections([new DocumentSection(0, 1, 2, 36, breakType: SectionBreakType.NextColumn)]);
 
         PdfWriteResult result = Write(document).Result;
 

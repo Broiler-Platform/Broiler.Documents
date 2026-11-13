@@ -10,6 +10,7 @@ using System.Xml.Linq;
 using Broiler.Documents.Model;
 using Broiler.Documents.Model.Spreadsheets;
 using Broiler.Documents.Packaging;
+using Broiler.Graphics.Color;
 
 namespace Broiler.Documents.Ods;
 
@@ -62,12 +63,42 @@ internal static class OdsReader
                 return new OdsReadResult(RichTextDocument.Empty, new SpreadsheetWorkbook([]), diagnostics, DocumentResultStatus.Rejected);
             }
 
-            Dictionary<string, double> columnStyleWidths = ReadColumnStyleWidths(contentXml.Root);
+            XElement? shared = FindEntry(archive, "styles.xml") is { } stylesEntry
+                ? DocumentPackage.LoadEntryXml(stylesEntry, options.Limits.MaxBinBytes, diagnostics,
+                    OdsDiagnosticCodes.StylesInvalid, "Styles XML")?.Root
+                : null;
+            var styles = new Dictionary<(string Family, string Name), XElement>();
+            var numberStyles = new Dictionary<string, string?>(StringComparer.Ordinal);
+            foreach (XElement? root in new[] { shared, contentXml.Root })
+            {
+                foreach (XElement group in root?.Elements().Where(e =>
+                    e.Name == OdsNamespaces.Office + "styles" || e.Name == OdsNamespaces.Office + "automatic-styles") ?? [])
+                {
+                    foreach (XElement definition in group.Elements())
+                    {
+                        if ((string?)definition.Attribute(OdsNamespaces.Style + "name") is not string name)
+                            continue;
+                        if (definition.Name.Namespace == OdsNamespaces.Number)
+                            numberStyles[name] = OdsNumberStyles.Read(definition);
+                        else if (definition.Name == OdsNamespaces.Style + "style" &&
+                            (string?)definition.Attribute(OdsNamespaces.Style + "family") is string family)
+                            styles[(family, name)] = definition;
+                    }
+                }
+            }
+
+            string? nullDate = (string?)spreadsheet.Element(OdsNamespaces.Table + "calculation-settings")?
+                .Element(OdsNamespaces.Table + "null-date")?.Attribute(OdsNamespaces.Table + "date-value");
+            if (!DateTime.TryParseExact(nullDate, "yyyy-MM-dd", CultureInfo.InvariantCulture,
+                DateTimeStyles.None, out DateTime dateBase))
+                dateBase = OdsNumberStyles.DefaultDateBase;
+
+            bool unsupportedFormat = false;
             var sheets = new List<SpreadsheetWorksheet>();
             foreach (XElement tableElem in spreadsheet.Elements(OdsNamespaces.Table + "table"))
             {
                 string sheetName = (string?)tableElem.Attribute(OdsNamespaces.Table + "name") ?? $"Sheet{sheets.Count + 1}";
-                SpreadsheetWorksheet sheet = ReadSheet(sheetName, tableElem, columnStyleWidths);
+                SpreadsheetWorksheet sheet = ReadSheet(sheetName, tableElem, styles, numberStyles, dateBase, ref unsupportedFormat);
                 sheets.Add(sheet);
             }
 
@@ -77,38 +108,28 @@ internal static class OdsReader
             var workbook = new SpreadsheetWorkbook(sheets);
             RichTextDocument document = workbook.ToRichTextDocument();
 
-            return new OdsReadResult(document, workbook, diagnostics, DocumentResultStatus.Success);
+            if (unsupportedFormat)
+                diagnostics.Add(DocumentDiagnostic.Warning(OdsDiagnosticCodes.NumberFormatUnsupported,
+                    "An unsupported number format was omitted."));
+            return new OdsReadResult(document, workbook, diagnostics,
+                diagnostics.Count == 0 ? DocumentResultStatus.Success : DocumentResultStatus.Partial);
         }
     }
 
-    /// <summary>
-    /// The <c>style:column-width</c> of each automatic table-column style, in
-    /// points, by style name.
-    /// </summary>
-    private static Dictionary<string, double> ReadColumnStyleWidths(XElement root)
+    private static double? ReadDimension(XElement? style, string family, string property)
     {
-        var widths = new Dictionary<string, double>(StringComparer.Ordinal);
-        XElement? automatic = root.Element(OdsNamespaces.Office + "automatic-styles");
-        if (automatic is null)
-            return widths;
-
-        foreach (XElement style in automatic.Elements(OdsNamespaces.Style + "style"))
-        {
-            if ((string?)style.Attribute(OdsNamespaces.Style + "family") != "table-column" ||
-                (string?)style.Attribute(OdsNamespaces.Style + "name") is not string name)
-                continue;
-
-            string? width = (string?)style.Element(OdsNamespaces.Style + "table-column-properties")?
-                .Attribute(OdsNamespaces.Style + "column-width");
-            if (TryParseLength(width, out double points) && points > 0)
-                widths[name] = points;
-        }
-
-        return widths;
+        string? length = (string?)style?.Element(OdsNamespaces.Style + (family + "-properties"))?
+            .Attribute(OdsNamespaces.Style + property);
+        return TryParseLength(length, out double points) && double.IsFinite(points) && points > 0 ? points : null;
     }
+
+    private static bool HasCellContent(SpreadsheetCell cell) =>
+        !cell.Value.IsEmpty || !string.IsNullOrEmpty(cell.Formula) || cell.Shading.A != 0 ||
+        cell.NumberFormat is not null || cell.Borders.IsVisible || cell.Font != InlineStyle.Default ||
+        cell.Alignment != TextAlignment.Left || cell.VerticalAlignment != CellVerticalAlignment.Top || cell.ColumnSpan > 1 || cell.RowSpan > 1;
 
     /// <summary>An ODF length (in, cm, mm, pt, pc, px) in points.</summary>
-    private static bool TryParseLength(string? value, out double points)
+    internal static bool TryParseLength(string? value, out double points)
     {
         points = 0;
         if (string.IsNullOrWhiteSpace(value))
@@ -138,13 +159,16 @@ internal static class OdsReader
         return true;
     }
 
-    private static SpreadsheetWorksheet ReadSheet(string sheetName, XElement tableElem, IReadOnlyDictionary<string, double> columnStyleWidths)
+    private static SpreadsheetWorksheet ReadSheet(string sheetName, XElement tableElem,
+        Dictionary<(string Family, string Name), XElement> styles,
+        Dictionary<string, string?> numberStyles, DateTime dateBase, ref bool unsupportedFormat)
     {
         // Column widths, from each column's automatic style; a column whose style
         // states none keeps one inch. Only the used columns are kept (below):
         // a sheet declares all 1024 of its grid's columns, and LibreOffice prints
         // only the used range.
         var columnWidths = new List<double>();
+        var columnCellStyles = new List<string?>();
         foreach (XElement col in tableElem.Elements(OdsNamespaces.Table + "table-column"))
         {
             int repeated = 1;
@@ -152,9 +176,14 @@ internal static class OdsReader
                 repeated = Math.Clamp(r, 1, 1024);
 
             string? styleName = (string?)col.Attribute(OdsNamespaces.Table + "style-name");
-            double width = styleName is not null && columnStyleWidths.TryGetValue(styleName, out double stated) ? stated : 72.0;
+            double width = ReadDimension(styles.GetValueOrDefault(("table-column", styleName ?? string.Empty)),
+                "table-column", "column-width") ?? 72.0;
+            string? defaultCellStyle = (string?)col.Attribute(OdsNamespaces.Table + "default-cell-style-name");
             for (int i = 0; i < repeated && columnWidths.Count < 1024; i++)
+            {
                 columnWidths.Add(width);
+                columnCellStyles.Add(defaultCellStyle);
+            }
         }
 
         var rows = new List<SpreadsheetRow>();
@@ -166,6 +195,8 @@ internal static class OdsReader
             if (int.TryParse((string?)rowElem.Attribute(OdsNamespaces.Table + "number-rows-repeated"), NumberStyles.Integer, CultureInfo.InvariantCulture, out int rr))
                 rowRepeated = Math.Max(1, rr);
 
+            string rowStyle = (string?)rowElem.Attribute(OdsNamespaces.Table + "style-name") ?? string.Empty;
+            double? height = ReadDimension(styles.GetValueOrDefault(("table-row", rowStyle)), "table-row", "row-height");
             var cellElements = rowElem.Elements().ToList();
             bool hasNonEmptyCell = false;
             foreach (XElement c in cellElements)
@@ -260,30 +291,60 @@ internal static class OdsReader
                     for (int rep = 0; rep < colRepeated; rep++)
                     {
                         int cIdx = currentColIndex++;
-                        if (rep > 0 && cellVal.IsEmpty && string.IsNullOrEmpty(formula))
+                        CellValue projectedValue = cellVal;
+                        string cellStyleName = (string?)cElem.Attribute(OdsNamespaces.Table + "style-name") ??
+                        (string?)rowElem.Attribute(OdsNamespaces.Table + "default-cell-style-name") ??
+                        (cIdx < columnCellStyles.Count ? columnCellStyles[cIdx] : null) ?? string.Empty;
+                        XElement? cellStyle = styles.GetValueOrDefault(("table-cell", cellStyleName));
+                        string? dataStyleName = (string?)cellStyle?.Attribute(OdsNamespaces.Style + "data-style-name");
+                        string? numberFormat = dataStyleName is null ? null : numberStyles.GetValueOrDefault(dataStyleName);
+                        unsupportedFormat |= dataStyleName is not null && numberFormat is null;
+                        if (OdsNumberStyles.IsDate(numberFormat))
+                        {
+                        if (projectedValue.IsNumber)
+                        {
+                            double serial = projectedValue.Number + (dateBase - OdsNumberStyles.DefaultDateBase).TotalDays;
+                            projectedValue = CellValue.FromNumber(serial < 61 ? serial - 1 : serial);
+                        }
+                        else if (valueType == "date" && DateTime.TryParse(dateAttr, CultureInfo.InvariantCulture,
+                            DateTimeStyles.None, out DateTime date))
+                        {
+                            projectedValue = CellValue.FromNumber(CellDateSerial.ToSerial(date));
+                        }
+                        }
+
+                        OdsCellAppearance appearance = OdsCellAppearance.Read(cellStyle);
+                        if (rep > 0 && cellVal.IsEmpty && string.IsNullOrEmpty(formula) &&
+                            appearance == default && numberFormat is null)
                             continue; // Avoid storing thousands of repeated trailing empty cells
 
                         var addr = new CellAddress(rIdx, cIdx);
                         cells.Add(new SpreadsheetCell(
                             addr,
-                            cellVal,
+                            projectedValue,
                             formula: formula,
                             cachedText: cachedText,
                             columnSpan: colSpan,
-                            rowSpan: rowSpan));
+                            rowSpan: rowSpan, numberFormat: numberFormat, shading: appearance.Fill)
+                        {
+                            Borders = appearance.Borders,
+                            VerticalAlignment = appearance.Vertical,
+                            Alignment = appearance.Alignment,
+                            Font = appearance.Font,
+                        });
                     }
                 }
 
                 int minCells = hasNonEmptyCell ? 0 : 1;
-                while (cells.Count > minCells && cells[^1].Value.IsEmpty && string.IsNullOrEmpty(cells[^1].Formula))
+                while (cells.Count > minCells && !HasCellContent(cells[^1]))
                     cells.RemoveAt(cells.Count - 1);
 
-                if (cells.Count > 0 || hasNonEmptyCell)
-                    rows.Add(new SpreadsheetRow(rIdx, cells));
+                if (cells.Count > 0 || hasNonEmptyCell || height.HasValue)
+                    rows.Add(new SpreadsheetRow(rIdx, cells, height));
             }
         }
 
-        while (rows.Count > 0 && rows[^1].Cells.All(c => c.Value.IsEmpty && string.IsNullOrEmpty(c.Formula)))
+        while (rows.Count > 0 && rows[^1].Height is null && !rows[^1].Cells.Any(HasCellContent))
             rows.RemoveAt(rows.Count - 1);
 
         var sheet = new SpreadsheetWorksheet(sheetName, rows, columnWidths);

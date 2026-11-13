@@ -93,8 +93,7 @@ toolkit behind it.
   `fo:font-variant="small-caps"`, read and written as a style attribute. The
   text keeps the casing the author typed and capitals are applied when drawing,
   so an open-and-save does not rewrite it. A style declaring both draws all
-  capitals. `fo:text-transform` values `lowercase` and `capitalize` are dropped
-  (`odt.text.transform`); the model draws upper case only.
+  capitals. Lowercase and capitalize are preserved as display formatting.
 - Hidden text (`text:display="none"`) is retained and written back; normal
   rendering omits it. OpenOffice.org 2.x wrote `text:display` the wrong way
   round (`true` for hidden, `none` for shown); LibreOffice recognises such a
@@ -132,8 +131,7 @@ toolkit behind it.
   `style:line-height-at-least` the least a line is
   (`ParagraphStyle.LineHeightRule` and `LineHeight`). Each replaces whatever
   form a parent stated, and a write states the same form back. Leading between
-  lines (`style:line-spacing`) is a fourth kind the model does not hold
-  (`odt.linespacing.leading`).
+  lines (`style:line-spacing`) maps to fixed extra leading in points.
 
 ### Page and column breaks
 
@@ -615,10 +613,9 @@ problem document lost.
 | `odt.settings.xml` | Warning | The settings part could not be read; default view, tracked changes shown. |
 | `odt.link` | Warning | A hyperlink with a disallowed or relative target was dropped. |
 | `odt.align.justify` | Warning | A justified paragraph was read as left-aligned. |
-| `odt.linespacing.leading` | Warning | Line spacing stated as leading between lines (`style:line-spacing`) was not represented. |
+| `odt.linespacing.leading` | Warning | An invalid fixed line spacing (`style:line-spacing`) was ignored. |
 | `odt.linespacing.range` | Warning | A positive line-height percentage over- or underflowed the float multiplier; the inherited spacing was kept. |
 | `odt.break.after` | Warning | A `fo:break-after="page"` had no following paragraph in its flow (the flow or cell ended, or a table followed) and was dropped. |
-| `odt.text.transform` | Warning | A `lowercase`/`capitalize` transform was dropped. |
 | `odt.styles.unknown` | Warning | A style reference named an undefined style. Once per family and name. |
 | `odt.styles.cycle` | Warning | A `style:parent-style-name` chain was cyclic and was cut short. |
 | `odt.styles.depth` | Warning | A `style:parent-style-name` chain exceeded `MaxGroupDepth` and was cut short. |

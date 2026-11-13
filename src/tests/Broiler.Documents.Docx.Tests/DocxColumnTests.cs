@@ -425,6 +425,26 @@ public sealed class DocxColumnTests
     }
 
     [Fact]
+    public void Column_Separators_Roundtrip_Per_Section_With_The_Same_Column_Count()
+    {
+        RichTextDocument original = Read(
+            SectionEnd("first", "<w:cols w:num='2' w:sep='1'/>") +
+            DocxTestPackage.Paragraph("second") +
+            Section("<w:cols w:num='2' w:sep='off'/>")).Document;
+
+        Assert.Equal(2, original.Sections.Count);
+        Assert.True(original.Sections[0].ColumnSeparator);
+        Assert.False(original.Sections[1].ColumnSeparator);
+        Assert.True(original.Sections[0].ShiftedBy(2).ColumnSeparator);
+
+        using var stream = new MemoryStream(DocxWriter.WriteToArray(original), writable: false);
+        RichTextDocument result = new DocxDocumentCodec().Read(stream).Document;
+        Assert.Equal(2, result.Sections.Count);
+        Assert.True(result.Sections[0].ColumnSeparator);
+        Assert.False(result.Sections[1].ColumnSeparator);
+    }
+
+    [Fact]
     public void Columns_Survive_A_Round_Trip()
     {
         RichTextDocument source = Read(

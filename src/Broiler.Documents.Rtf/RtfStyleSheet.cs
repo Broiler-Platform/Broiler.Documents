@@ -73,6 +73,14 @@ internal sealed class RtfStyleSheet
     public bool TryGetParagraphStyle(int id, [NotNullWhen(true)] out RtfStyle? style) =>
         _paragraphStyles.TryGetValue(id, out style);
 
+    public string? CharacterStyleCalled(string name)
+    {
+        foreach (RtfStyle style in _characterStyles.Values)
+            if (string.Equals(style.Name, name, StringComparison.OrdinalIgnoreCase))
+                return style.Name;
+        return null;
+    }
+
     public bool TryGetCharacterStyle(int id, [NotNullWhen(true)] out RtfStyle? style) =>
         _characterStyles.TryGetValue(id, out style);
 

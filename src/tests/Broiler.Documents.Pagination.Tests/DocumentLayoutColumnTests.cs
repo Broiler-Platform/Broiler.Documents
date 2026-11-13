@@ -34,6 +34,59 @@ public sealed class DocumentLayoutColumnTests
     private static double LeftOf(LayoutLine line) => line.Pieces[0].X;
 
     [Fact]
+    public void Overflow_Extends_The_Rule_To_The_Bottom_Margin_But_A_Hard_Break_Does_Not()
+    {
+        var geometry = LetterIn(2, 36) with { ColumnSeparator = true };
+        var style = ParagraphStyle.Default with { LineHeightRule = LineHeightRule.Exact, LineHeight = 14 };
+        var overflow = Layout(Lines(108, geometry, style));
+        Assert.Equal(2, overflow.Pages.Count);
+        Assert.Equal(720, Assert.Single(overflow.Pages[0].ColumnSeparators).Bottom, 3);
+        Assert.True(Assert.Single(overflow.Pages[1].ColumnSeparators).Bottom < 720);
+
+        var document = RichTextDocument.FromParagraphs(
+        [
+            RichTextParagraph.Plain("Before").WithParagraphStyle(style),
+            RichTextParagraph.Plain("After").WithParagraphStyle(style with { PageBreakBefore = true }),
+        ]).WithPageGeometry(geometry);
+        var hardBreak = Layout(document);
+        Assert.Equal(2, hardBreak.Pages.Count);
+        Assert.Equal(86, Assert.Single(hardBreak.Pages[0].ColumnSeparators).Bottom, 3);
+    }
+
+    [Fact]
+    public void Column_Rules_Are_Centered_In_The_Gaps_On_Each_Page()
+    {
+        var result = Layout(Lines(400, LetterIn(3, 36) with { ColumnSeparator = true }));
+        Assert.True(result.Pages.Count > 1);
+        Assert.All(result.Pages, page =>
+        {
+            Assert.Equal(2, page.ColumnSeparators.Count);
+            Assert.Equal(222, page.ColumnSeparators[0].Left + page.ColumnSeparators[0].Width / 2, 3);
+            Assert.Equal(390, page.ColumnSeparators[1].Left + page.ColumnSeparators[1].Width / 2, 3);
+            Assert.All(page.ColumnSeparators, rule =>
+            {
+                Assert.Equal(72, rule.Top, 3);
+                Assert.InRange(rule.Bottom, rule.Top, 720);
+            });
+        });
+    }
+
+    [Fact]
+    public void Column_Rules_End_Before_The_Following_Continuous_Section()
+    {
+        var document = Lines(12, LetterIn(1, 0)).WithSections(
+        [
+            new DocumentSection(0, 10, 2, 36) { ColumnSeparator = true },
+            new DocumentSection(10, 2, 1, 0, breakType: SectionBreakType.Continuous),
+        ]);
+        LayoutPage page = Assert.Single(Layout(document).Pages);
+        var rule = Assert.Single(page.ColumnSeparators);
+        Assert.Equal(72, rule.Top, 3);
+        Assert.True(rule.Bottom > rule.Top);
+        Assert.True(rule.Bottom <= page.Lines.First(line => line.ParagraphIndex == 10).Top);
+    }
+
+    [Fact]
     public void Text_Fills_The_First_Column_Then_The_Second_Before_The_Next_Page()
     {
         int perPage = Layout(Lines(400, geometry: null)).Pages[0].Lines.Count;

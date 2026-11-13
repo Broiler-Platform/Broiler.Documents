@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.IO.Compression;
+using System.Linq;
 using System.Text;
 using System.Xml;
 using System.Xml.Linq;
@@ -86,6 +87,8 @@ internal static class OdsWriter
         List<DocumentDiagnostic> diagnostics,
         HashSet<string> diagnosticOnce)
     {
+        var styles = new OdsWriteStyles(() => AddDiagnosticOnce(diagnostics, diagnosticOnce,
+            OdsDiagnosticCodes.NumberFormatUnsupported, "An unsupported number format was omitted."));
         var spreadsheetElem = new XElement(OdsNamespaces.Office + "spreadsheet");
 
         foreach (SpreadsheetWorksheet sheet in workbook.Sheets)
@@ -94,25 +97,33 @@ internal static class OdsWriter
                 new XAttribute(OdsNamespaces.Table + "name", XmlText(sheet.Name, diagnostics, diagnosticOnce)));
 
             int maxCol = Math.Max(1, sheet.ColumnCount);
-            tableElem.Add(new XElement(OdsNamespaces.Table + "table-column",
-                new XAttribute(OdsNamespaces.Table + "number-columns-repeated", maxCol)));
+            int widthCount = Math.Min(maxCol, sheet.ColumnWidths.Count);
+            for (int column = 0; column < widthCount; column++)
+                tableElem.Add(new XElement(OdsNamespaces.Table + "table-column",
+                    styles.Dimension("table-column", "column-width", sheet.ColumnWidths[column])));
+            if (widthCount < maxCol)
+                tableElem.Add(new XElement(OdsNamespaces.Table + "table-column",
+                    new XAttribute(OdsNamespaces.Table + "number-columns-repeated", maxCol - widthCount)));
 
             // Track covered cells from merges
             var covered = new HashSet<CellAddress>();
 
             foreach (SpreadsheetRow row in sheet.Rows)
             {
-                var rowElem = new XElement(OdsNamespaces.Table + "table-row");
+                var rowElem = new XElement(OdsNamespaces.Table + "table-row",
+                    styles.Dimension("table-row", "row-height", row.Height));
 
-                foreach (SpreadsheetCell cell in row.Cells)
+                int column = 0;
+                foreach (SpreadsheetCell cell in row.Cells.OrderBy(cell => cell.Address.Column))
                 {
-                    if (covered.Contains(cell.Address))
-                    {
-                        rowElem.Add(new XElement(OdsNamespaces.Table + "covered-table-cell"));
-                        continue;
-                    }
+                    while (column < cell.Address.Column)
+                        AppendEmptySlot(rowElem, covered.Contains(new CellAddress(row.RowIndex, column++)));
 
-                    var cellElem = new XElement(OdsNamespaces.Table + "table-cell");
+                    if (column != cell.Address.Column || covered.Contains(cell.Address))
+                        continue;
+
+                    column++;
+                    var cellElem = new XElement(OdsNamespaces.Table + "table-cell", styles.Cell(cell, cell.Font.FontFamily is { } family ? XmlText(family, diagnostics, diagnosticOnce) : null));
 
                     if (cell.ColumnSpan > 1)
                         cellElem.Add(new XAttribute(OdsNamespaces.Table + "number-columns-spanned", cell.ColumnSpan));
@@ -139,8 +150,11 @@ internal static class OdsWriter
 
                     if (cell.Value.IsNumber)
                     {
+                        double serial = cell.Value.Number;
+                        if (serial < 60 && OdsNumberStyles.IsDate(cell.NumberFormat))
+                            serial++;
                         cellElem.Add(new XAttribute(OdsNamespaces.Office + "value-type", "float"));
-                        cellElem.Add(new XAttribute(OdsNamespaces.Office + "value", cell.Value.Number.ToString(CultureInfo.InvariantCulture)));
+                        cellElem.Add(new XAttribute(OdsNamespaces.Office + "value", serial.ToString(CultureInfo.InvariantCulture)));
                     }
                     else if (cell.Value.IsBoolean)
                     {
@@ -158,6 +172,9 @@ internal static class OdsWriter
                     rowElem.Add(cellElem);
                 }
 
+                while (covered.Contains(new CellAddress(row.RowIndex, column++)))
+                    AppendEmptySlot(rowElem, covered: true);
+
                 tableElem.Add(rowElem);
             }
 
@@ -170,10 +187,16 @@ internal static class OdsWriter
             new XAttribute(XNamespace.Xmlns + "text", OdsNamespaces.Text.NamespaceName),
             new XAttribute(XNamespace.Xmlns + "style", OdsNamespaces.Style.NamespaceName),
             new XAttribute(XNamespace.Xmlns + "fo", OdsNamespaces.Fo.NamespaceName),
+            new XAttribute(XNamespace.Xmlns + "number", OdsNamespaces.Number.NamespaceName),
+            new XAttribute(XNamespace.Xmlns + "of", "urn:oasis:names:tc:opendocument:xmlns:of:1.2"),
+            styles.Definitions.HasElements ? styles.Definitions : null,
             new XElement(OdsNamespaces.Office + "body", spreadsheetElem));
 
         WriteXmlEntry(archive, "content.xml", new XDocument(root));
     }
+
+    private static void AppendEmptySlot(XElement row, bool covered) =>
+        row.Add(new XElement(OdsNamespaces.Table + (covered ? "covered-table-cell" : "table-cell")));
 
     private static void WriteXmlEntry(ZipArchive archive, string entryName, XDocument document)
     {

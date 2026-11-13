@@ -363,6 +363,9 @@ public sealed class LayoutFloatingTable(
 
 public sealed class LayoutPage : IPaginatedPageArtifact
 {
+    /// <summary>Vertical rules between text columns, in page coordinates.</summary>
+    public IReadOnlyList<BRect> ColumnSeparators { get; internal init; } = [];
+
     internal CellBorders PageBorders { get; init; }
     internal TableCellPadding PageBorderInsets { get; init; }
 

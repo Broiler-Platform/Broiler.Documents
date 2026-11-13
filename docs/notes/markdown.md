@@ -22,7 +22,7 @@ is intentionally conservative.
 |---|---|---|
 | Blank-line separated paragraphs | `RichTextParagraph` | Wrapped lines join with a space. |
 | Two trailing spaces or trailing backslash | `U+2028` soft break | Same model convention as RTF/HTML soft breaks. |
-| ATX headings `#` through `######` | Bold + approximate font size | Stored as normal paragraphs with inline style. |
+| ATX headings `#` through `######` | Bold + approximate font size | Stored with a semantic paragraph heading level and inline presentation. Export emits the corresponding ATX heading marker. |
 | `-`, `*`, `+` list items | `ListKind.Bullet` | Leading indentation maps to `IndentLevel`. |
 | `1.` / `1)` list items | `ListKind.Numbered` | Starting numbers are not preserved. |
 | Blockquote `>` | `IndentLevel` | Nested `>` increments indentation. |

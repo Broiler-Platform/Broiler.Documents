@@ -5,6 +5,21 @@ namespace Broiler.Documents.Markdown.Tests;
 public sealed class MarkdownWriterTests
 {
     [Fact]
+    public void Heading_Levels_Roundtrip_Without_Promoting_Bold_Paragraphs()
+    {
+        var codec = new MarkdownDocumentCodec();
+        using var input = new MemoryStream(System.Text.Encoding.UTF8.GetBytes("# First\n\n**Ordinary**\n\n###### Last\n"));
+        var document = codec.Read(input).Document;
+        using var output = new MemoryStream(MarkdownWriter.WriteToArray(document));
+        var result = codec.Read(output).Document;
+
+        Assert.Equal(document.PlainText, result.PlainText);
+        Assert.Equal(1, result.Paragraphs[0].Style.HeadingLevel);
+        Assert.Null(result.Paragraphs[1].Style.HeadingLevel);
+        Assert.Equal(6, result.Paragraphs[2].Style.HeadingLevel);
+    }
+
+    [Fact]
     public void Writes_Deterministic_Markdown()
     {
         string markdown = Write(RichTextDocument.FromPlainText("hello\nworld"));

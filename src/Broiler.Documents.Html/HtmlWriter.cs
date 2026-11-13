@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -59,14 +59,6 @@ public static class HtmlWriter
                 "html.columns",
                 "The document's sections and text columns were not written; this writer lays the body out " +
                 "as one column."));
-        }
-
-        if (document.Tables.Count > 0)
-        {
-            diagnostics.Add(DocumentDiagnostic.Warning(
-                "html.table.flattened",
-                "A table was written as its cell paragraphs, in row order; " +
-                "this writer emits no table markup."));
         }
 
         // A document that hides its changes is written as it is drawn, its
@@ -137,7 +129,7 @@ public static class HtmlWriter
         }
 
         var notes = new NoteNumberer(rich.NoteNumbering);
-        AppendParagraphs(document, body, rich.Paragraphs, notes, resources, diagnostics);
+        AppendFlow(document, body, rich, 0, rich.ParagraphCount, rich.Tables, notes, new ListNumberer(), resources, diagnostics);
 
         // HTML has no notes. They are written after the body, under a rule,
         // each opened with its label, and the citation is the label raised.
@@ -163,6 +155,103 @@ public static class HtmlWriter
         return document;
     }
 
+    private static void AppendFlow(DomDocument document, DomElement parent, RichTextDocument rich,
+        int start, int count, IReadOnlyList<DocumentTable> tables, NoteNumberer notes, ListNumberer numbering,
+        DocumentConversionContext resources, List<DocumentDiagnostic> diagnostics)
+    {
+        int end = start + count;
+        int index = start;
+        foreach (DocumentTable table in tables.OrderBy(table => table.ParagraphIndex))
+        {
+            if (table.ParagraphIndex < index || table.ParagraphIndex + table.ParagraphCount > end)
+                continue;
+
+            AppendParagraphs(document, parent, rich.Paragraphs.Skip(index).Take(table.ParagraphIndex - index),
+                notes, resources, diagnostics, numbering: numbering);
+            AppendTable(document, parent, rich, table, notes, numbering, resources, diagnostics);
+            index = table.ParagraphIndex + table.ParagraphCount;
+        }
+
+        AppendParagraphs(document, parent, rich.Paragraphs.Skip(index).Take(end - index), notes, resources, diagnostics, numbering: numbering);
+    }
+
+    private static void AppendTable(DomDocument document, DomElement parent, RichTextDocument rich,
+        DocumentTable table, NoteNumberer notes, ListNumberer numbering, DocumentConversionContext resources, List<DocumentDiagnostic> diagnostics)
+    {
+        DomElement element = document.CreateElement("table");
+        parent.AppendChild(element);
+        var tableStyle = new List<string> { "border-collapse: collapse" };
+        if (table.WidthPercent is double percent)
+            tableStyle.Add(string.Create(CultureInfo.InvariantCulture, $"width: {percent}%"));
+        else if (table.PreferredWidth is double width)
+            tableStyle.Add("width: " + Points(width));
+        element.SetAttribute("style", string.Join("; ", tableStyle));
+
+        var occupied = new Dictionary<int, int>();
+        for (int rowIndex = 0; rowIndex < table.Rows.Count; rowIndex++)
+        {
+            TableRow row = table.Rows[rowIndex];
+            DomElement tr = document.CreateElement("tr");
+            element.AppendChild(tr);
+            int column = 0;
+            foreach (TableCell cell in row.Cells.OrderBy(cell => cell.ColumnIndex))
+            {
+                if (cell.IsRowSpanContinuation)
+                    continue;
+                while (column < cell.ColumnIndex)
+                {
+                    if (occupied.GetValueOrDefault(column) <= rowIndex)
+                        tr.AppendChild(document.CreateElement("td"));
+                    column++;
+                }
+
+                DomElement td = document.CreateElement(row.IsHeader ? "th" : "td");
+                tr.AppendChild(td);
+                if (cell.ColumnSpan > 1)
+                    td.SetAttribute("colspan", cell.ColumnSpan.ToString(CultureInfo.InvariantCulture));
+                if (cell.RowSpan > 1)
+                    td.SetAttribute("rowspan", cell.RowSpan.ToString(CultureInfo.InvariantCulture));
+                column = cell.ColumnIndex + cell.ColumnSpan;
+                if (cell.RowSpan > 1)
+                    for (int covered = cell.ColumnIndex; covered < column; covered++)
+                        occupied[covered] = rowIndex + cell.RowSpan;
+
+                var declarations = new List<string>();
+                if (cell.Shading.A > 0)
+                    declarations.Add("background-color: " + HtmlCss.FormatColor(cell.Shading));
+                TableCellPadding padding = cell.Padding ?? default;
+                declarations.Add($"padding: {Points(padding.Top)} {Points(padding.Right)} {Points(padding.Bottom)} {Points(padding.Left)}");
+                AddBorder(declarations, "top", cell.Borders.Top);
+                AddBorder(declarations, "right", cell.Borders.Right);
+                AddBorder(declarations, "bottom", cell.Borders.Bottom);
+                AddBorder(declarations, "left", cell.Borders.Left);
+                td.SetAttribute("style", string.Join("; ", declarations));
+                AppendFlow(document, td, rich, cell.ParagraphIndex, cell.ParagraphCount,
+                    cell.Tables, notes, numbering, resources, diagnostics);
+            }
+        }
+    }
+
+    private static void AddBorder(List<string> declarations, string side, TableBorder border)
+    {
+        if (border.IsVisible)
+            declarations.Add($"border-{side}: {Points(border.Width)} {BorderStyle(border.Style)} {HtmlCss.FormatColor(border.Color)}");
+    }
+
+    private static string Points(double value) => string.Create(CultureInfo.InvariantCulture, $"{value:0.########}pt");
+
+    private static string BorderStyle(TableBorderStyle style) => style switch
+    {
+        TableBorderStyle.Dashed => "dashed",
+        TableBorderStyle.Dotted => "dotted",
+        TableBorderStyle.Double => "double",
+        TableBorderStyle.Groove => "groove",
+        TableBorderStyle.Ridge => "ridge",
+        TableBorderStyle.Inset => "inset",
+        TableBorderStyle.Outset => "outset",
+        _ => "solid",
+    };
+
     private static void AppendParagraphs(
         DomDocument document,
         DomElement body,
@@ -170,11 +259,63 @@ public static class HtmlWriter
         NoteNumberer notes,
         DocumentConversionContext resources,
         List<DocumentDiagnostic> diagnostics,
-        bool inNote = false)
+        bool inNote = false, ListNumberer? numbering = null)
     {
+        numbering ??= new ListNumberer();
+        var lists = new List<(DomElement Element, DomElement Item, ListDefinition? Definition, ListKind Kind)>();
         foreach (RichTextParagraph paragraph in paragraphs)
         {
-            DomElement p = document.CreateElement("p");
+            ParagraphStyle style = paragraph.Style;
+            ListReference? reference = style.List;
+            ListKind kind = reference?.Kind ?? style.ListKind;
+            int ordinal = 1;
+            if (reference is ListReference item)
+                numbering.Advance(item, out ordinal);
+            DomElement p;
+            if (kind == ListKind.None)
+            {
+                lists.Clear();
+                p = document.CreateElement("p");
+                body.AppendChild(p);
+            }
+            else
+            {
+                int level = Math.Clamp(reference?.Level ?? style.IndentLevel - 1, 0, lists.Count);
+                while (lists.Count > level + 1)
+                    lists.RemoveAt(lists.Count - 1);
+
+                if (lists.Count > level &&
+                    (lists[level].Kind != kind || lists[level].Definition != reference?.Definition))
+                    lists.RemoveAt(level);
+
+                p = document.CreateElement("li");
+                if (lists.Count == level)
+                {
+                    DomElement list = document.CreateElement(kind == ListKind.Numbered ? "ol" : "ul");
+                    (level == 0 ? body : lists[level - 1].Item).AppendChild(list);
+                    if (kind == ListKind.Numbered && reference is ListReference listReference)
+                    {
+                        if (ordinal != 1)
+                            list.SetAttribute("start", ordinal.ToString(CultureInfo.InvariantCulture));
+                        string? listType = CssListType(listReference.LevelStyle.Format);
+                        list.SetAttribute("style", "list-style-type: " + (listType ?? "decimal"));
+                        string template = ListLevel.DecimalAt(listReference.Level).Template;
+                        if ((listType is null || listReference.LevelStyle.Template != template) &&
+                            !diagnostics.Exists(diagnostic => diagnostic.Code == "html.list.marker"))
+                        {
+                            diagnostics.Add(DocumentDiagnostic.Warning("html.list.marker",
+                                "A custom numbered list marker was approximated by a native HTML marker."));
+                        }
+                    }
+                    lists.Add((list, p, reference?.Definition, kind));
+                }
+
+                var current = lists[level];
+                current.Element.AppendChild(p);
+                lists[level] = (current.Element, p, current.Definition, current.Kind);
+                if (kind == ListKind.Numbered && reference?.RestartAt is int restart)
+                    p.SetAttribute("value", restart.ToString(CultureInfo.InvariantCulture));
+            }
             string paragraphStyle = FormatParagraphStyle(paragraph.Style, diagnostics);
 
             // HTML collapses white space unless the paragraph asks it not to, so a
@@ -191,7 +332,6 @@ public static class HtmlWriter
             if (paragraphStyle.Length > 0)
                 p.SetAttribute("style", paragraphStyle);
 
-            body.AppendChild(p);
             AppendRuns(document, p, paragraph, notes, resources, diagnostics, inNote);
         }
     }
@@ -437,8 +577,19 @@ public static class HtmlWriter
         if (decoration.Length > 0)
             declarations.Add("text-decoration: " + decoration);
 
+        if (style.Shift is { } shift)
+        {
+            if (shift.Position == BaselinePosition.AutoSuperscript)
+                declarations.Add("vertical-align: super");
+            else if (shift.Position == BaselinePosition.AutoSubscript)
+                declarations.Add("vertical-align: sub");
+        }
         if (style.Capitalization == TextCapitalization.AllCaps)
             declarations.Add("text-transform: uppercase");
+        else if (style.Capitalization == TextCapitalization.Lowercase)
+            declarations.Add("text-transform: lowercase");
+        else if (style.Capitalization == TextCapitalization.Capitalize)
+            declarations.Add("text-transform: capitalize");
         else if (style.Capitalization == TextCapitalization.SmallCaps)
             declarations.Add("font-variant: small-caps");
 
@@ -474,7 +625,11 @@ public static class HtmlWriter
 
         // CSS states one line height, which LibreOffice reads as the least a
         // line is; an exact height is written that way too, and said.
-        if (style.LineHeightRule != LineHeightRule.Proportional && style.LineHeight > 0)
+        if (style.LineHeightRule == LineHeightRule.Leading && style.LineHeight != 0 &&
+            !diagnostics.Exists(d => d.Code == "html.linespacing.leading"))
+            diagnostics.Add(DocumentDiagnostic.Warning("html.linespacing.leading", "Fixed extra line spacing was omitted."));
+
+        if ((style.LineHeightRule is LineHeightRule.Exact or LineHeightRule.AtLeast) && style.LineHeight > 0)
         {
             declarations.Add("line-height: " + HtmlCss.FormatPoints(style.LineHeight));
             if (style.LineHeightRule == LineHeightRule.Exact && !diagnostics.Exists(d => d.Code == "html.lineheight.exact"))
@@ -493,15 +648,19 @@ public static class HtmlWriter
         if (Math.Abs(style.SpacingAfter) > 0.001f)
             declarations.Add("margin-bottom: " + HtmlCss.FormatPoints(style.SpacingAfter));
 
-        if (style.ListKind != ListKind.None)
-        {
-            diagnostics.Add(DocumentDiagnostic.Warning(
-                "html.list",
-                "ListKind is not written by the first HTML codec subset; indentation is preserved."));
-        }
-
         return string.Join("; ", declarations);
     }
+
+    private static string? CssListType(ListNumberFormat format) => format switch
+    {
+        ListNumberFormat.LowerLetter or ListNumberFormat.LowerAlphabetic => "lower-alpha",
+        ListNumberFormat.UpperLetter or ListNumberFormat.UpperAlphabetic => "upper-alpha",
+        ListNumberFormat.LowerRoman => "lower-roman",
+        ListNumberFormat.UpperRoman => "upper-roman",
+        ListNumberFormat.DecimalZero => "decimal-leading-zero",
+        ListNumberFormat.Decimal => "decimal",
+        _ => null,
+    };
 
     private static string FormatTextDecoration(InlineStyle style)
     {

@@ -59,6 +59,8 @@ public static class RtfWriter
             document = RevisionDisplay.WithoutDeletions(document);
         }
 
+        var lists = new RtfWriteLists(document, () => AddOnce(diagnostics, reported, "rtf.list.export",
+            "Some list formatting was approximated or omitted."));
         CollectResources(document, fonts, colors);
         if (document.StyleDefaults.FontFamily is string defaultFamily)
             fonts.Intern(defaultFamily);
@@ -69,6 +71,7 @@ public static class RtfWriter
             .Append("\\uc1");
         WriteFontTable(sb, fonts);
         WriteColorTable(sb, colors);
+        int listTablePosition = sb.Length;
 
         // An RTF document that names no generator is read as Word's, with its
         // runs of spaces laid out wider. One whose spaces are their font's own
@@ -78,43 +81,80 @@ public static class RtfWriter
 
         WritePageGeometry(sb, document.PageGeometry);
         WritePageBackground(sb, document.PageBackground);
-        WriteRunningContent(sb, document.RunningContent, document.StyleDefaults, fonts, colors, resources, diagnostics, reported);
+        if (DocumentSection.Containing(document.Sections, 0) is null)
+            WriteRunningContent(sb, document.RunningContent, lists, document.StyleDefaults, fonts, colors, resources, diagnostics, reported);
 
-        if (document.Sections.Count > 0)
-        {
-            AddOnce(
-                diagnostics,
-                reported,
-                "rtf.sections",
-                "The document's sections, each with columns and margins of its own, were not written; " +
-                "RTF is written here with one page and one set of columns for the whole document.");
-        }
+        if (System.Linq.Enumerable.Any(document.Sections, section =>
+            section.Page is { IsUsable: false } || section.PageStyles is not null ||
+            section.LeftIndent != 0 || section.RightIndent != 0 || section.DontBalanceColumns ||
+            !section.Background.IsEmpty || section.PageNumberStart is not null || section.PageNumberFormat is not null ||
+            section.FootnotesEnding.Count > 0))
+            AddOnce(diagnostics, reported, "rtf.sections", "Some section properties were omitted.");
 
+        DocumentSection? currentSection = null;
         for (int i = 0; i < document.Paragraphs.Count; i++)
         {
+            DocumentSection? section = DocumentSection.Containing(document.Sections, i);
+            bool sectionBoundary = !ReferenceEquals(section, currentSection);
+            if (sectionBoundary)
+            {
+                if (i > 0)
+                    sb.Append("\\sect");
+                sb.Append("\\sectd").Append(section?.BreakType switch
+                {
+                    SectionBreakType.Continuous => "\\sbknone",
+                    SectionBreakType.NextColumn => "\\sbkcol",
+                    SectionBreakType.OddPage => "\\sbkodd",
+                    SectionBreakType.EvenPage => "\\sbkeven",
+                    _ => "\\sbkpage",
+                });
+                if (section?.Page is { IsUsable: true } own)
+                {
+                    sb.Append("\\pgwsxn").Append((int)Math.Round(own.Width * 20));
+                    sb.Append("\\pghsxn").Append((int)Math.Round(own.Height * 20));
+                    sb.Append("\\marglsxn").Append((int)Math.Round(own.MarginLeft * 20));
+                    sb.Append("\\margrsxn").Append((int)Math.Round(own.MarginRight * 20));
+                    sb.Append("\\margtsxn").Append((int)Math.Round(own.MarginTop * 20) * (own.FixedHeaderHeight ? -1 : 1));
+                    sb.Append("\\margbsxn").Append((int)Math.Round(own.MarginBottom * 20) * (own.FixedFooterHeight ? -1 : 1));
+                }
+                sb.Append("\\cols").Append(section?.ColumnCount ?? document.PageGeometry?.ColumnCount ?? 1);
+                sb.Append("\\colsx").Append((int)Math.Round((section?.ColumnGap ?? document.PageGeometry?.ColumnGap ?? 0) * 20));
+                WriteRunningContent(sb, section?.RunningContent ?? document.RunningContent, lists,
+                    document.StyleDefaults, fonts, colors, resources, diagnostics, reported);
+                currentSection = section;
+            }
+
             if (DocumentTable.StartingAt(document.Tables, i) is DocumentTable table)
             {
-                WriteTable(sb, document, table, document.StyleDefaults, fonts, colors, resources, diagnostics, reported);
+                WriteTable(sb, document, table, lists, document.StyleDefaults, fonts, colors, resources, diagnostics, reported);
                 i = table.ParagraphEnd - 1;
                 continue;
             }
 
             RichTextParagraph paragraph = document.Paragraphs[i];
             sb.Append("\\pard\\plain");
-            WriteParagraphProperties(sb, paragraph.Style, colors);
-            WritePageBreak(sb, paragraph.Style, first: i == 0);
+            WriteParagraphProperties(sb, paragraph.Style, colors, diagnostics, reported);
+            lists.WriteReference(sb, i);
+            ParagraphStyle breaks = paragraph.Style;
+            if (sectionBoundary && i > 0 && section?.BreakType != SectionBreakType.Continuous)
+                breaks = breaks with { PageBreakBefore = false, ColumnBreakBefore = false };
+            WritePageBreak(sb, breaks, first: i == 0);
             sb.Append(' ');
             foreach (DocumentShape shape in document.Shapes)
             {
                 if (shape.ParagraphIndex == i)
-                    WriteShape(sb, shape, document.StyleDefaults, fonts, colors, resources, diagnostics, reported);
+                    WriteShape(sb, shape, lists, document.StyleDefaults, fonts, colors, resources, diagnostics, reported);
             }
 
-            WriteRuns(sb, paragraph, document.StyleDefaults, fonts, colors, resources, diagnostics, reported);
+            WriteRuns(sb, paragraph, lists, document.StyleDefaults, fonts, colors, resources, diagnostics, reported);
             sb.Append("\\par\n");
         }
 
         sb.Append('}');
+        var listTables = new StringBuilder();
+        lists.WriteCharacterStyles(listTables, (output, name) => AppendEscaped(output, name, fontName: true));
+        lists.WriteTables(listTables);
+        sb.Insert(listTablePosition, listTables.ToString());
 
         byte[] bytes = Encoding.ASCII.GetBytes(sb.ToString());
         destination.Write(bytes, 0, bytes.Length);
@@ -143,6 +183,14 @@ public static class RtfWriter
             CollectParagraphResources(isHeader
                 ? document.RunningContent.Header(selection)
                 : document.RunningContent.Footer(selection), fonts, colors);
+        }
+
+        foreach (DocumentSection section in document.Sections)
+        {
+            if (section.RunningContent is not { } running)
+                continue;
+            foreach ((_, bool isHeader, PageSelection selection) in RunningDestinations)
+                CollectParagraphResources(isHeader ? running.Header(selection) : running.Footer(selection), fonts, colors);
         }
 
         foreach (DocumentTable table in document.Tables)
@@ -203,6 +251,7 @@ public static class RtfWriter
     private static void WriteShape(
         StringBuilder sb,
         DocumentShape shape,
+        RtfWriteLists lists,
         DocumentStyleDefaults defaults,
         ResourceTable<string> fonts,
         ResourceTable<BColor> colors,
@@ -293,13 +342,16 @@ public static class RtfWriter
             if (shape.Tables.Count > 0)
                 AddOnce(diagnostics, reported, "rtf.shape.table", "Tables inside a text box were written as paragraphs; their text is kept but their cell layout is not written.");
             sb.Append("{\\shptxt ");
+            var references = lists.RegisterFlow(shape.Paragraphs);
+            int index = 0;
             foreach (RichTextParagraph paragraph in shape.Paragraphs)
             {
                 sb.Append("\\pard\\plain");
-                WriteParagraphProperties(sb, paragraph.Style, colors);
+                WriteParagraphProperties(sb, paragraph.Style, colors, diagnostics, reported);
+                RtfWriteLists.WriteReference(sb, references, index++);
                 ReportBreakOutsideTheBody(paragraph.Style, diagnostics, reported);
                 sb.Append(' ');
-                WriteRuns(sb, paragraph, defaults, fonts, colors, resources, diagnostics, reported);
+                WriteRuns(sb, paragraph, lists, defaults, fonts, colors, resources, diagnostics, reported);
                 sb.Append("\\par");
             }
 
@@ -407,6 +459,7 @@ public static class RtfWriter
     private static void WriteRunningContent(
         StringBuilder sb,
         RunningContent running,
+        RtfWriteLists lists,
         DocumentStyleDefaults defaults,
         ResourceTable<string> fonts,
         ResourceTable<BColor> colors,
@@ -431,13 +484,16 @@ public static class RtfWriter
                 continue;
 
             sb.Append('{').Append('\\').Append(word);
+            var references = lists.RegisterFlow(paragraphs);
+            int index = 0;
             foreach (RichTextParagraph paragraph in paragraphs)
             {
                 sb.Append("\\pard\\plain");
-                WriteParagraphProperties(sb, paragraph.Style, colors);
+                WriteParagraphProperties(sb, paragraph.Style, colors, diagnostics, reported);
+                RtfWriteLists.WriteReference(sb, references, index++);
                 ReportBreakOutsideTheBody(paragraph.Style, diagnostics, reported);
                 sb.Append(' ');
-                WriteRuns(sb, paragraph, defaults, fonts, colors, resources, diagnostics, reported);
+                WriteRuns(sb, paragraph, lists, defaults, fonts, colors, resources, diagnostics, reported);
                 sb.Append("\\par");
             }
 
@@ -459,6 +515,7 @@ public static class RtfWriter
         StringBuilder sb,
         RichTextDocument document,
         DocumentTable table,
+        RtfWriteLists lists,
         DocumentStyleDefaults defaults,
         ResourceTable<string> fonts,
         ResourceTable<BColor> colors,
@@ -575,14 +632,15 @@ public static class RtfWriter
                     {
                         RichTextParagraph paragraph = document.Paragraphs[p];
                         sb.Append("\\pard\\plain\\intbl");
-                        WriteParagraphProperties(sb, paragraph.Style, colors);
+                        WriteParagraphProperties(sb, paragraph.Style, colors, diagnostics, reported);
+                        lists.WriteReference(sb, p);
                         sb.Append(' ');
                         foreach (DocumentShape shape in document.Shapes)
                         {
                             if (shape.ParagraphIndex == p)
-                                WriteShape(sb, shape, defaults, fonts, colors, resources, diagnostics, reported);
+                                WriteShape(sb, shape, lists, defaults, fonts, colors, resources, diagnostics, reported);
                         }
-                        WriteRuns(sb, paragraph, defaults, fonts, colors, resources, diagnostics, reported);
+                        WriteRuns(sb, paragraph, lists, defaults, fonts, colors, resources, diagnostics, reported);
                         if (p < cell.ParagraphEnd - 1)
                             sb.Append("\\par\n");
                         else
@@ -663,7 +721,8 @@ public static class RtfWriter
         sb.Append('}');
     }
 
-    private static void WriteParagraphProperties(StringBuilder sb, ParagraphStyle style, ResourceTable<BColor> colors)
+    private static void WriteParagraphProperties(StringBuilder sb, ParagraphStyle style, ResourceTable<BColor> colors,
+        List<DocumentDiagnostic> diagnostics, HashSet<string> reported)
     {
         // The paragraph's shading: \cbpat names the colour behind a pattern, and
         // with no \shading the pattern is clear and the colour is all there is.
@@ -672,7 +731,11 @@ public static class RtfWriter
 
         // A height in twips, negative where it is exact, with \slmult0 saying
         // it is not a multiple.
-        if (style.LineHeightRule != LineHeightRule.Proportional && float.IsFinite(style.LineHeight) && style.LineHeight > 0)
+        if (style.LineHeightRule == LineHeightRule.Leading && style.LineHeight != 0)
+            AddOnce(diagnostics, reported, "rtf.linespacing.leading", "Fixed extra line spacing was omitted.");
+
+        if ((style.LineHeightRule is LineHeightRule.Exact or LineHeightRule.AtLeast) &&
+            float.IsFinite(style.LineHeight) && style.LineHeight > 0)
         {
             int twips = (int)Math.Clamp(Math.Round(style.LineHeight * 20.0), 1, 31680);
             sb.Append("\\sl").Append(style.LineHeightRule == LineHeightRule.Exact ? -twips : twips).Append("\\slmult0");
@@ -767,6 +830,7 @@ public static class RtfWriter
     private static void WriteRuns(
         StringBuilder sb,
         RichTextParagraph paragraph,
+        RtfWriteLists lists,
         DocumentStyleDefaults defaults,
         ResourceTable<string> fonts,
         ResourceTable<BColor> colors,
@@ -778,6 +842,8 @@ public static class RtfWriter
         int offset = 0;
         foreach (StyleRun run in paragraph.Runs)
         {
+            if (run.Style.Capitalization is TextCapitalization.Lowercase or TextCapitalization.Capitalize)
+                AddOnce(diagnostics, reported, "rtf.text.transform", "Lowercase or capitalize display formatting was omitted.");
             string text = paragraph.Text.Substring(offset, run.Length);
             offset += run.Length;
             InlineStyle style = run.Style;
@@ -795,13 +861,39 @@ public static class RtfWriter
                 }
 
                 for (int i = 0; i < text.Length; i++)
-                    WriteNote(sb, note, style, defaults, fonts, colors, resources, diagnostics, reported);
+                    WriteNote(sb, note, style, lists, defaults, fonts, colors, resources, diagnostics, reported);
                 continue;
             }
 
-            WriteRun(sb, text, style, fonts, colors, resources, diagnostics, reported);
+            int styleId = CanWriteCharacterStyle(style.CharacterStyle) ? lists.CharacterStyle(style.CharacterStyle!) : 0;
+            if (styleId != 0)
+                sb.Append("{\\cs").Append(styleId).Append(' ');
+            if (style.StyleReference is { } reference && CanWriteCharacterStyle(reference.StyleName))
+            {
+                lists.CharacterStyle(reference.StyleName);
+                sb.Append("{\\field{\\*\\fldinst STYLEREF \"");
+                AppendEscaped(sb, reference.StyleName);
+                sb.Append('"');
+                if (reference.FromBottom)
+                    sb.Append(" \\\\l");
+                sb.Append("}{\\fldrslt ");
+                WriteRun(sb, text, style with { StyleReference = null }, fonts, colors, resources, diagnostics, reported);
+                sb.Append("}}");
+            }
+            else
+            {
+                if (style.StyleReference is not null)
+                    AddOnce(diagnostics, reported, "rtf.style-reference", "A style reference with an unsupported style name was written as saved text.");
+                WriteRun(sb, text, style, fonts, colors, resources, diagnostics, reported);
+            }
+            if (styleId != 0)
+                sb.Append('}');
         }
     }
+
+    private static bool CanWriteCharacterStyle(string? name) =>
+        !string.IsNullOrWhiteSpace(name) && name == name.Trim() &&
+        !System.Linq.Enumerable.Any(name, c => char.IsControl(c) || c is '"' or ';' or ',');
 
     /// <summary>
     /// Writes a citation as Word does: the label as a raised <c>\chftn</c>, then
@@ -818,6 +910,7 @@ public static class RtfWriter
         StringBuilder sb,
         DocumentNote note,
         InlineStyle style,
+        RtfWriteLists lists,
         DocumentStyleDefaults defaults,
         ResourceTable<string> fonts,
         ResourceTable<BColor> colors,
@@ -832,17 +925,19 @@ public static class RtfWriter
         if (note.Kind == NoteKind.Endnote)
             sb.Append("\\ftnalt");
 
+        var references = lists.RegisterFlow(note.Paragraphs);
         for (int i = 0; i < note.Paragraphs.Count; i++)
         {
             RichTextParagraph paragraph = note.Paragraphs[i];
             if (i > 0)
                 sb.Append("\\par");
             sb.Append("\\pard\\plain");
-            WriteParagraphProperties(sb, paragraph.Style, colors);
+            WriteParagraphProperties(sb, paragraph.Style, colors, diagnostics, reported);
+            RtfWriteLists.WriteReference(sb, references, i);
             sb.Append(' ');
             if (i == 0)
                 sb.Append("{\\super ").Append(label).Append("} ");
-            WriteRuns(sb, paragraph, defaults, fonts, colors, resources, diagnostics, reported, inNote: true);
+            WriteRuns(sb, paragraph, lists, defaults, fonts, colors, resources, diagnostics, reported, inNote: true);
         }
 
         sb.Append('}');
@@ -865,6 +960,24 @@ public static class RtfWriter
         List<DocumentDiagnostic> diagnostics,
         HashSet<string> reported)
     {
+        if (style.PageField is { } page)
+        {
+            if (page.Kind != PageFieldKind.SectionPageCount && page.Adjust == 0 && page.Format == ListNumberFormat.Decimal && !page.FollowsPageFormat)
+            {
+                sb.Append("{\\field{\\*\\fldinst ")
+                    .Append(page.Kind == PageFieldKind.PageNumber ? "PAGE" : "NUMPAGES")
+                    .Append("}{\\fldrslt ");
+                WriteStyledText(sb, text, style with { PageField = null }, fonts, colors);
+                sb.Append("}}");
+                return;
+            }
+            AddOnce(diagnostics, reported, "rtf.page-field", "A page field with an unsupported format or adjustment was written as its saved text.");
+        }
+
+        if (style.Shift is { } shift &&
+            shift.Scale != (shift.Position == BaselinePosition.Offset ? 1 : BaselineShift.DefaultScale))
+            AddOnce(diagnostics, reported, "rtf.text.position", "A custom baseline scale was approximated by native RTF baseline formatting.");
+
         if (style.Image is InlineImage image)
         {
             WriteImageRun(sb, text, image, style, fonts, colors, resources, diagnostics, reported);
@@ -1103,6 +1216,19 @@ public static class RtfWriter
             b.Append("\\f").Append(fonts.IndexOf(style.FontFamily));
         if (style.FontSize.HasValue)
             b.Append("\\fs").Append((int)Math.Round(style.FontSize.Value * 2f));
+        if (style.Shift is { } shift)
+        {
+            if (shift.Position == BaselinePosition.AutoSuperscript)
+                b.Append("\\super");
+            else if (shift.Position == BaselinePosition.AutoSubscript)
+                b.Append("\\sub");
+            else if (double.IsFinite(shift.Offset))
+            {
+                double halfPoints = Math.Round(shift.Offset * (style.FontSize ?? 12f) * 2);
+                b.Append(halfPoints < 0 ? "\\dn" : "\\up")
+                    .Append((int)Math.Clamp(Math.Abs(halfPoints), 0, 31680));
+            }
+        }
         if (!style.Foreground.IsEmpty)
             b.Append("\\cf").Append(colors.IndexOf(style.Foreground));
         if (!style.Background.IsEmpty)

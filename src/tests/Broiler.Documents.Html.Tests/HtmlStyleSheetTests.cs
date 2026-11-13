@@ -94,12 +94,25 @@ public sealed class HtmlStyleSheetTests
             paragraph => Assert.Equal(TextAlignment.Center, paragraph.Style.Alignment));
     }
 
+    [Fact]
+    public void Descendant_Rules_Respect_Ancestry_Specificity_Source_Order_And_Inline_Style()
+    {
+        const string html = "<style>td p {text-align:center} th p, td p {text-align:right} p {text-align:justify}</style>" +
+            "<p>outside</p><table><tr><td><div><p>inside</p></div><p style='text-align:left'>inline</p></td></tr></table>";
+        using var stream = new MemoryStream(Encoding.UTF8.GetBytes(html));
+        var result = new HtmlDocumentCodec().Read(stream);
+        Assert.DoesNotContain(result.Diagnostics, diagnostic => diagnostic.Code == "html.css.rule");
+        Assert.Equal(TextAlignment.Justify, result.Document.Paragraphs[0].Style.Alignment);
+        Assert.Equal(TextAlignment.Right, result.Document.Paragraphs[1].Style.Alignment);
+        Assert.Equal(TextAlignment.Left, result.Document.Paragraphs[2].Style.Alignment);
+    }
+
     [Theory]
     // Everything on the far side of the line. Each of these selects something a
     // browser can work out and this codec deliberately cannot.
     [InlineData(".lead")]
     [InlineData("#first")]
-    [InlineData("div p")]
+    [InlineData("body div p")]
     [InlineData("div > p")]
     [InlineData("p:first-child")]
     [InlineData("p[align]")]

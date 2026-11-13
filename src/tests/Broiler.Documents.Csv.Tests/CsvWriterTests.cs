@@ -165,6 +165,22 @@ public sealed class CsvWriterTests
     }
 
     [Fact]
+    public void Csv_And_Tsv_Keep_Styled_Text_And_Report_The_Same_Losses()
+    {
+        var paragraph = RichTextParagraph.Create("styled", InlineStyle.Default with { Bold = true },
+            ParagraphStyle.Default with { Alignment = TextAlignment.Center });
+        var document = RichTextDocument.FromParagraphs([paragraph]);
+        foreach (DocumentCodec codec in new DocumentCodec[] { new CsvDocumentCodec(), new TsvDocumentCodec() })
+        {
+            using var stream = new MemoryStream();
+            var result = codec.Write(document, stream);
+            Assert.Contains("styled", Encoding.UTF8.GetString(stream.ToArray()));
+            Assert.Contains(CsvDiagnosticCodes.InlineStyle, Codes(result.Diagnostics));
+            Assert.Contains(CsvDiagnosticCodes.ParagraphStyle, Codes(result.Diagnostics));
+        }
+    }
+
+    [Fact]
     public void Formatting_Is_Reported_Once_And_Its_Text_Is_Kept()
     {
         RichTextParagraph bold = RichTextParagraph.Create("bold", InlineStyle.Default with { Bold = true });

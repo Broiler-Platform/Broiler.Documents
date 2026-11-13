@@ -65,6 +65,12 @@ public static class DocxWriter
             if (appXml is not null)
                 AddXmlEntry(archive, DocxMetadata.AppPart, appXml);
             AddXmlEntry(archive, "word/document.xml", documentXml);
+            if (context.CharacterStyles.Count > 0)
+                AddXmlEntry(archive, "word/styles.xml", new XDocument(new XElement(
+                    DocxNamespaces.Wordprocessing + "styles",
+                    context.CharacterStyles.Select(pair => new XElement(DocxNamespaces.Wordprocessing + "style",
+                        WordAttribute("type", "character"), WordAttribute("styleId", pair.Value),
+                        new XElement(DocxNamespaces.Wordprocessing + "name", WordAttribute("val", pair.Key)))))));
             if (context.HasDocumentRelationships)
                 AddXmlEntry(archive, "word/_rels/document.xml.rels", BuildDocumentRelationships(context));
             if (context.HasNumbering)
@@ -231,7 +237,7 @@ public static class DocxWriter
         DocxWriteContext context,
         RunningContent running,
         PageGeometry? geometry,
-        (int Count, double Gap)? columns = null,
+        (int Count, double Gap, bool Separator)? columns = null,
         SectionBreakType? breakType = null,
         bool continuous = false,
         int? pageNumberStart = null)
@@ -269,7 +275,7 @@ public static class DocxWriter
         else if (continuous || breakType == SectionBreakType.Continuous)
             sectPr.Add(new XElement(DocxNamespaces.Wordprocessing + "type", WordAttribute("val", "continuous")));
 
-        (int Count, double Gap) stated = columns ?? (geometry?.ColumnCount ?? 1, geometry?.ColumnGap ?? 0);
+        (int Count, double Gap, bool Separator) stated = columns ?? (geometry?.ColumnCount ?? 1, geometry?.ColumnGap ?? 0, geometry?.ColumnSeparator ?? false);
         if (geometry is not null && geometry.IsUsable)
         {
             var pgSz = new XElement(
@@ -303,7 +309,8 @@ public static class DocxWriter
             sectPr.Add(new XElement(
                 DocxNamespaces.Wordprocessing + "cols",
                 WordAttribute("num", stated.Count.ToString(CultureInfo.InvariantCulture)),
-                WordAttribute("space", Twips(stated.Gap))));
+                WordAttribute("space", Twips(stated.Gap)),
+                stated.Separator ? WordAttribute("sep", "1") : null));
         }
 
         if (hasFirst || running.DifferentFirstPage)
@@ -322,7 +329,7 @@ public static class DocxWriter
         // continuously like the others, since w:type's default would start a
         // page the model did not ask for. Without sections that is the page's
         // columns and no type, as it always was.
-        (int Count, double Gap)? lastColumns = document.Sections.Count == 0
+        (int Count, double Gap, bool Separator)? lastColumns = document.Sections.Count == 0
             ? null
             : ColumnsAt(document, document.ParagraphCount - 1);
         DocumentSection? lastSection = DocumentSection.Containing(document.Sections, document.ParagraphCount - 1);
@@ -446,10 +453,10 @@ public static class DocxWriter
     /// The columns paragraph <paramref name="index"/> is laid out in: its
     /// section's, or the page's where no section holds it.
     /// </summary>
-    private static (int Count, double Gap) ColumnsAt(RichTextDocument document, int index) =>
+    private static (int Count, double Gap, bool Separator) ColumnsAt(RichTextDocument document, int index) =>
         DocumentSection.Containing(document.Sections, index) is DocumentSection section
-            ? (section.ColumnCount, section.ColumnGap)
-            : (document.PageGeometry?.ColumnCount ?? 1, document.PageGeometry?.ColumnGap ?? 0);
+            ? (section.ColumnCount, section.ColumnGap, section.ColumnSeparator)
+            : (document.PageGeometry?.ColumnCount ?? 1, document.PageGeometry?.ColumnGap ?? 0, document.PageGeometry?.ColumnSeparator ?? false);
 
     /// <summary>
     /// The headers and footers of the section paragraph <paramref name="index"/>
@@ -1076,7 +1083,10 @@ public static class DocxWriter
                 WordAttribute("fill", HexColor(style.Background))));
         }
 
-        bool fixedHeight = style.LineHeightRule != LineHeightRule.Proportional && style.LineHeight > 0;
+        if (style.LineHeightRule == LineHeightRule.Leading && style.LineHeight != 0)
+            context.AddDiagnosticOnce("docx.linespacing.leading", "Fixed extra line spacing was omitted.");
+
+        bool fixedHeight = (style.LineHeightRule is LineHeightRule.Exact or LineHeightRule.AtLeast) && style.LineHeight > 0;
         if (Math.Abs(style.LineSpacing - 1f) > 0.001f ||
             fixedHeight ||
             Math.Abs(style.SpacingBefore) > 0.001f ||
@@ -1142,6 +1152,47 @@ public static class DocxWriter
 
     private static void AddRun(XElement parent, string text, InlineStyle style, DocxWriteContext context)
     {
+        if (style.StyleReference is { } reference)
+        {
+            if (CanWriteStyleName(reference.StyleName) && !reference.StyleName.Contains('"'))
+            {
+                context.CharacterStyleId(reference.StyleName);
+                string instruction = "STYLEREF \"" + reference.StyleName + "\"" + (reference.FromBottom ? " \\l" : "");
+                parent.Add(new XElement(DocxNamespaces.Wordprocessing + "fldSimple",
+                    WordAttribute("instr", instruction), BuildRun(text, style with { StyleReference = null }, context)));
+                return;
+            }
+            context.AddDiagnosticOnce("docx.style-reference", "A style reference with an unsupported name was written as its saved text.");
+        }
+
+        if (style.PageField is { } page)
+        {
+            string? format = page.Format switch
+            {
+                ListNumberFormat.Decimal => "Arabic",
+                ListNumberFormat.UpperRoman => "ROMAN",
+                ListNumberFormat.LowerRoman => "roman",
+                ListNumberFormat.UpperLetter => "ALPHABETIC",
+                ListNumberFormat.LowerLetter => "alphabetic",
+                _ => null,
+            };
+            if (page.Adjust == 0 && (format is not null || page.FollowsPageFormat))
+            {
+                string instruction = page.Kind switch
+                {
+                    PageFieldKind.PageNumber => "PAGE",
+                    PageFieldKind.SectionPageCount => "SECTIONPAGES",
+                    _ => "NUMPAGES",
+                };
+                if (page.Kind != PageFieldKind.PageNumber || !page.FollowsPageFormat)
+                    instruction += " \\* " + format;
+                parent.Add(new XElement(DocxNamespaces.Wordprocessing + "fldSimple",
+                    WordAttribute("instr", instruction), BuildRun(text, style with { PageField = null }, context)));
+                return;
+            }
+            context.AddDiagnosticOnce("docx.page-field", "A page field was written as its saved text because its adjustment or numbering format has no supported mapping.");
+        }
+
         if (!string.IsNullOrEmpty(style.LinkHref))
         {
             XElement? hyperlink = BuildHyperlink(text, style, context);
@@ -1208,9 +1259,15 @@ public static class DocxWriter
     /// 30th. Underline in particular sat third and belongs second from last, so
     /// almost any underlined run left here out of sequence.
     /// </summary>
+    private static bool CanWriteStyleName(string? name) =>
+        !string.IsNullOrWhiteSpace(name) && name.All(XmlConvert.IsXmlChar);
+
     private static XElement? BuildRunProperties(InlineStyle style, DocxWriteContext context)
     {
         var properties = new XElement(DocxNamespaces.Wordprocessing + "rPr");
+        if (CanWriteStyleName(style.CharacterStyle))
+            properties.Add(new XElement(DocxNamespaces.Wordprocessing + "rStyle",
+                WordAttribute("val", context.CharacterStyleId(style.CharacterStyle!))));
 
         if (!string.IsNullOrWhiteSpace(style.FontFamily))
         {
@@ -1237,6 +1294,8 @@ public static class DocxWriter
             properties.Add(new XElement(DocxNamespaces.Wordprocessing + "caps"));
         else if (style.Capitalization == TextCapitalization.SmallCaps)
             properties.Add(new XElement(DocxNamespaces.Wordprocessing + "smallCaps"));
+        else if (style.Capitalization is TextCapitalization.Lowercase or TextCapitalization.Capitalize)
+            context.AddDiagnosticOnce("docx.text.transform", "Lowercase or capitalize display formatting was omitted.");
 
         if (style.Strikethrough)
             properties.Add(new XElement(DocxNamespaces.Wordprocessing + "strike"));
@@ -1249,6 +1308,13 @@ public static class DocxWriter
             properties.Add(new XElement(
                 DocxNamespaces.Wordprocessing + "color",
                 WordAttribute("val", FormatColor(style.Foreground, context))));
+        }
+
+        if (style.Shift is { Position: BaselinePosition.Offset } offset && double.IsFinite(offset.Offset))
+        {
+            double halfPoints = Math.Round(offset.Offset * (style.FontSize ?? 11f) * 2);
+            properties.Add(new XElement(DocxNamespaces.Wordprocessing + "position",
+                WordAttribute("val", Math.Clamp(halfPoints, -31680, 31680).ToString(CultureInfo.InvariantCulture))));
         }
 
         if (style.FontSize.HasValue)
@@ -1273,8 +1339,14 @@ public static class DocxWriter
 
         // A citation is raised, as Word's own FootnoteReference style raises
         // it; w:vertAlign is 32nd, after w:shd.
-        if (style.IsNote)
+        if (style.IsNote || style.Shift is { Position: BaselinePosition.AutoSuperscript })
             properties.Add(SuperscriptElement());
+        else if (style.Shift is { Position: BaselinePosition.AutoSubscript })
+            properties.Add(new XElement(DocxNamespaces.Wordprocessing + "vertAlign", WordAttribute("val", "subscript")));
+
+        if (!style.IsNote && style.Shift is { } shift &&
+            shift.Scale != (shift.Position == BaselinePosition.Offset ? 1 : BaselineShift.DefaultScale))
+            context.AddDiagnosticOnce("docx.text.position", "A custom baseline scale was approximated by Word's native baseline formatting.");
 
         // A change of formatting closes the sequence. What the run looked like
         // before is not held, so the earlier properties are written empty, as
@@ -2061,6 +2133,11 @@ public static class DocxWriter
                 new XAttribute("PartName", "/word/document.xml"),
                 new XAttribute("ContentType", DocxNamespaces.DocumentContentType)));
 
+        if (context.CharacterStyles.Count > 0)
+            types.Add(new XElement(DocxNamespaces.ContentTypes + "Override",
+                new XAttribute("PartName", "/word/styles.xml"),
+                new XAttribute("ContentType", "application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml")));
+
         if (context.HasNumbering)
         {
             types.Add(new XElement(
@@ -2171,6 +2248,12 @@ public static class DocxWriter
     private static XDocument BuildDocumentRelationships(DocxWriteContext context)
     {
         var root = new XElement(DocxNamespaces.PackageRelationships + "Relationships");
+
+        if (context.CharacterStyles.Count > 0)
+            root.Add(new XElement(DocxNamespaces.PackageRelationships + "Relationship",
+                new XAttribute("Id", "rIdStyles"),
+                new XAttribute("Type", DocxNamespaces.StylesRelationship),
+                new XAttribute("Target", "styles.xml")));
 
         if (context.HasNumbering)
         {
@@ -2515,7 +2598,19 @@ public static class DocxWriter
         /// </summary>
         public DocumentConversionContext Resources { get; } = resources;
 
-        public bool HasDocumentRelationships =>
+        public Dictionary<string, string> CharacterStyles { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        public string CharacterStyleId(string name)
+        {
+            if (!CharacterStyles.TryGetValue(name, out string? id))
+            {
+                id = "Character" + (CharacterStyles.Count + 1).ToString(CultureInfo.InvariantCulture);
+                CharacterStyles.Add(name, id);
+            }
+            return id;
+        }
+
+        public bool HasDocumentRelationships => CharacterStyles.Count > 0 ||
             HasNumbering || _hyperlinks.Count > 0 || _imageOrder.Count > 0 || _runningParts.Count > 0 ||
             SettingsRelationshipId is not null || FootnotesRelationshipId is not null || EndnotesRelationshipId is not null;
 

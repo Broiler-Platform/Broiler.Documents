@@ -6,6 +6,49 @@ public sealed class RtfSectionBreakTests
 {
     private static DocumentReadResult Read(string body) => RtfReader.Read(Encoding.ASCII.GetBytes("{\\rtf1\\ansi " + body + "}"));
 
+    [Fact]
+    public void Section_Headers_Are_Replaced_And_Footers_Are_Inherited()
+    {
+        var original = Read(@"{\header First head}{\footer Shared foot}First\par" +
+            @"\sect\sectd\sbkpage{\header Second head}Second\par" +
+            @"\sect\sectd\sbkpage Third").Document;
+        var result = RtfReader.Read(RtfWriter.WriteToArray(original)).Document;
+
+        Assert.Equal(3, result.Sections.Count);
+        Assert.Equal("First head", Assert.Single(result.Sections[0].RunningContent!.Header(PageSelection.Default)).Text);
+        Assert.All(result.Sections.Skip(1), section =>
+            Assert.Equal("Second head", Assert.Single(section.RunningContent!.Header(PageSelection.Default)).Text));
+        Assert.All(result.Sections, section =>
+            Assert.Equal("Shared foot", Assert.Single(section.RunningContent!.Footer(PageSelection.Default)).Text));
+    }
+
+    [Fact]
+    public void Section_Paper_And_Margins_Roundtrip()
+    {
+        var original = Read(@"\paperw12240\paperh15840\sectd\pgwsxn12240\marglsxn1440 First\par" +
+            @"\sect\sectd\sbkpage\pgwsxn14000\pghsxn10000\marglsxn1800 Second").Document;
+        var result = RtfReader.Read(RtfWriter.WriteToArray(original)).Document;
+        Assert.Equal(612, result.PageGeometry?.Width);
+        Assert.Equal(612, result.Sections[0].Page?.Width);
+        Assert.Equal(700, result.Sections[1].Page?.Width);
+        Assert.Equal(500, result.Sections[1].Page?.Height);
+        Assert.Equal(90, result.Sections[1].Page?.MarginLeft);
+    }
+
+    [Fact]
+    public void Section_Columns_And_Break_Kinds_Roundtrip()
+    {
+        var document = Read(@"\sectd\cols2\colsx720 First\par\sect\sectd\sbknone\cols1 Second\par\sect\sectd\sbkpage\cols3\colsx360 Third").Document;
+        Assert.Equal(new[] { 2, 1, 3 }, document.Sections.Select(section => section.ColumnCount));
+        var result = RtfReader.Read(RtfWriter.WriteToArray(document)).Document;
+        Assert.Equal(document.PlainText, result.PlainText);
+        Assert.Equal(new[] { 2, 1, 3 }, result.Sections.Select(section => section.ColumnCount));
+        Assert.Equal(36, result.Sections[0].ColumnGap);
+        Assert.Equal(18, result.Sections[2].ColumnGap);
+        Assert.Equal(SectionBreakType.Continuous, result.Sections[1].BreakType);
+        Assert.Equal(SectionBreakType.NextPage, result.Sections[2].BreakType);
+    }
+
     [Theory]
     [InlineData("first\\sect\\sectd\\sbknone second")]
     [InlineData("first\\par\\sect\\sectd\\sbknone second")]
@@ -58,12 +101,14 @@ public sealed class RtfSectionBreakTests
     }
 
     [Theory]
-    [InlineData("sbkodd")]
-    [InlineData("sbkeven")]
-    public void Parity_Sections_Keep_A_Page_Break_And_Report_The_Unsupported_Parity(string kind)
+    [InlineData("sbkodd", SectionBreakType.OddPage)]
+    [InlineData("sbkeven", SectionBreakType.EvenPage)]
+    public void Parity_Sections_Roundtrip(string kind, SectionBreakType expected)
     {
         var result = Read("first\\sect\\sectd\\" + kind + " second");
         Assert.True(result.Document.Paragraphs[1].Style.PageBreakBefore);
-        Assert.Contains(result.Diagnostics, d => d.Code == "rtf.section.parity");
+        Assert.Equal(expected, result.Document.Sections[1].BreakType);
+        var roundtrip = RtfReader.Read(RtfWriter.WriteToArray(result.Document));
+        Assert.Equal(expected, roundtrip.Document.Sections[1].BreakType);
     }
 }

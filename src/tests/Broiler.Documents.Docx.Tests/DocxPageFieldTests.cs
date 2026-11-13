@@ -72,7 +72,6 @@ public sealed class DocxPageFieldTests
 
     [Theory]
     [InlineData(" PAGE \\# \"00\" ")]
-    [InlineData(" SECTIONPAGES ")]
     public void A_Field_This_Does_Not_Work_Out_Keeps_Its_Saved_Result(string instruction)
     {
         RichTextParagraph paragraph = Read(ComplexField(instruction, "14"));

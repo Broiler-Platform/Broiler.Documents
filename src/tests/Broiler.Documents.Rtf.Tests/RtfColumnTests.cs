@@ -103,10 +103,10 @@ public sealed class RtfColumnTests
     }
 
     [Fact]
-    public void Sections_Are_Reported_And_Not_Written()
+    public void Unsupported_Section_Indents_Are_Reported()
     {
         RichTextDocument source = RichTextDocument.FromParagraphs([RichTextParagraph.Plain("a"), RichTextParagraph.Plain("b")])
-            .WithSections([new DocumentSection(1, 1, 2, 18)]);
+            .WithSections([new DocumentSection(1, 1, 2, 18, leftIndent: 12)]);
 
         DocumentWriteResult result = RtfWriter.Write(source, new MemoryStream());
 

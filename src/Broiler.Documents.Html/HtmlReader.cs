@@ -677,10 +677,12 @@ internal static class HtmlReader
         {
             var cells = new List<TableCell>();
             int column = 0;
+            bool header = true;
             foreach (DomElement cell in row.ChildNodes.OfType<DomElement>())
             {
                 if (cell.LocalName is not ("td" or "th"))
                     continue;
+                header &= cell.LocalName == "th";
                 while (occupied.TryGetValue(column, out int through) && through > rows.Count)
                     column++;
                 int span = (int)Math.Clamp(AttributeNumber(cell, "colspan", 1), 1, 1000);
@@ -702,25 +704,83 @@ internal static class HtmlReader
                 }
                 DocumentTable[] nested = builder.Tables.Skip(cellTables).ToArray();
                 builder.Tables.RemoveRange(cellTables, builder.Tables.Count - cellTables);
+                var declarations = styleSheet.DeclarationsFor(cell);
                 cells.Add(new TableCell(cellStart, builder.ParagraphCount - cellStart, column,
-                    span, rowSpan, PageBackground(cell, styleSheet) ?? default, borders,
-                    tables: nested, padding: new TableCellPadding(padding, padding, padding, padding)));
+                    span, rowSpan, PageBackground(cell, styleSheet) ?? default, ReadCellBorders(declarations, borders),
+                    tables: nested, padding: ReadCellPadding(declarations, padding)));
                 for (int c = column; c < column + span; c++)
                     occupied[c] = rows.Count + rowSpan;
                 column += span;
             }
-            if (cells.Count > 0)
-                rows.Add(new TableRow(cells));
+            if (cells.Count > 0 || occupied.Values.Any(through => through > rows.Count))
+                rows.Add(new TableRow(cells, isHeader: cells.Count > 0 && header));
         }
         builder.Tables.RemoveRange(nestedStart, builder.Tables.Count - nestedStart);
         if (rows.Count > 0 && builder.ParagraphCount > start)
         {
-            string width = element.GetAttribute("width") ?? "";
+            bool cssWidth = styleSheet.DeclarationsFor(element).TryGetValue("width", out string? statedWidth);
+            string width = (statedWidth ?? element.GetAttribute("width") ?? "").Trim();
             double? percent = width.EndsWith('%') && double.TryParse(width[..^1],
                 NumberStyles.Float, CultureInfo.InvariantCulture, out double value) ? value : null;
-            double points = AttributeNumber(element, "width", 0) * .75;
+            double points = cssWidth
+                ? (HtmlCss.TryParsePoints(width, out float length) ? length : 0)
+                : AttributeNumber(element, "width", 0) * .75;
             builder.Tables.Add(new DocumentTable(start, builder.ParagraphCount - start, rows,
                 preferredWidth: points > 0 ? points : null, widthPercent: percent, autoFit: true));
+        }
+    }
+
+    private static TableCellPadding ReadCellPadding(IReadOnlyDictionary<string, string> declarations, double fallback)
+    {
+        double[] values = [fallback, fallback, fallback, fallback];
+        if (declarations.TryGetValue("padding", out string? shorthand))
+        {
+            string[] parts = shorthand.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length is >= 1 and <= 4 &&
+                parts.All(part => HtmlCss.TryParsePoints(part, out float points) && points >= 0))
+            {
+                for (int i = 0; i < values.Length; i++)
+                {
+                    int index = parts.Length == 1 ? 0 : i < parts.Length ? i : i % 2;
+                    HtmlCss.TryParsePoints(parts[index], out float points);
+                    values[i] = points;
+                }
+            }
+        }
+
+        return new TableCellPadding(Side("left", 3), Side("top", 0), Side("right", 1), Side("bottom", 2));
+
+        double Side(string name, int index) =>
+            declarations.TryGetValue("padding-" + name, out string? value) &&
+                HtmlCss.TryParsePoints(value, out float points) && points >= 0 ? points : values[index];
+    }
+
+    private static CellBorders ReadCellBorders(IReadOnlyDictionary<string, string> declarations, CellBorders fallback)
+    {
+        declarations.TryGetValue("border", out string? all);
+        return new CellBorders(Side("left", fallback.Left), Side("top", fallback.Top),
+            Side("right", fallback.Right), Side("bottom", fallback.Bottom));
+
+        TableBorder Side(string name, TableBorder edge)
+        {
+            string? value = declarations.GetValueOrDefault("border-" + name) ?? all;
+            if (value is null)
+                return edge;
+
+            double width = 2.25;
+            BColor color = BColor.FromName("black");
+            TableBorderStyle style = TableBorderStyle.None;
+            foreach (string part in value.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries))
+            {
+                if (HtmlCss.TryParsePoints(part, out float points) && points >= 0)
+                    width = points;
+                else if (HtmlCss.TryParseColor(part, out BColor parsed))
+                    color = parsed;
+                else if (Enum.TryParse(part, ignoreCase: true, out TableBorderStyle parsedStyle) &&
+                    Enum.IsDefined(parsedStyle))
+                    style = parsedStyle;
+            }
+            return new TableBorder(color, width, style);
         }
     }
 
@@ -779,6 +839,12 @@ internal static class HtmlReader
                 break;
         }
 
+        style = element.LocalName switch
+        {
+            "sup" => style with { Shift = BaselineShift.Superscript() },
+            "sub" => style with { Shift = BaselineShift.Subscript() },
+            _ => style,
+        };
         IReadOnlyDictionary<string, string> declarations = styleSheet.DeclarationsFor(element);
         foreach (KeyValuePair<string, string> declaration in declarations)
             style = ApplyInlineCss(style, declaration.Key, declaration.Value);
@@ -880,15 +946,24 @@ internal static class HtmlReader
                 }
 
                 break;
-            case "text-transform":
-                if (value.Equals("uppercase", StringComparison.OrdinalIgnoreCase))
-                    return style with { Capitalization = TextCapitalization.AllCaps };
-                if (value.Equals("none", StringComparison.OrdinalIgnoreCase) &&
-                    style.Capitalization == TextCapitalization.AllCaps)
+            case "vertical-align":
+                return value.ToLowerInvariant() switch
                 {
-                    return style with { Capitalization = TextCapitalization.None };
-                }
-                break;
+                    "super" => style with { Shift = BaselineShift.Superscript() },
+                    "sub" => style with { Shift = BaselineShift.Subscript() },
+                    "baseline" => style with { Shift = null },
+                    _ => style,
+                };
+            case "text-transform":
+                return value.ToLowerInvariant() switch
+                {
+                    "uppercase" => style with { Capitalization = TextCapitalization.AllCaps },
+                    "lowercase" => style with { Capitalization = TextCapitalization.Lowercase },
+                    "capitalize" => style with { Capitalization = TextCapitalization.Capitalize },
+                    "none" when style.Capitalization != TextCapitalization.SmallCaps =>
+                        style with { Capitalization = TextCapitalization.None },
+                    _ => style,
+                };
             case "font-variant":
             case "font-variant-caps":
                 if (value.Equals("small-caps", StringComparison.OrdinalIgnoreCase))

@@ -105,7 +105,7 @@ internal sealed class DocxSections
     }
 
     /// <summary>True when the sections do not all have the same columns.</summary>
-    public bool ColumnsDiffer => _sections.Select(section => section.Columns.Count).Distinct().Count() > 1;
+    public bool ColumnsDiffer => _sections.Select(section => (section.Columns.Count, section.Columns.Gap, section.Columns.Separator)).Distinct().Count() > 1;
 
     /// <summary>True when some section's columns are of unequal width.</summary>
     public bool HasUnequalColumns => _sections.Any(section => section.Columns.Unequal);
@@ -390,6 +390,7 @@ internal sealed class DocxSections
                     breakType: _sections[i].BreakType, pageNumberStart: _sections[i].PageNumberStart)
                 {
                     PageNumberFormat = _sections[i].PageNumberFormat,
+                    ColumnSeparator = _sections[i].Columns.Separator,
                 });
             }
 
@@ -457,6 +458,8 @@ internal sealed class DocxSections
         if (cols is null)
             return DocxColumns.Single;
 
+        string? separatorValue = (string?)cols.Attribute(DocxNamespaces.Wordprocessing + "sep");
+        bool separator = separatorValue is "1" or "true" or "on";
         List<XElement> listed = [.. cols.Elements(DocxNamespaces.Wordprocessing + "col")];
         bool equalWidth = !IsOff((string?)cols.Attribute(DocxNamespaces.Wordprocessing + "equalWidth"));
         if (!equalWidth && listed.Count >= 2)
@@ -466,7 +469,7 @@ internal sealed class DocxSections
                 .Take(listed.Count - 1)
                 .Average(column => DocxValueReader.Twips(column, "space"));
             bool unequal = widths.Max() - widths.Min() > 1;
-            return new DocxColumns(listed.Count, gap, unequal);
+            return new DocxColumns(listed.Count, gap, unequal, separator);
         }
 
         if (!DocxValueReader.TryReadInt(cols.Attribute(DocxNamespaces.Wordprocessing + "num"), out int count) || count <= 1)
@@ -475,7 +478,7 @@ internal sealed class DocxSections
         double space = cols.Attribute(DocxNamespaces.Wordprocessing + "space") is null
             ? DefaultGapPoints
             : DocxValueReader.Twips(cols, "space");
-        return new DocxColumns(count, space, Unequal: false);
+        return new DocxColumns(count, space, Unequal: false, Separator: separator);
     }
 
     /// <summary>
@@ -520,7 +523,7 @@ internal sealed class DocxSections
 
 /// <summary>A section's text columns: how many, and the gap between them in points.</summary>
 /// <param name="Unequal">True when the section listed columns of different widths.</param>
-internal readonly record struct DocxColumns(int Count, double Gap, bool Unequal)
+internal readonly record struct DocxColumns(int Count, double Gap, bool Unequal, bool Separator = false)
 {
     /// <summary>One column, the whole text area.</summary>
     public static DocxColumns Single { get; } = new(1, 0, Unequal: false);

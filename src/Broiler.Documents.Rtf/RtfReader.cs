@@ -38,6 +38,8 @@ public static class RtfReader
 
     private struct State
     {
+        public int ListId;
+        public int ListLevel;
         public InlineStyle Char;
         public ParagraphStyle Para;
         public RtfDestination Dest;
@@ -109,6 +111,8 @@ public static class RtfReader
         public StringBuilder Instruction { get; } = new();
         public string? Link;
         public string? RubyBase;
+        public PageField? Page;
+        public StyleReferenceField? StyleReference;
         public int Characters;
     }
 
@@ -189,6 +193,10 @@ public static class RtfReader
         private bool FixedHeaderBand => (_sectionTop ?? _marginTop) < 0;
         private bool FixedFooterBand => (_sectionBottom ?? _marginBottom) < 0;
         private bool _pastFirstSection;
+        private RunningContent _inheritedRunning = RunningContent.Empty;
+        private readonly List<DocumentSection> _sections = [];
+        private int _sectionStart;
+        private SectionBreakType _sectionStartKind = SectionBreakType.Continuous;
 
         // The paragraph PageBreak ended to hold the frames anchored before a
         // \page, or -1.
@@ -203,7 +211,7 @@ public static class RtfReader
         private bool _bodySectionHasProperties;
         private BodySectionBreak _sectionBreak = BodySectionBreak.Page;
         private BodySectionBreak _bodySectionBreak = BodySectionBreak.Page;
-        private enum BodySectionBreak { Continuous, Page, Column }
+        private enum BodySectionBreak { Continuous, Page, Column, Odd, Even }
         private readonly RtfTableBuilder _table;
         private readonly RtfPageBorders _pageBorders;
         private readonly List<DocumentTable> _tables = [];
@@ -310,6 +318,9 @@ public static class RtfReader
         private bool _reportedFrameAlignment;
         private bool _reportedSlantedLine;
         private bool _reportedEmbedded;
+        private readonly RtfLists _lists = new();
+        private readonly ListNumberer _listNumberer = new();
+        private string? _cachedListMarker;
         private bool _reportedListTable;
         private bool _titlePage;
         private bool _reportedEmptyPage;
@@ -406,6 +417,22 @@ public static class RtfReader
                                 break;
                             }
                         }
+                        int destination = next < tokens.Count && tokens[next].Symbol == '*' ? next + 1 : next;
+                        if (_state.Dest == RtfDestination.Normal && _stack.Count == 1 &&
+                            destination < tokens.Count && tokens[destination].Keyword is "listtable" or "listoverridetable")
+                        {
+                            next = destination + 1;
+                            if (!_lists.Read(tokens, ref next, tokens[destination].Keyword == "listoverridetable", _state.DocumentCodePage))
+                                ReportUnsupportedList();
+                            break;
+                        }
+                        if (_state.Dest == RtfDestination.Normal && destination < tokens.Count &&
+                            tokens[destination].Keyword == "listtext")
+                        {
+                            next = destination + 1;
+                            _cachedListMarker = RtfLists.ReadCachedMarker(tokens, ref next);
+                            break;
+                        }
                         _stack.Push(_state);
                         break;
                     case RtfTokenType.GroupEnd:
@@ -452,6 +479,8 @@ public static class RtfReader
             }
             if (_shapes.Any(shape => !shape.IsPageAnchored && shape.ParagraphIndex == _builder.ParagraphCount))
                 _builder.EndParagraph(_state.Para);
+            if (_cachedListMarker is not null)
+                ApplyCachedListOrdinal();
             RichTextDocument document = _builder.Build(_state.Para)
                 .WithStyleDefaults(DocumentStyleDefaults.Default with
                 {
@@ -463,9 +492,14 @@ public static class RtfReader
                     TabsOverMargin = true,
                     UndecoratedLinks = true,
                 })
-                .WithRunningContent(BuildRunningContent())
-                .WithPageGeometry(BuildPageGeometry())
+
+                .WithPageGeometry(_sections.Count > 0 ? _sections[0].Page : BuildPageGeometry())
                 .WithPageBackground(_viewBackground ? _pageBackground : null);
+            CaptureSection(document.ParagraphCount);
+            document = document.WithRunningContent(_sections.Count > 0
+                ? _sections[0].RunningContent ?? RunningContent.Empty : BuildRunningContent());
+            if (_sections.Count > 1)
+                document = document.WithSections(_sections);
             if (_shapes.Count > 0)
                 document = document.WithShapes(_shapes);
             if (_tables.Count > 0)
@@ -494,6 +528,13 @@ public static class RtfReader
             {
                 instruction.Link = ExtractHyperlink(instruction.Instruction.ToString());
                 instruction.RubyBase = ExtractRubyBase(instruction.Instruction.ToString());
+                instruction.StyleReference = ReadStyleReference(instruction.Instruction.ToString());
+                instruction.Page = instruction.Instruction.ToString().Trim().ToUpperInvariant() switch
+                {
+                    "PAGE" => new PageField(PageFieldKind.PageNumber),
+                    "NUMPAGES" => new PageField(PageFieldKind.PageCount),
+                    _ => null,
+                };
             }
             else if (closing.Dest == RtfDestination.FontTable && _fontName.Length > 0)
                 CommitFont();
@@ -669,6 +710,30 @@ public static class RtfReader
             return true;
         }
 
+        private void ReportUnsupportedList()
+        {
+            if (_reportedListTable)
+                return;
+
+            _reportedListTable = true;
+            _diagnostics.Add(DocumentDiagnostic.Warning("rtf.list",
+                "An unsupported or incomplete RTF list definition could not be fully imported."));
+        }
+
+        private void ApplyList()
+        {
+            ListReference? reference = null;
+            if (_state.ListId != 0)
+            {
+                if (_lists.Find(_state.ListId) is { } definition &&
+                    (uint)_state.ListLevel < ListDefinition.MaxLevels)
+                    reference = new ListReference(definition, _state.ListLevel);
+                else
+                    ReportUnsupportedList();
+            }
+            _state.Para = _state.Para with { List = reference, ListKind = reference?.Kind ?? ListKind.None };
+        }
+
         private void HandleControlWord(RtfToken token)
         {
             FlushLeadByte();
@@ -776,7 +841,7 @@ public static class RtfReader
                     "fldinst" or "fldrslt" or "pict" or "object" or
                     "listtable" or "listoverridetable" or "annotation" or
                     "info" or "colorschememapping" or "latentstyles" or
-                    "datastore" or "themedata" or "pntext")
+                    "datastore" or "themedata" or "pntext" or "listtext")
                 {
                     _state.Dest = RtfDestination.Skip;
                     return;
@@ -858,6 +923,10 @@ public static class RtfReader
                     return;
                 case "fldrslt":
                     _state.Dest = RtfDestination.FieldResult;
+                    if (_state.Field?.StyleReference is { } reference)
+                        _state.Char = _state.Char with { StyleReference = reference };
+                    if (_state.Field?.Page is { } pageField)
+                        _state.Char = _state.Char with { PageField = pageField };
                     if (_state.Field?.Link is string link)
                         _state.Char = _state.Char with { LinkHref = link };
                     return;
@@ -877,27 +946,21 @@ public static class RtfReader
                 // rather than the default one - the same fact w:titlePg carries in
                 // DOCX and a first master page carries in ODF.
                 case "titlepg": _titlePage = true; return;
-                case "header": _state.Dest = RtfDestination.Header; return;
-                case "headerf": _state.Dest = RtfDestination.HeaderFirst; return;
-                case "headerl": _state.Dest = RtfDestination.HeaderEven; return;
+                case "header": BeginRunning(RtfDestination.Header); return;
+                case "headerf": BeginRunning(RtfDestination.HeaderFirst); return;
+                case "headerl": BeginRunning(RtfDestination.HeaderEven); return;
                 // \headerr is the right-hand, odd page - which is the one every
                 // page gets in a document that does not distinguish them.
-                case "headerr": _state.Dest = RtfDestination.Header; return;
-                case "footer": _state.Dest = RtfDestination.Footer; return;
-                case "footerf": _state.Dest = RtfDestination.FooterFirst; return;
-                case "footerl": _state.Dest = RtfDestination.FooterEven; return;
-                case "footerr": _state.Dest = RtfDestination.Footer; return;
+                case "headerr": BeginRunning(RtfDestination.Header); return;
+                case "footer": BeginRunning(RtfDestination.Footer); return;
+                case "footerf": BeginRunning(RtfDestination.FooterFirst); return;
+                case "footerl": BeginRunning(RtfDestination.FooterEven); return;
+                case "footerr": BeginRunning(RtfDestination.Footer); return;
 
                 case "listtable":
                 case "listoverridetable":
                     _state.Dest = RtfDestination.ListTable;
-                    if (!_reportedListTable)
-                    {
-                        _diagnostics.Add(DocumentDiagnostic.Warning(
-                            "rtf.list",
-                            "List tables were detected and skipped; list numbering and marker semantics are not imported."));
-                        _reportedListTable = true;
-                    }
+                    ReportUnsupportedList();
                     return;
 
                 case "generator":
@@ -943,6 +1006,7 @@ public static class RtfReader
                 case "latentstyles":
                 case "datastore":
                 case "themedata":
+                case "listtext":
                 case "pntext":
                     _state.Dest = RtfDestination.Skip;
                     return;
@@ -1064,6 +1128,23 @@ public static class RtfReader
                         ? RtfCodePage.CharsetToCodePage(defaultCharset)
                         : _state.DocumentCodePage;
                     break;
+                case "super":
+                case "sub":
+                case "nosupersub":
+                case "up":
+                case "dn":
+                    BaselineShift? shift = kw switch
+                    {
+                        "super" => BaselineShift.Superscript(),
+                        "sub" => BaselineShift.Subscript(),
+                        "nosupersub" => null,
+                        _ => (has ? p : 6) == 0 ? null : new BaselineShift(BaselinePosition.Offset,
+                            Math.Clamp((has ? p : 6) / (2d * Math.Max(1, _state.Char.FontSize ?? 12f)) *
+                                (kw == "dn" ? -1 : 1), -10, 10), 1),
+                    };
+                    _state.Char = _state.Char with { Shift = shift };
+                    _state.HasDirectCharFormatting = true;
+                    break;
                 case "fs": _state.Char = _state.Char with { FontSize = has ? p / 2f : null }; _state.HasDirectCharFormatting = true; break;
                 case "f":
                     int charset = _fonts.GetCharset(p);
@@ -1095,7 +1176,8 @@ public static class RtfReader
                     if (has && _styleSheet.TryGetCharacterStyle(p, out RtfStyle? charStyle))
                     {
                         _state.ActiveCharStyleId = p;
-                        _state.Char = ApplyCharacterStyle(_state.Char, charStyle);
+                        _state.Char = ApplyCharacterStyle(_state.Char, charStyle) with { CharacterStyle =
+                            string.IsNullOrEmpty(charStyle.Name) ? null : charStyle.Name };
                     }
                     break;
 
@@ -1128,12 +1210,12 @@ public static class RtfReader
                 // page belongs to that section, which this reader does not read,
                 // and letting it overwrite the first would turn the whole
                 // document landscape for one landscape section at its end.
-                case "pgwsxn": if (has && !_pastFirstSection && !_writerDefaultPage) _sectionWidth = p; return;
-                case "pghsxn": if (has && !_pastFirstSection && !_writerDefaultPage) _sectionHeight = p; return;
-                case "marglsxn": if (has && !_pastFirstSection && !_writerDefaultPage) _sectionLeft = p; return;
-                case "margrsxn": if (has && !_pastFirstSection && !_writerDefaultPage) _sectionRight = p; return;
-                case "margtsxn": if (has && !_pastFirstSection && !_writerDefaultPage) _sectionTop = p; return;
-                case "margbsxn": if (has && !_pastFirstSection && !_writerDefaultPage) _sectionBottom = p; return;
+                case "pgwsxn": if (has && !_writerDefaultPage) _sectionWidth = p; return;
+                case "pghsxn": if (has && !_writerDefaultPage) _sectionHeight = p; return;
+                case "marglsxn": if (has && !_writerDefaultPage) _sectionLeft = p; return;
+                case "margrsxn": if (has && !_writerDefaultPage) _sectionRight = p; return;
+                case "margtsxn": if (has && !_writerDefaultPage) _sectionTop = p; return;
+                case "margbsxn": if (has && !_writerDefaultPage) _sectionBottom = p; return;
                 // \sectd puts the section back to its defaults, which for the
                 // page are the document's.
                 case "sectd":
@@ -1143,9 +1225,9 @@ public static class RtfReader
                         _bodySectionBreak = _sectionBreak;
                         _bodySectionHasProperties = true;
                     }
+                    _sectionWidth = _sectionHeight = _sectionLeft = _sectionRight = _sectionTop = _sectionBottom = null;
                     if (!_pastFirstSection)
                     {
-                        _sectionWidth = _sectionHeight = _sectionLeft = _sectionRight = _sectionTop = _sectionBottom = null;
                         _pageBorders.Reset();
                     }
                     return;
@@ -1190,6 +1272,11 @@ public static class RtfReader
                         else
                             _builder.EndPendingParagraph(_state.Para);
                         FinishTable();
+                        CaptureSection(_builder.ParagraphCount);
+                        if (_sections.Count > 0)
+                            _inheritedRunning = _sections[^1].RunningContent ?? RunningContent.Empty;
+                        _running.Clear();
+                        _runningShapes.Clear();
                         _bodySectionPending = true;
                         _bodySectionHasProperties = false;
                         _bodySectionBreak = _sectionBreak;
@@ -1199,18 +1286,8 @@ public static class RtfReader
                 case "sbknone": SetBodySectionBreak(BodySectionBreak.Continuous); return;
                 case "sbkpage": SetBodySectionBreak(BodySectionBreak.Page); return;
                 case "sbkcol": SetBodySectionBreak(BodySectionBreak.Column); return;
-                case "sbkodd":
-                case "sbkeven":
-                    _sectionBreak = BodySectionBreak.Page;
-                    if (_bodySectionPending)
-                    {
-                        _bodySectionBreak = _sectionBreak;
-                        _bodySectionHasProperties = true;
-                        if (!_diagnostics.Any(diagnostic => diagnostic.Code == "rtf.section.parity"))
-                            _diagnostics.Add(DocumentDiagnostic.Warning("rtf.section.parity",
-                                "An odd/even section starts a new page, but insertion of a blank parity page is not represented."));
-                    }
-                    return;
+                case "sbkodd": SetBodySectionBreak(BodySectionBreak.Odd); return;
+                case "sbkeven": SetBodySectionBreak(BodySectionBreak.Even); return;
                 // Orientation is a flag beside the size, not an instruction to
                 // swap it: the width and height a landscape section states are
                 // already the landscape page's. LibreOffice draws
@@ -1264,7 +1341,14 @@ public static class RtfReader
                 case "sv": _state.Dest = RtfDestination.ShapePropertyValue; return;
                 case "shptxt": _state.Dest = RtfDestination.ShapeText; return;
 
+                case "ls":
+                    if (has) { _state.ListId = p; ApplyList(); }
+                    break;
+                case "ilvl":
+                    if (has) { _state.ListLevel = p; ApplyList(); }
+                    break;
                 case "pard":
+                    _state.ListId = _state.ListLevel = 0;
                     _state.ActiveParaStyleId = 0;
                     _state.TabsFromStyle = true;
                     if (_styleSheet.TryGetParagraphStyle(0, out RtfStyle? normalPara))
@@ -2707,16 +2791,22 @@ public static class RtfReader
         }
 
         /// <summary>The headers and footers the document's running destinations collected.</summary>
+        private void BeginRunning(RtfDestination destination)
+        {
+            _running[destination] = new Accumulator(_maxParagraphs);
+            _runningShapes.Remove(destination);
+            _state.Dest = destination;
+        }
+
         private RunningContent BuildRunningContent()
         {
-            RunningContent content = RunningContent.Empty.WithDifferentFirstPage(_titlePage);
+            RunningContent content = _inheritedRunning.WithDifferentFirstPage(_titlePage);
             foreach (RtfDestination destination in _running.Keys.Union(_runningShapes.Keys))
             {
                 IReadOnlyList<RichTextParagraph> paragraphs =
                     _running.GetValueOrDefault(destination)?.Build(ParagraphStyle.Default).Paragraphs ?? [];
                 List<DocumentShape>? shapes = _runningShapes.GetValueOrDefault(destination);
-                if (paragraphs.Count == 0 && shapes is null)
-                    continue;
+
 
                 content = destination switch
                 {
@@ -2918,6 +3008,22 @@ public static class RtfReader
             CloseParagraph();
         }
 
+        private void ApplyCachedListOrdinal()
+        {
+            string? cached = _cachedListMarker;
+            _cachedListMarker = null;
+            if (!InBody || _state.Para.List is not ListReference list)
+                return;
+
+            _listNumberer.Advance(list, out int ordinal);
+            if (RtfLists.CachedOrdinal(cached, list) is int start && start != ordinal)
+            {
+                ListReference restarted = list with { RestartAt = start };
+                _listNumberer.Advance(restarted, out _);
+                _state.Para = _state.Para with { List = restarted };
+            }
+        }
+
         /// <summary>
         /// Ends a paragraph that holds nothing after a <c>\page</c> but shapes
         /// anchored to it, and keeps the break for the paragraph after it.
@@ -2968,8 +3074,13 @@ public static class RtfReader
         /// Closes the paragraph with the character formatting in effect, which is
         /// the paragraph mark's and what an empty paragraph is as tall as.
         /// </summary>
-        private void CloseParagraph() =>
+        private void CloseParagraph()
+        {
+            ApplyCachedListOrdinal();
             Active.EndParagraph(_state.Para, _state.Char with { LinkHref = null, Image = null });
+            if (_state.Para.List is { RestartAt: not null } list)
+                _state.Para = _state.Para with { List = list with { RestartAt = null } };
+        }
 
         /// <summary>
         /// <c>\cell</c>: ends the cell's last paragraph, and the cell with it.
@@ -3226,12 +3337,29 @@ public static class RtfReader
             _hasPending = false;
         }
 
+        private void CaptureSection(int end)
+        {
+            if (end <= _sectionStart)
+                return;
+            _sections.Add(new DocumentSection(_sectionStart, end - _sectionStart,
+                Math.Max(1, _columns), Math.Max(0, _columnGap) / 20d, page: BuildPageGeometry(), runningContent: BuildRunningContent(), breakType: _sectionStartKind));
+            _sectionStart = end;
+        }
+
         private void ApplyBodySectionBreak()
         {
             if (!_bodySectionPending)
                 return;
             _bodySectionPending = false;
-            if (_bodySectionBreak == BodySectionBreak.Page ||
+            _sectionStartKind = _bodySectionBreak switch
+            {
+                BodySectionBreak.Continuous => SectionBreakType.Continuous,
+                BodySectionBreak.Odd => SectionBreakType.OddPage,
+                BodySectionBreak.Even => SectionBreakType.EvenPage,
+                BodySectionBreak.Column when _columns > 1 => SectionBreakType.NextColumn,
+                _ => SectionBreakType.NextPage,
+            };
+            if ((_bodySectionBreak is BodySectionBreak.Page or BodySectionBreak.Odd or BodySectionBreak.Even) ||
                 (_bodySectionBreak == BodySectionBreak.Column && _columns <= 1))
             {
                 if (_builder.PageBreakPending)
@@ -3276,6 +3404,32 @@ public static class RtfReader
             }
 
             return false;
+        }
+
+        private StyleReferenceField? ReadStyleReference(string instruction)
+        {
+            const string keyword = "STYLEREF";
+            ReadOnlySpan<char> text = instruction.AsSpan().Trim();
+            if (!text.StartsWith(keyword, StringComparison.OrdinalIgnoreCase) ||
+                text.Length <= keyword.Length || !char.IsWhiteSpace(text[keyword.Length]))
+                return null;
+
+            text = text[keyword.Length..].TrimStart();
+            bool quoted = !text.IsEmpty && text[0] == '"';
+            int end = quoted ? text[1..].IndexOf('"') + 1 : text.IndexOfAny(" \t\r\n");
+            if (quoted && end <= 1)
+                return null;
+            if (end < 0)
+                end = text.Length;
+
+            string name = text[(quoted ? 1 : 0)..end].ToString();
+            ReadOnlySpan<char> switches = text[(quoted ? end + 1 : end)..].Trim();
+            bool fromBottom = switches.Equals(@"\l", StringComparison.OrdinalIgnoreCase);
+            if (!switches.IsEmpty && !fromBottom)
+                return null;
+
+            return _styleSheet.CharacterStyleCalled(name) is string known
+                ? new StyleReferenceField(known, fromBottom) : null;
         }
 
         private string? ExtractHyperlink(string instruction)

@@ -45,6 +45,17 @@ public sealed class DocumentLayoutLineHeightTests
     }
 
     [Fact]
+    public void Fixed_Leading_Adds_An_Absolute_Amount_To_Line_Metrics()
+    {
+        LayoutLine natural = Assert.Single(Layout(ParagraphStyle.Default).Lines);
+        LayoutLine leading = Assert.Single(Layout(
+            ParagraphStyle.Default with { LineHeightRule = LineHeightRule.Leading, LineHeight = 8f }).Lines);
+
+        Assert.Equal(natural.Height + 8, leading.Height, 6);
+        Assert.Equal(natural.Baseline + 8, leading.Baseline, 6);
+    }
+
+    [Fact]
     public void Proportional_Spacing_Adds_Leading_Without_Scaling_The_Inline_Image()
     {
         var image = InlineImage.CreateMissingPayload(30, 90);

@@ -87,9 +87,10 @@ public sealed class ListNumberer
     /// when it draws none.
     /// </summary>
     public string? Advance(ParagraphStyle style) =>
-        style.List is ListReference list ? Advance(list) : AdvanceLegacy(style);
+        style.List is ListReference list ? Advance(list, out _) : AdvanceLegacy(style);
 
-    private string? Advance(ListReference list)
+    /// <summary>Advances an explicit list and returns its label and ordinal.</summary>
+    public string? Advance(ListReference list, out int ordinal)
     {
         ListDefinition definition = list.Definition;
         if (!_counters.TryGetValue(definition.CounterGroup, out CounterState? state))
@@ -120,6 +121,7 @@ public sealed class ListNumberer
                 counters[deeper] = null;
         }
 
+        ordinal = counters[level]!.Value;
         return Label(definition, level, counters, state.Starts);
     }
 

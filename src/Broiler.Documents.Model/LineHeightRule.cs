@@ -21,4 +21,7 @@ public enum LineHeightRule
 
     /// <summary><see cref="ParagraphStyle.LineHeight"/>, whatever the text is.</summary>
     Exact,
+
+    /// <summary>The natural line height plus a fixed amount of leading in points.</summary>
+    Leading,
 }

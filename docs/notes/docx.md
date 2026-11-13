@@ -431,7 +431,7 @@ LibreOffice's `DomainMapperTableHandler` does:
   (`docx.section.columns`), and the page records the section with the most
   paragraphs, because producers often end a two-column document with a
   continuous break before one empty paragraph. Columns leaving no room are
-  dropped and the page kept (`docx.columns.geometry`). `w:sep` is not read.
+  dropped and the page kept (`docx.columns.geometry`). `w:sep` is preserved on import and export. The shared page painter draws a black 0.5 pt rule centered in each gap over the laid-out section.
 - The last section's `w:pgSz` and `w:pgMar` are the document's page; a section
   stating others keeps them as `DocumentSection.Page`. A section starting a
   page is laid out between its own margins there and on the pages it runs

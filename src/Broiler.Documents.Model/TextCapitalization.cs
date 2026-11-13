@@ -18,4 +18,10 @@ public enum TextCapitalization
     /// case drawn smaller than those that were typed as capitals.
     /// </summary>
     SmallCaps,
+
+    /// <summary>Draws letters in lowercase.</summary>
+    Lowercase,
+
+    /// <summary>Draws the first letter of each word in uppercase.</summary>
+    Capitalize,
 }

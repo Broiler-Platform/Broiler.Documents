@@ -40,6 +40,25 @@ public sealed class DocumentLayoutPageFieldTests
             .WithRunningContent(RunningContent.Empty.WithHeader(PageSelection.Default, header));
 
     [Fact]
+    public void Section_Page_Count_Uses_The_Section_Instead_Of_The_Document()
+    {
+        var document = RichTextDocument.FromParagraphs(
+        [
+            Line("First"),
+            Line("Second", ParagraphStyle.Default with { PageBreakBefore = true }),
+            Line("Third"),
+        ]).WithRunningContent(RunningContent.Empty.WithHeader(PageSelection.Default,
+            [Field(new PageField(PageFieldKind.SectionPageCount))]))
+          .WithSections(
+          [
+              new DocumentSection(0, 2, 1, 0),
+              new DocumentSection(2, 1, 1, 0, breakType: SectionBreakType.NextPage),
+          ]);
+
+        Assert.Equal(["- 2 -", "- 2 -", "- 1 -"], Headers(Layout(document)));
+    }
+
+    [Fact]
     public void Each_Page_Draws_Its_Own_Number_In_Place_Of_The_Saved_One()
     {
         LayoutResult result = Layout(Body(30, Field(new PageField(PageFieldKind.PageNumber))));

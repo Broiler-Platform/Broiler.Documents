@@ -42,6 +42,9 @@ public readonly record struct InlineStyle
     /// </summary>
     public TextCapitalization Capitalization { get; init; }
 
+    /// <summary>The language tag used for display casing.</summary>
+    public string? Language { get; init; }
+
     /// <summary>
     /// The run raised or lowered and set smaller (superscript, subscript), or
     /// <see langword="null"/> for text on the baseline at its own size.

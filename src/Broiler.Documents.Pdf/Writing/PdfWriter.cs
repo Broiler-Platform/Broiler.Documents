@@ -257,12 +257,12 @@ internal sealed class PdfWriter
         Dictionary<PdfStandardFont, int> fontObjects,
         PdfUriPolicy policy)
     {
-        PdfPageSetup setup = _pageSetup;
+        PdfPageSetup setup = page.Setup ?? _pageSetup;
 
         BeginObject(objects.PageObject);
         var builder = new StringBuilder();
         builder.Append("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ")
-            .Append(Number(setup.Width)).Append(' ').Append(Number(setup.Height))
+            .Append(Number(page.WidthPoints ?? setup.Width)).Append(' ').Append(Number(page.HeightPoints ?? setup.Height))
             .Append("] /Resources << /Font <<");
 
         var used = new HashSet<PdfStandardFont>();
@@ -325,10 +325,11 @@ internal sealed class PdfWriter
         var content = new MemoryStream();
 
         // The page's own colour is the bottom layer of all.
+        PdfPageSetup setup = page.Setup ?? _pageSetup;
         if (_pageBackground is ShapeFill background)
-            AppendFill(content, background.ContentOnly ? _pageSetup.MarginLeft : 0, background.ContentOnly ? _pageSetup.MarginBottom : 0,
-                background.ContentOnly ? _pageSetup.ContentWidth : _pageSetup.Width,
-                background.ContentOnly ? _pageSetup.ContentHeight : _pageSetup.Height, background);
+            AppendFill(content, background.ContentOnly ? setup.MarginLeft : 0, background.ContentOnly ? setup.MarginBottom : 0,
+                background.ContentOnly ? setup.ContentWidth : setup.Width,
+                background.ContentOnly ? setup.ContentHeight : setup.Height, background);
 
         // Shapes before run backgrounds, and both before text: a letterhead's
         // stripe is the bottom layer of the page.

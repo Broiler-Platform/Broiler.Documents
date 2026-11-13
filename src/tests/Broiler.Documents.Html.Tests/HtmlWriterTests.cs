@@ -7,6 +7,29 @@ namespace Broiler.Documents.Html.Tests;
 public sealed class HtmlWriterTests
 {
     [Fact]
+    public void Ordered_List_Resumes_After_A_Table_And_A_Paragraph()
+    {
+        var codec = new HtmlDocumentCodec();
+        using var input = new MemoryStream(Encoding.UTF8.GetBytes(
+            "<p>first</p><table><tr><td>cell</td></tr></table><p>gap</p><p>second</p>"));
+        var document = codec.Read(input).Document;
+        var definition = new ListDefinition([ListLevel.DecimalAt(0) with { Start = 4 }]);
+        var style = ParagraphStyle.Default with { List = new ListReference(definition, 0) };
+        document = RichTextDocument.FromParagraphs(
+        [
+            document.Paragraphs[0].WithParagraphStyle(style),
+            document.Paragraphs[1],
+            document.Paragraphs[2],
+            document.Paragraphs[3].WithParagraphStyle(style),
+        ]).WithTables(document.Tables);
+        using var exported = new MemoryStream(HtmlWriter.WriteToArray(document));
+        var result = codec.Read(exported).Document;
+        var numberer = new ListNumberer();
+        Assert.Equal("4.", numberer.Advance(result.Paragraphs[0].Style));
+        Assert.Equal("5.", numberer.Advance(result.Paragraphs[3].Style));
+    }
+
+    [Fact]
     public void Writes_A_Deterministic_Html_Document()
     {
         string html = Write(RichTextDocument.FromPlainText("hello"));
@@ -109,7 +132,7 @@ public sealed class HtmlWriterTests
     }
 
     [Fact]
-    public void Writing_ListKind_Reports_A_Predictable_Diagnostic()
+    public void Writing_ListKind_Emits_List_Markup()
     {
         RichTextDocument document = RichTextDocument.FromParagraphs(
         [
@@ -119,7 +142,30 @@ public sealed class HtmlWriterTests
         using var stream = new MemoryStream();
         DocumentWriteResult result = new HtmlDocumentCodec().Write(document, stream);
 
-        Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "html.list");
+        Assert.DoesNotContain(result.Diagnostics, diagnostic => diagnostic.Code == "html.list");
+        Assert.Contains("<ul><li", Encoding.UTF8.GetString(stream.ToArray()));
+    }
+
+    [Fact]
+    public void Roundtrip_Preserves_Nested_Lists_Starts_And_Restarts()
+    {
+        var codec = new HtmlDocumentCodec();
+        using var source = new MemoryStream(Encoding.UTF8.GetBytes(
+            "<ol start='4' type='i'><li>outer<ul><li>inner</li></ul></li><li value='9'>restart</li><li>next</li></ol><p>end</p>"));
+        RichTextDocument original = codec.Read(source).Document;
+        string html = Write(original);
+        Assert.Contains("start=\"4\"", html);
+        Assert.Contains("value=\"9\"", html);
+        Assert.Contains("<ul><li", html);
+
+        using var written = new MemoryStream(Encoding.UTF8.GetBytes(html));
+        RichTextDocument result = codec.Read(written).Document;
+        Assert.Equal(original.PlainText, result.PlainText);
+        Assert.Equal(1, result.Paragraphs[1].Style.List?.Level);
+        var expected = new ListNumberer();
+        var actual = new ListNumberer();
+        for (int i = 0; i < result.ParagraphCount; i++)
+            Assert.Equal(expected.Advance(original.Paragraphs[i].Style), actual.Advance(result.Paragraphs[i].Style));
     }
 
     [Fact]

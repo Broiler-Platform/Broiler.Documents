@@ -85,7 +85,7 @@ internal static class MarkdownReader
                 FlushParagraph(builder, paragraph, paragraphStyle, options.Limits, resources, footnotes);
                 builder.AddInlineParagraph(
                     MarkdownInlineParser.Parse(headingText, HeadingStyle(level), diagnostics, options.Limits, resources, footnotes),
-                    ParagraphStyle.Default);
+                    ParagraphStyle.Default with { HeadingLevel = level });
                 paragraphStyle = ParagraphStyle.Default;
                 continue;
             }

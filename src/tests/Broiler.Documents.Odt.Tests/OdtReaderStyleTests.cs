@@ -5,6 +5,21 @@ namespace Broiler.Documents.Odt.Tests;
 public sealed class OdtReaderStyleTests
 {
     [Fact]
+    public void Text_Transform_Language_Roundtrips_With_Original_Text()
+    {
+        var input = OdtTestPackage.ReadBody(
+            "<text:p><text:span text:style-name=\"T1\">istanbul</text:span></text:p>",
+            OdtTestPackage.Style("T1",
+                "<style:text-properties fo:language=\"tr\" fo:country=\"TR\" fo:text-transform=\"capitalize\"/>",
+                family: "text"));
+        using var output = new MemoryStream(OdtWriter.WriteToArray(input.Document), writable: false);
+        var paragraph = new OdtDocumentCodec().Read(output).Document.Paragraphs[0];
+        Assert.Equal("istanbul", paragraph.Text);
+        Assert.Equal("tr-TR", paragraph.StyleAt(0).Language);
+        Assert.Equal(TextCapitalization.Capitalize, paragraph.StyleAt(0).Capitalization);
+    }
+
+    [Fact]
     public void Applies_An_Automatic_Text_Style_To_The_Span_That_Names_It()
     {
         DocumentReadResult result = OdtTestPackage.ReadBody(
@@ -155,18 +170,24 @@ public sealed class OdtReaderStyleTests
         Assert.Equal(TextCapitalization.SmallCaps, small.Document.Paragraphs[0].StyleAt(0).Capitalization);
     }
 
-    [Fact]
-    public void A_Lowercase_Transform_Is_Reported_Rather_Than_Applied()
+    [Theory]
+    [InlineData("lowercase", TextCapitalization.Lowercase)]
+    [InlineData("capitalize", TextCapitalization.Capitalize)]
+    public void A_Text_Transform_Roundtrips_Without_Changing_Source_Text(string transform, TextCapitalization expected)
     {
         DocumentReadResult result = OdtTestPackage.ReadBody(
             "<text:p><text:span text:style-name=\"T1\">Mixed Case</text:span></text:p>",
             OdtTestPackage.Style(
                 "T1",
-                "<style:text-properties fo:text-transform=\"lowercase\"/>",
+                $"<style:text-properties fo:text-transform=\"{transform}\"/>",
                 family: "text"));
 
         Assert.Equal("Mixed Case", result.Document.Paragraphs[0].Text);
-        Assert.Contains(result.Diagnostics, d => d.Code == "odt.text.transform");
+        Assert.Equal(expected, result.Document.Paragraphs[0].StyleAt(0).Capitalization);
+        using var stream = new MemoryStream(OdtWriter.WriteToArray(result.Document), writable: false);
+        var back = new OdtDocumentCodec().Read(stream).Document.Paragraphs[0];
+        Assert.Equal("Mixed Case", back.Text);
+        Assert.Equal(expected, back.StyleAt(0).Capitalization);
     }
 
     [Fact]
@@ -254,19 +275,21 @@ public sealed class OdtReaderStyleTests
     }
 
     [Fact]
-    public void Reports_Leading_Between_Lines_Rather_Than_Guessing_A_Height()
+    public void Reads_Fixed_Extra_Line_Spacing()
     {
         DocumentReadResult result = OdtTestPackage.ReadBody(
             OdtTestPackage.StyledParagraph("P1", "x"),
             OdtTestPackage.Style("P1", "<style:paragraph-properties style:line-spacing=\"4pt\"/>"));
 
-        Assert.Equal(LineHeightRule.Proportional, result.Document.Paragraphs[0].Style.LineHeightRule);
-        Assert.Contains(result.Diagnostics, d => d.Code == "odt.linespacing.leading");
+        Assert.Equal(LineHeightRule.Leading, result.Document.Paragraphs[0].Style.LineHeightRule);
+        Assert.Equal(4f, result.Document.Paragraphs[0].Style.LineHeight);
+        Assert.DoesNotContain(result.Diagnostics, d => d.Code == "odt.linespacing.leading");
     }
 
     [Theory]
     [InlineData(LineHeightRule.Exact)]
     [InlineData(LineHeightRule.AtLeast)]
+    [InlineData(LineHeightRule.Leading)]
     public void A_Line_Height_Round_Trips_With_Its_Rule(LineHeightRule rule)
     {
         RichTextDocument source = RichTextDocument.FromParagraphs(

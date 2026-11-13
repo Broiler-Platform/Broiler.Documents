@@ -8,6 +8,9 @@ public enum PageFieldKind
 
     /// <summary>How many pages the document has.</summary>
     PageCount,
+
+    /// <summary>How many pages contain the current section.</summary>
+    SectionPageCount,
 }
 
 /// <summary>

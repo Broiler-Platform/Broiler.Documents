@@ -56,6 +56,9 @@ public sealed class DocumentSection(
     /// <summary>Points between adjacent columns.</summary>
     public double ColumnGap { get; } = double.IsFinite(columnGap) && columnGap > 0 ? columnGap : 0;
 
+    /// <summary>Whether a vertical rule separates adjacent text columns.</summary>
+    public bool ColumnSeparator { get; init; }
+
     /// <summary>
     /// The paper and margins the section states, or null where they are the
     /// document's <see cref="RichTextDocument.PageGeometry"/>.
@@ -188,7 +191,7 @@ public sealed class DocumentSection(
             return this;
 
         (int index, int count) = DocumentTable.ShiftRange(ParagraphIndex, ParagraphCount, at, removed, inserted, affinity);
-        return count <= 0 ? null : new DocumentSection(index, count, ColumnCount, ColumnGap, Page, RunningContent, Background, PageStyles, Hidden, DontBalanceColumns, BreakType, LeftIndent, RightIndent, PageNumberStart) { FootnotesEnding = FootnotesEnding, PageNumberFormat = PageNumberFormat };
+        return count <= 0 ? null : new DocumentSection(index, count, ColumnCount, ColumnGap, Page, RunningContent, Background, PageStyles, Hidden, DontBalanceColumns, BreakType, LeftIndent, RightIndent, PageNumberStart) { FootnotesEnding = FootnotesEnding, PageNumberFormat = PageNumberFormat, ColumnSeparator = ColumnSeparator };
     }
 
     /// <summary>
@@ -213,7 +216,7 @@ public sealed class DocumentSection(
             BreakType,
             LeftIndent,
             RightIndent,
-            PageNumberStart) { FootnotesEnding = FootnotesEnding, PageNumberFormat = PageNumberFormat };
+            PageNumberStart) { FootnotesEnding = FootnotesEnding, PageNumberFormat = PageNumberFormat, ColumnSeparator = ColumnSeparator };
     }
 
     /// <summary>
@@ -224,6 +227,6 @@ public sealed class DocumentSection(
         (int index, int count) = DocumentTable.RelocateRange(ParagraphIndex, ParagraphCount, sourceStart, sourceCount, destinationIndex);
         return count <= 0
             ? null
-            : new DocumentSection(index, count, ColumnCount, ColumnGap, Page, RunningContent, Background, PageStyles, Hidden, DontBalanceColumns, BreakType, LeftIndent, RightIndent, PageNumberStart) { FootnotesEnding = FootnotesEnding, PageNumberFormat = PageNumberFormat };
+            : new DocumentSection(index, count, ColumnCount, ColumnGap, Page, RunningContent, Background, PageStyles, Hidden, DontBalanceColumns, BreakType, LeftIndent, RightIndent, PageNumberStart) { FootnotesEnding = FootnotesEnding, PageNumberFormat = PageNumberFormat, ColumnSeparator = ColumnSeparator };
     }
 }

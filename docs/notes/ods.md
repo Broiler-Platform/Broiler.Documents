@@ -40,7 +40,8 @@ unbounded expansion would be an out-of-memory denial of service:
 | ODS | Model |
 |---|---|
 | Each `<table:table>` sheet | A `DocumentTable` in the `RichTextDocument`; `table:name` is `DocumentTable.Name` and `SpreadsheetWorksheet.Name` |
-| `<table:table-column>` column styles | Column widths |
+| Explicit column and row styles | Column widths and row heights |
+| Cell styles | Solid RGB fills and data-style references for fixed-decimal numbers, grouping, percentages and prefix currency symbols |
 | `string` cell | `office:string-value` or nested `<text:p>` elements |
 | `float` / `currency` / `percentage` cell | `office:value` |
 | `boolean` cell | `office:boolean-value` |
@@ -59,10 +60,21 @@ The writer produces an OASIS OpenDocument Spreadsheet package:
 - `mimetype`: first in the ZIP archive, uncompressed (`NoCompression`),
   containing `application/vnd.oasis.opendocument.spreadsheet`.
 - `META-INF/manifest.xml`: declares the root, `content.xml`, and `styles.xml`.
-- `styles.xml`: standard styles, fonts, and office document properties.
+- `styles.xml`: the package styles part. The writer places deduplicated cell, data and dimension styles in `content.xml` as automatic styles.
 - `content.xml`: `<office:spreadsheet>`, `<table:table>`,
   `<table:table-column>`, `<table:table-row>`, and typed `<table:table-cell>`
   elements; formulas in OpenFormula syntax (`of:=...`).
+
+The number format subset covers codes such as `0.00`, `#,##0.00`, `0.0%` and
+`$#,##0.00`. Supported dates (`yyyy-mm-dd`, `dd.mm.yyyy`, `mm/dd/yyyy`) normalize the input null date to the model's Excel-compatible serial and export using Calc's default date base. Dates before March 1900 are adjusted for Excel's fictitious leap day, which ODS cannot represent as a distinct date. Other date formats, custom literals and conditional sections require
+additional mappings. Unsupported formats report a warning and retain the cell
+value. Solid fills are written as opaque RGB. The reader recognizes directly
+referenced styles from either package XML part.
+
+Cell styles also carry common horizontal and vertical alignment, font family,
+size, foreground color, bold, italic, underline, strikethrough and four side
+borders. Export sets the alignment source for explicit non-left alignment.
+The codec projects a single font per cell through the shared table model.
 
 ## Diagnostics
 
@@ -72,4 +84,6 @@ The writer produces an OASIS OpenDocument Spreadsheet package:
 | `ods.missing-content` | `content.xml` was not found in the package. |
 | `ods.content` | `content.xml` has invalid XML or empty root. |
 | `ods.missing-spreadsheet` | `content.xml` contains no `office:spreadsheet` element. |
+| `ods.styles` | The optional styles XML could not be read. |
+| `ods.number-format` | A cell number format was omitted because it could not be translated. |
 | `ods.text.control` | A control character that XML cannot represent was dropped. |

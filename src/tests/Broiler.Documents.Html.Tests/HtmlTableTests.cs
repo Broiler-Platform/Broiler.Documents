@@ -47,6 +47,30 @@ public sealed class HtmlTableTests
         Assert.True(table.AutoFit);
     }
 
+    [Fact]
+    public void Roundtrip_Preserves_Nested_Tables_Spans_And_Cell_Formatting()
+    {
+        RichTextDocument original = Read("<p>before</p><table width='80%'>" +
+            "<tr><th rowspan='2' style='background-color:#336699;border-left:2pt dashed #000000;padding:1pt 2pt 3pt 4pt'>A</th>" +
+            "<th colspan='2'>B</th></tr><tr><td><table><tr><td>inner</td></tr></table></td><td></td></tr></table><p>after</p>");
+
+        string html = Encoding.UTF8.GetString(HtmlWriter.WriteToArray(original));
+        Assert.Contains("rowspan=\"2\"", html);
+        Assert.Contains("colspan=\"2\"", html);
+        RichTextDocument result = Read(html);
+        Assert.Equal(original.PlainText, result.PlainText);
+        DocumentTable table = Assert.Single(result.Tables);
+        Assert.Equal(80, table.WidthPercent);
+        Assert.True(table.Rows[0].IsHeader);
+        TableCell cell = table.Rows[0].Cells[0];
+        Assert.Equal(original.Tables[0].Rows[0].Cells[0].Shading, cell.Shading);
+        Assert.Equal(4, cell.Padding!.Value.Left);
+        Assert.Equal(2, cell.Borders.Left.Width);
+        Assert.Equal(TableBorderStyle.Dashed, cell.Borders.Left.Style);
+        Assert.Equal(1, table.Rows[1].Cells[0].ColumnIndex);
+        Assert.Single(table.Rows[1].Cells[0].Tables);
+    }
+
     private static RichTextDocument Read(string html) =>
         new HtmlDocumentCodec().Read(new MemoryStream(Encoding.UTF8.GetBytes(html))).Document;
 }

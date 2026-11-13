@@ -33,7 +33,7 @@ for parsing and writes deterministic UTF-8 HTML with `HtmlSerializer`.
 | CSS `text-align` / `align` | `ParagraphStyle.Alignment` | `justify` degrades to left. |
 | CSS `line-height` | `ParagraphStyle.LineSpacing`, or an at-least `LineHeight` | A number or percentage is a multiple; a length is the least a line is, as LibreOffice's HTML import reads it (`ParseCSS1_line_height`). |
 | CSS margins | spacing/indent fields | Left margins keep exact point offsets, accumulating through containing blocks; canonical offsets still use the equivalent legacy indent level. Padding keeps the older approximate handling; this is not a general CSS box model. |
-| `<ul>` / `<ol>` + `<li>` | `ListKind`, `ListReference`, `IndentLevel` | Independent list definitions restart counters; `ol type`, `start` and `li value` are retained. Nested ordered lists default to decimal. Only the first paragraph of each item has a label; nested items count separately. Logical nesting is separate from physical container margins. Reversed counting is unsupported. The writer reports `html.list` and writes no list markup. |
+| `<ul>` / `<ol>` + `<li>` | `ListKind`, `ListReference`, `IndentLevel` | Independent list definitions restart counters; `ol type`, `start` and `li value` are retained. Nested ordered lists default to decimal. Only the first paragraph of each item has a label; nested items count separately. Logical nesting is separate from physical container margins. Reversed counting is unsupported. |
 | CSS `page-break-before` / `break-before` | `ParagraphStyle.PageBreakBefore` | See [Page breaks](#page-breaks). |
 | A `<style>` type-selector rule, `p { ... }` | The base beneath an element's own `style` attribute | See [Stylesheets](#stylesheets). |
 | `<body bgcolor>`, CSS `background-color` and `background` on `<html>` or `<body>` | `RichTextDocument.PageBackground` | The canvas colour, CSS 2.1 §14.2: the root element's background, or the body's when the root states none. The property wins over the `bgcolor` attribute, which HTML maps beneath any author style. A transparent background is none. It is the page's, not the runs': on them it would highlight every line and leave the margins white. |
@@ -88,60 +88,13 @@ escape decoding is outside this subset.
 
 ### Stylesheets
 
-A `<style>` element's text is never prose; the element is read separately, for
-its `@page` rule and its type-selector rules and nothing else. A rule whose
-selector is a bare element name, or a selector list every item of which is
-one, contributes its declarations to those elements. The element's own inline
-`style` attribute wins property by property: a property it does not state
-still arrives, and one both state takes the inline value. Two type rules
-stating one property for one element resolve by source order, the later
-winning, as CSS says for equal specificity. Whatever the reader does with a
-declaration it does with one resolved from a type rule, the page break
-included. Comments are stripped first, including the `<!--` / `-->` pair a word
-processor wraps a stylesheet in, and a nested block is removed from a rule body
-before the declarations are split.
-
-**Exactly one selector is matched: the bare element name.** A
-`p { line-height: 115% }` rule reaches the paragraphs it selects, and so does
-`h1, h2 { ... }`. **Nothing else is matched** - not a class, an id, an
-attribute, a pseudo-class, a combinator, a descendant selector, or `*`; and
-there is no `!important`, no `@media`, no external stylesheet, no computed
-style, and no layout. A selector list is all or nothing: `h1, .lead { ... }`
-applies to neither, not to the `h1` alone, because two elements an author styled together coming back
-one styled and one not, with nothing to say which, is worse than not applying
-the rule. A skipped rule - an unimplemented selector, or any at-rule other than
-`@page` - is reported once per read as `html.css.rule`: it was read, understood
-to be formatting aimed at this document, and dropped, a loss the codec can see
-and so has to name.
-
-A type rule contributes to the element its selector names and nothing else; it
-is not a computed-style inheritance pass. What follows is the reader's
-existing descent, which carries the model style fields it understands from a
-container into the blocks inside it, exactly as for a `style` attribute on
-that container: `td { font-size: 8pt }` makes a cell's text small, and
-`div { margin-bottom: 12pt }` reaches the paragraphs in the `div` as
-`<div style="margin-bottom:12pt">` does.
-
-**Why the line sits there: everything past it is the cascade, and the cascade
-is a browser.** Specificity here is one comparison with one answer - the
-element's own `style` attribute beats the sheet - applicable without knowing
-the rest of the document. A class rule, an id rule and a descendant rule aimed
-at one paragraph must be ordered against each other before any applies, and
-building that is not smaller than building the engine. This is a document
-reader wanting the formatting a producer stated, and in the LibreOffice sample
-that prompted it every selector was `@page` or `p`. `@page` is the one at-rule
-read because a page is a property of the document rather than its
-presentation: HTML keeps there what DOCX keeps in `w:sectPr` and ODF in
-`style:page-layout`.
-
-**The measurable gap.** For a document with a table LibreOffice also writes
-`td p { ... }` and `th p { ... }`, descendant selectors, so paragraphs in cells
-get none of it. In the office conformance suite the seeds without tables score
-as their DOCX twins do (`plain-paragraphs` at an ink box of 9 pixels against
-the twin's 9), while `table-simple` sat at 107 against 11 - partly this, and
-partly table flattening, measured when the reader still flattened tables (it
-now keeps basic grids, see [issue 143](office-issue-143.md); the writer still
-flattens). It is the case to weigh first if the line ever moves.
+Embedded stylesheets support bare type selectors and two-type descendant
+selectors such as `td p` and `th p`. Every selector in a comma-separated list
+must be supported. Descendant rules take precedence over bare type rules.
+Among rules of equal specificity the later declaration wins. Inline
+declarations take precedence over both. Unsupported selectors and at-rules
+other than `@page` are reported once per read as `html.css.rule`. Declarations
+use the existing model mappings and container inheritance.
 
 An external stylesheet is not fetched, so neither a `@page` rule nor a type
 rule in one is read: the reader never makes a network request.
@@ -196,14 +149,12 @@ paragraph out.
   written and are reported as `html.columns`: a browser balances CSS columns
   over the whole body rather than filling a page at a time, which is another
   layout than the document's.
-- `ListKind` is not written; the writer preserves exact left indentation and
-  reports `html.list`.
+- Lists use native `ol`, `ul` and `li` elements, with nesting, start values and item restarts. Custom numbered markers can be approximated and report `html.list.marker`.
 - An embedded image is written inline as a base64 data URI
   (`html.image.datauri`), keeping an exported page a single file; the reader
   decodes it back into an `InlineImage` when the caller's resource policy
   permits, so the image round-trips.
-- Tables are written as cell paragraphs with `html.table.flattened`; their grid
-  does not survive an HTML round trip.
+- Tables are written as grids with nested tables, spans, header rows, shading, padding and side borders. Overlapping or out-of-range tables report `html.table.range`.
 - Embedded objects, scripts, stylesheets, forms, and metadata are not
   serialized from the model.
 - Hidden body-section visibility is not written; the retained content is
@@ -224,9 +175,7 @@ paragraph out.
 
 ## Known Limitations
 
-- CSS support is declaration-level and intentionally small: bare type selectors
-  and `@page` only ([Stylesheets](#stylesheets)).
-- Table writing flattens cell content; reading retains basic grids.
+- CSS support covers declarations on type selectors, two-type descendant selectors and `@page` ([Stylesheets](#stylesheets)).
 - Relative links are dropped ([Reader Mapping](#reader-mapping)).
 - Markdown and DOCX are peer codecs, documented separately; this HTML codec
   does not delegate to them.

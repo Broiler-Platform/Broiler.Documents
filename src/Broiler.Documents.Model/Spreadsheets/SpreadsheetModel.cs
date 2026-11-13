@@ -35,6 +35,12 @@ public sealed class SpreadsheetCell
     /// <summary>The cell's background shading color.</summary>
     public BColor Shading { get; }
 
+    /// <summary>The vertical alignment of the cell content.</summary>
+    public CellVerticalAlignment VerticalAlignment { get; init; }
+    public TextAlignment Alignment { get; init; }
+    public InlineStyle Font { get; init; } = InlineStyle.Default;
+    public CellBorders Borders { get; init; }
+
     /// <summary>Initializes a new instance of <see cref="SpreadsheetCell"/>.</summary>
     public SpreadsheetCell(
         CellAddress address,
@@ -192,17 +198,9 @@ public sealed class SpreadsheetWorkbook
                     int cellStart = paragraphs.Count;
                     string text = sCell.CachedText ?? string.Empty;
                     string[] lines = text.Split('\n');
-                    if (lines.Length == 0 || (lines.Length == 1 && lines[0].Length == 0))
-                    {
-                        paragraphs.Add(RichTextParagraph.Empty);
-                    }
-                    else
-                    {
-                        foreach (string line in lines)
-                        {
-                            paragraphs.Add(RichTextParagraph.Plain(line.TrimEnd('\r')));
-                        }
-                    }
+                    foreach (string line in lines)
+                        paragraphs.Add(RichTextParagraph.Create(line.TrimEnd('\r'), sCell.Font,
+                            ParagraphStyle.Default with { Alignment = sCell.Alignment }).WithMarkStyle(sCell.Font));
                     int cellCount = paragraphs.Count - cellStart;
 
                     var tableCell = new TableCell(
@@ -212,6 +210,8 @@ public sealed class SpreadsheetWorkbook
                         columnSpan: sCell.ColumnSpan,
                         rowSpan: sCell.RowSpan,
                         shading: sCell.Shading,
+                        borders: sCell.Borders,
+                        verticalAlignment: sCell.VerticalAlignment,
                         formula: sCell.Formula,
                         numberFormat: sCell.NumberFormat,
                         value: sCell.Value);
@@ -313,7 +313,17 @@ public sealed class SpreadsheetWorkbook
                         cachedText: cellText,
                         columnSpan: tCell.ColumnSpan,
                         rowSpan: tCell.RowSpan,
-                        shading: tCell.Shading);
+                        shading: tCell.Shading)
+                    {
+                        VerticalAlignment = tCell.VerticalAlignment,
+                        Borders = tCell.Borders,
+                        Alignment = tCell.ParagraphIndex < document.ParagraphCount
+                            ? document.Paragraphs[tCell.ParagraphIndex].Style.Alignment : default,
+                        Font = tCell.ParagraphIndex < document.ParagraphCount
+                            ? (document.Paragraphs[tCell.ParagraphIndex].Length == 0
+                                ? document.Paragraphs[tCell.ParagraphIndex].MarkStyle
+                                : document.Paragraphs[tCell.ParagraphIndex].StyleAt(0)) : InlineStyle.Default,
+                    };
 
                     cells.Add(cell);
                 }

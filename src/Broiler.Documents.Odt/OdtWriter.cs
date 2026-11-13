@@ -1005,7 +1005,7 @@ public static class OdtWriter
         }
 
         // A page field holds its last value as its text, as ODF writes one.
-        if (style.PageField is PageField field)
+        if (style.PageField is PageField { Kind: not PageFieldKind.SectionPageCount } field)
         {
             var element = new XElement(OdtNamespaces.Text + (field.Kind == PageFieldKind.PageCount ? "page-count" : "page-number"));
             string? format = field.Format switch
@@ -1525,6 +1525,10 @@ public static class OdtWriter
                 OdtNamespaces.Style + "line-height-at-least",
                 OdtUnits.FormatPoints(style.LineHeight)));
         }
+        else if (style.LineHeightRule == LineHeightRule.Leading && float.IsFinite(style.LineHeight))
+        {
+            properties.Add(new XAttribute(OdtNamespaces.Style + "line-spacing", OdtUnits.FormatPoints(style.LineHeight)));
+        }
         else if (Math.Abs(style.LineSpacing - 1f) > 0.001f && style.LineSpacing > 0)
         {
             properties.Add(new XAttribute(
@@ -1584,8 +1588,21 @@ public static class OdtWriter
         if (style.Hidden)
             properties.Add(new XAttribute(OdtNamespaces.Text + "display", "none"));
 
+        if (style.Language is { Length: > 0 } language)
+        {
+            string[] parts = language.Split('-', 2);
+            if (parts[0].Length is >= 2 and <= 3 && parts[0].All(char.IsAsciiLetter))
+                properties.Add(new XAttribute(OdtNamespaces.Fo + "language", parts[0]));
+            if (parts.Length == 2 && parts[1].Length == 2 && parts[1].All(char.IsAsciiLetter))
+                properties.Add(new XAttribute(OdtNamespaces.Fo + "country", parts[1]));
+        }
+
         if (style.Capitalization == TextCapitalization.AllCaps)
             properties.Add(new XAttribute(OdtNamespaces.Fo + "text-transform", "uppercase"));
+        else if (style.Capitalization == TextCapitalization.Lowercase)
+            properties.Add(new XAttribute(OdtNamespaces.Fo + "text-transform", "lowercase"));
+        else if (style.Capitalization == TextCapitalization.Capitalize)
+            properties.Add(new XAttribute(OdtNamespaces.Fo + "text-transform", "capitalize"));
         else if (style.Capitalization == TextCapitalization.SmallCaps)
             properties.Add(new XAttribute(OdtNamespaces.Fo + "font-variant", "small-caps"));
 

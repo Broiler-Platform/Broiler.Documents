@@ -7,6 +7,7 @@ using System.Text;
 using System.Xml;
 using System.Xml.Linq;
 using Broiler.Documents.Model;
+using Broiler.Graphics.Color;
 using Broiler.Documents.Model.Spreadsheets;
 
 namespace Broiler.Documents.Xlsx;
@@ -25,6 +26,7 @@ internal static class XlsxWriter
         var diagnosticOnce = new HashSet<string>(StringComparer.Ordinal);
 
         // Collect unique shared strings
+        var styles = new Dictionary<CellStyle, int> { [default] = 0 };
         var sharedStrings = new List<string>();
         var stringMap = new Dictionary<string, int>(StringComparer.Ordinal);
 
@@ -34,6 +36,7 @@ internal static class XlsxWriter
             {
                 foreach (SpreadsheetCell cell in row.Cells)
                 {
+                    styles.TryAdd(GetStyle(cell, diagnostics, diagnosticOnce), styles.Count);
                     if (string.IsNullOrEmpty(cell.Formula) &&
                         (cell.Value.IsText || (!cell.Value.IsNumber && !cell.Value.IsBoolean && !cell.Value.IsError && !string.IsNullOrEmpty(cell.CachedText))))
                     {
@@ -63,7 +66,7 @@ internal static class XlsxWriter
             WriteWorkbookXml(archive, workbook, diagnostics, diagnosticOnce);
 
             // 5. xl/styles.xml
-            WriteStylesXml(archive);
+            WriteStylesXml(archive, styles);
 
             // 6. xl/sharedStrings.xml
             WriteSharedStringsXml(archive, sharedStrings);
@@ -71,7 +74,7 @@ internal static class XlsxWriter
             // 7. xl/worksheets/sheet{i}.xml
             for (int i = 0; i < workbook.Sheets.Count; i++)
             {
-                WriteWorksheetXml(archive, workbook.Sheets[i], i + 1, stringMap, diagnostics, diagnosticOnce);
+                WriteWorksheetXml(archive, workbook.Sheets[i], i + 1, stringMap, styles, diagnostics, diagnosticOnce);
             }
         }
 
@@ -168,7 +171,26 @@ internal static class XlsxWriter
         WriteXmlEntry(archive, "xl/workbook.xml", new XDocument(root));
     }
 
-    private static void WriteStylesXml(ZipArchive archive)
+    private readonly record struct CellStyle(string? Format, BColor Fill, CellVerticalAlignment Vertical,
+        TextAlignment Horizontal, InlineStyle Font, CellBorders Borders);
+
+    private static CellStyle GetStyle(
+        SpreadsheetCell cell, List<DocumentDiagnostic> diagnostics, HashSet<string> diagnosticOnce)
+    {
+        string? format = cell.NumberFormat is null ? null : XmlText(cell.NumberFormat, diagnostics, diagnosticOnce);
+        BColor fill = cell.Shading.A == 0 ? default : cell.Shading;
+        InlineStyle font = new()
+        {
+            FontFamily = cell.Font.FontFamily is { } family ? XmlText(family, diagnostics, diagnosticOnce) : null,
+            FontSize = cell.Font.FontSize is float size && float.IsFinite(size) && size > 0 ? size : null,
+            Bold = cell.Font.Bold, Italic = cell.Font.Italic, Underline = cell.Font.Underline,
+            Strikethrough = cell.Font.Strikethrough, Foreground = cell.Font.Foreground,
+        };
+        return new CellStyle(string.IsNullOrWhiteSpace(format) || format == "General" ? null : format,
+            fill, cell.VerticalAlignment, cell.Alignment, font, cell.Borders);
+    }
+
+    private static void WriteStylesXml(ZipArchive archive, Dictionary<CellStyle, int> styles)
     {
         var root = new XElement(XlsxNamespaces.Spreadsheet + "styleSheet",
             new XAttribute("xmlns", XlsxNamespaces.Spreadsheet.NamespaceName),
@@ -204,9 +226,84 @@ internal static class XlsxWriter
                     new XAttribute("fontId", "0"),
                     new XAttribute("fillId", "0"),
                     new XAttribute("borderId", "0"),
-                    new XAttribute("xfId", "0"))));
+                    new XAttribute("xfId", "0"),
+                    new XAttribute("applyAlignment", 1),
+                    new XElement(XlsxNamespaces.Spreadsheet + "alignment", new XAttribute("vertical", "top")))));
 
+        XNamespace ns = XlsxNamespaces.Spreadsheet;
+        var numberFormats = new XElement(ns + "numFmts");
+        XElement fills = root.Element(ns + "fills")!;
+        XElement cellFormats = root.Element(ns + "cellXfs")!;
+        var formatIds = new Dictionary<string, int>(StringComparer.Ordinal);
+        var fillIds = new Dictionary<BColor, int>();
+        var fontIds = new Dictionary<InlineStyle, int> { [InlineStyle.Default] = 0 };
+        var borderIds = new Dictionary<CellBorders, int> { [default] = 0 };
+
+        foreach (var (style, index) in styles)
+        {
+            if (index == 0)
+                continue;
+
+            int formatId = 0;
+            if (style.Format is { } format && !formatIds.TryGetValue(format, out formatId))
+            {
+                formatId = 164 + formatIds.Count;
+                formatIds.Add(format, formatId);
+                numberFormats.Add(new XElement(ns + "numFmt",
+                    new XAttribute("numFmtId", formatId), new XAttribute("formatCode", format)));
+            }
+
+            int fillId = 0;
+            if (style.Fill.A != 0 && !fillIds.TryGetValue(style.Fill, out fillId))
+            {
+                fillId = 2 + fillIds.Count;
+                fillIds.Add(style.Fill, fillId);
+                string argb = string.Create(CultureInfo.InvariantCulture,
+                    $"{style.Fill.A:X2}{style.Fill.R:X2}{style.Fill.G:X2}{style.Fill.B:X2}");
+                fills.Add(new XElement(ns + "fill",
+                    new XElement(ns + "patternFill", new XAttribute("patternType", "solid"),
+                        new XElement(ns + "fgColor", new XAttribute("rgb", argb)),
+                        new XElement(ns + "bgColor", new XAttribute("indexed", 64)))));
+            }
+
+            int fontId = Register(style.Font, fontIds, root.Element(ns + "fonts")!, XlsxCellAppearance.WriteFont);
+            int borderId = Register(style.Borders, borderIds, root.Element(ns + "borders")!, XlsxCellAppearance.WriteBorders);
+            cellFormats.Add(new XElement(ns + "xf",
+                new XAttribute("numFmtId", formatId), new XAttribute("fontId", fontId),
+                new XAttribute("fillId", fillId), new XAttribute("borderId", borderId), new XAttribute("xfId", 0),
+                formatId == 0 ? null : new XAttribute("applyNumberFormat", 1),
+                fillId == 0 ? null : new XAttribute("applyFill", 1),
+                new XAttribute("applyAlignment", 1),
+                new XElement(ns + "alignment", new XAttribute("vertical", style.Vertical switch
+                {
+                    CellVerticalAlignment.Center => "center",
+                    CellVerticalAlignment.Bottom => "bottom",
+                    _ => "top",
+                }), style.Horizontal == TextAlignment.Left ? null :
+                    new XAttribute("horizontal", style.Horizontal.ToString().ToLowerInvariant()))));
+        }
+
+        if (formatIds.Count > 0)
+        {
+            numberFormats.SetAttributeValue("count", formatIds.Count);
+            root.AddFirst(numberFormats);
+        }
+        fills.SetAttributeValue("count", 2 + fillIds.Count);
+        cellFormats.SetAttributeValue("count", styles.Count);
         WriteXmlEntry(archive, "xl/styles.xml", new XDocument(root));
+    }
+
+    private static int Register<T>(T value, Dictionary<T, int> ids, XElement parent, Func<T, XElement> write)
+        where T : notnull
+    {
+        if (!ids.TryGetValue(value, out int id))
+        {
+            id = ids.Count;
+            ids.Add(value, id);
+            parent.Add(write(value));
+            parent.SetAttributeValue("count", ids.Count);
+        }
+        return id;
     }
 
     private static void WriteSharedStringsXml(ZipArchive archive, List<string> sharedStrings)
@@ -233,6 +330,7 @@ internal static class XlsxWriter
         SpreadsheetWorksheet sheet,
         int sheetNumber,
         Dictionary<string, int> stringMap,
+        Dictionary<CellStyle, int> styles,
         List<DocumentDiagnostic> diagnostics,
         HashSet<string> diagnosticOnce)
     {
@@ -246,11 +344,11 @@ internal static class XlsxWriter
             var colsElem = new XElement(XlsxNamespaces.Spreadsheet + "cols");
             for (int c = 0; c < sheet.ColumnWidths.Count; c++)
             {
-                double width = Math.Max(1.0, sheet.ColumnWidths[c] / 7.5);
+                double width = XlsxColumnWidth.FromPoints(sheet.ColumnWidths[c]);
                 colsElem.Add(new XElement(XlsxNamespaces.Spreadsheet + "col",
                     new XAttribute("min", c + 1),
                     new XAttribute("max", c + 1),
-                    new XAttribute("width", width.ToString("F2", CultureInfo.InvariantCulture)),
+                    new XAttribute("width", width.ToString(CultureInfo.InvariantCulture)),
                     new XAttribute("customWidth", "1")));
             }
             root.Add(colsElem);
@@ -275,12 +373,17 @@ internal static class XlsxWriter
                 string a1 = cell.Address.Format();
                 var cElem = new XElement(XlsxNamespaces.Spreadsheet + "c",
                     new XAttribute("r", a1));
+                int styleIndex = styles[GetStyle(cell, diagnostics, diagnosticOnce)];
+                if (styleIndex != 0)
+                    cElem.Add(new XAttribute("s", styleIndex));
 
                 if (!string.IsNullOrEmpty(cell.Formula))
                 {
                     string f = XmlText(cell.Formula.TrimStart('='), diagnostics, diagnosticOnce);
                     cElem.Add(new XElement(XlsxNamespaces.Spreadsheet + "f", f));
-                    if (!string.IsNullOrEmpty(cell.CachedText))
+                    if (cell.Value.IsNumber)
+                        cElem.Add(new XElement(XlsxNamespaces.Spreadsheet + "v", cell.Value.Number.ToString(CultureInfo.InvariantCulture)));
+                    else if (!string.IsNullOrEmpty(cell.CachedText))
                         cElem.Add(new XElement(XlsxNamespaces.Spreadsheet + "v", XmlText(cell.CachedText, diagnostics, diagnosticOnce)));
                 }
                 else if (cell.Value.IsNumber)

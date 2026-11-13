@@ -91,11 +91,213 @@ public sealed class SharedLayoutPdfPaginationPriority5Tests
         public IReadOnlyList<IPaginatedLineArtifact> Lines { get; } = lines;
         public IReadOnlyList<IPaginatedShapeArtifact> Shapes { get; } = shapes;
         public ShapeFill? Background { get; } = background;
+        public IReadOnlyList<Broiler.Graphics.Geometry.BRect> ColumnSeparators { get; init; } = [];
     }
 
     private sealed class StubPaginatedDocument(IReadOnlyList<IPaginatedPageArtifact> pages) : IPaginatedDocumentArtifact
     {
         public IReadOnlyList<IPaginatedPageArtifact> Pages { get; } = pages;
+    }
+
+    [Theory]
+    [InlineData(SectionBreakType.OddPage, 3)]
+    [InlineData(SectionBreakType.EvenPage, 2)]
+    public void Standalone_Pdf_Starts_The_Next_Section_On_The_Requested_Parity(
+        SectionBreakType breakType, int expectedPages)
+    {
+        var document = RichTextDocument.FromPlainText("First\nSecond")
+            .WithRunningContent(RunningContent.Empty.WithHeader(PageSelection.Default, [RichTextParagraph.Plain("Header")]))
+            .WithSections(
+            [
+                new DocumentSection(0, 1, 1, 0),
+                new DocumentSection(1, 1, 1, 0, breakType: breakType),
+            ]);
+        var options = PdfWriteOptions.Default;
+        var layout = new PdfPageLayout(options, new PdfApproximateFontMetrics(), PdfUriPolicy.Default,
+            new PdfDiagnosticSink(options.PdfLimits.MaxDiagnostics), CancellationToken.None);
+
+        var pages = layout.Build(document);
+        Assert.Equal(expectedPages, pages.Count);
+        Assert.Contains(pages[^1].Runs, run => run.Text == "Second");
+        if (expectedPages == 3)
+            Assert.Empty(pages[1].Runs);
+    }
+
+    [Fact]
+    public void Section_Paper_And_Margins_Control_Standalone_Pdf_Pages()
+    {
+        var second = new PageGeometry(700, 500, 90, 50, 40, 30);
+        var document = RichTextDocument.FromPlainText("First\nSecond")
+            .WithPageGeometry(new PageGeometry(612, 792, 72, 72, 72, 72))
+            .WithSections(
+            [
+                new DocumentSection(0, 1, 1, 0),
+                new DocumentSection(1, 1, 1, 0, page: second, breakType: SectionBreakType.NextPage),
+            ]);
+        using var stream = new MemoryStream();
+        var result = PdfWriter.Write(document, stream, new PdfWriteOptions(compressStreams: false),
+            PdfCodecServices.Base, TestContext.Current.CancellationToken);
+
+        Assert.Equal(DocumentResultStatus.Success, result.Status);
+        Assert.Equal(2, result.PageCount);
+        string pdf = Encoding.ASCII.GetString(stream.ToArray());
+        Assert.Contains("/MediaBox [0 0 612 792]", pdf);
+        Assert.Contains("/MediaBox [0 0 700 500]", pdf);
+
+        var options = PdfWriteOptions.Default;
+        var layout = new PdfPageLayout(options, new PdfApproximateFontMetrics(), PdfUriPolicy.Default,
+            new PdfDiagnosticSink(options.PdfLimits.MaxDiagnostics), CancellationToken.None);
+        Assert.Equal(90, Assert.Single(layout.Build(document)[1].Runs).X, 6);
+    }
+
+    [Fact]
+    public void Continuous_Section_Starts_Below_The_Preceding_Columns()
+    {
+        var style = ParagraphStyle.Default with { LineHeightRule = LineHeightRule.Exact, LineHeight = 14, SpacingAfter = 0.01f };
+        var document = RichTextDocument.FromParagraphs(
+        [
+            RichTextParagraph.Plain("Left").WithParagraphStyle(style),
+            RichTextParagraph.Plain("Right").WithParagraphStyle(style with { ColumnBreakBefore = true }),
+            RichTextParagraph.Plain("Below").WithParagraphStyle(style),
+        ]).WithPageGeometry(new PageGeometry(612, 792, 72, 72, 72, 72))
+          .WithSections(
+          [
+              new DocumentSection(0, 2, 2, 36) { ColumnSeparator = true },
+              new DocumentSection(2, 1, 1, 0),
+          ]);
+        var options = PdfWriteOptions.Default;
+        var layout = new PdfPageLayout(options, new PdfApproximateFontMetrics(), PdfUriPolicy.Default,
+            new PdfDiagnosticSink(options.PdfLimits.MaxDiagnostics), CancellationToken.None);
+
+        var page = Assert.Single(layout.Build(document));
+        Assert.Equal(3, page.Runs.Count);
+        Assert.Equal(252, page.Runs[1].X - page.Runs[0].X, 6);
+        Assert.Equal(page.Runs[0].Baseline, page.Runs[1].Baseline, 6);
+        Assert.Equal(14.01, page.Runs[0].Baseline - page.Runs[2].Baseline, 6);
+        Assert.Equal(14.01, Assert.Single(page.Shapes).Height, 6);
+    }
+
+    [Fact]
+    public void Standalone_Pdf_Changes_Column_Settings_At_A_Next_Page_Section()
+    {
+        var document = RichTextDocument.FromParagraphs(
+        [
+            RichTextParagraph.Plain("First"),
+            RichTextParagraph.Plain("Second column").WithParagraphStyle(
+                ParagraphStyle.Default with { ColumnBreakBefore = true }),
+            RichTextParagraph.Plain("Single column"),
+        ]).WithPageGeometry(new PageGeometry(612, 792, 72, 72, 72, 72))
+          .WithSections(
+          [
+              new DocumentSection(0, 2, 2, 36, breakType: SectionBreakType.NextPage) { ColumnSeparator = true },
+              new DocumentSection(2, 1, 1, 0, breakType: SectionBreakType.NextPage),
+          ]);
+        var options = PdfWriteOptions.Default;
+        var layout = new PdfPageLayout(options, new PdfApproximateFontMetrics(), PdfUriPolicy.Default,
+            new PdfDiagnosticSink(options.PdfLimits.MaxDiagnostics), CancellationToken.None);
+
+        var pages = layout.Build(document);
+        Assert.Equal(2, pages.Count);
+        Assert.Equal(2, pages[0].Runs.Count);
+        Assert.Equal(252, pages[0].Runs[1].X - pages[0].Runs[0].X, 6);
+        Assert.Single(pages[0].Shapes);
+        Assert.Empty(pages[1].Shapes);
+        Assert.Equal(72, Assert.Single(pages[1].Runs).X, 6);
+    }
+
+    [Fact]
+    public void Standalone_Pdf_Moves_A_Merged_Row_Group_Together()
+    {
+        var fill = new BColor(51, 102, 153);
+        var document = RichTextDocument.FromParagraphs(
+            [RichTextParagraph.Plain("First"), RichTextParagraph.Plain("Merged"), RichTextParagraph.Plain("Last")])
+            .WithPageGeometry(new PageGeometry(612, 792, 72, 72, 72, 72, ColumnCount: 2, ColumnGap: 36))
+            .WithTables([new DocumentTable(0, 3,
+            [
+                new TableRow([new TableCell(0, 1, 0)], minHeight: 400),
+                new TableRow([new TableCell(1, 1, 0, rowSpan: 2, shading: fill)], minHeight: 150),
+                new TableRow([new TableCell(2, 1, 1)], minHeight: 150),
+            ])]);
+        var options = PdfWriteOptions.Default;
+        var layout = new PdfPageLayout(options, new PdfApproximateFontMetrics(), PdfUriPolicy.Default,
+            new PdfDiagnosticSink(options.PdfLimits.MaxDiagnostics), CancellationToken.None);
+
+        var page = Assert.Single(layout.Build(document));
+        Assert.Equal(3, page.Runs.Count);
+        Assert.Equal(252, page.Runs[1].X - page.Runs[0].X, 6);
+        Assert.True(page.Runs[2].X > page.Runs[1].X);
+        var merged = Assert.Single(page.Shapes);
+        Assert.Equal(324, merged.X, 6);
+        Assert.Equal(300, merged.Height, 6);
+    }
+
+    [Fact]
+    public void Standalone_Pdf_Places_Table_Rows_And_Shading_In_The_Next_Column()
+    {
+        var fill = new BColor(51, 102, 153);
+        var document = RichTextDocument.FromParagraphs(
+            [RichTextParagraph.Plain("First"), RichTextParagraph.Plain("Second")])
+            .WithPageGeometry(new PageGeometry(612, 792, 72, 72, 72, 72, ColumnCount: 2, ColumnGap: 36))
+            .WithTables([new DocumentTable(0, 2,
+            [
+                new TableRow([new TableCell(0, 1, 0, shading: fill)], minHeight: 400),
+                new TableRow([new TableCell(1, 1, 0, shading: fill)], minHeight: 400),
+            ])]);
+        var options = PdfWriteOptions.Default;
+        var layout = new PdfPageLayout(options, new PdfApproximateFontMetrics(), PdfUriPolicy.Default,
+            new PdfDiagnosticSink(options.PdfLimits.MaxDiagnostics), CancellationToken.None);
+
+        var page = Assert.Single(layout.Build(document));
+        Assert.Equal(2, page.Runs.Count);
+        Assert.Equal(252, page.Runs[1].X - page.Runs[0].X, 6);
+        Assert.Equal(2, page.Shapes.Count);
+        Assert.Equal(252, page.Shapes[1].X - page.Shapes[0].X, 6);
+    }
+
+    [Fact]
+    public void Standalone_Pdf_Advances_Through_Columns_And_Draws_Separators()
+    {
+        var style = ParagraphStyle.Default with { LineHeightRule = LineHeightRule.Exact, LineHeight = 14 };
+        var document = RichTextDocument.FromParagraphs(
+            System.Linq.Enumerable.Select(System.Linq.Enumerable.Range(1, 108),
+                i => RichTextParagraph.Plain("Line " + i).WithParagraphStyle(style)))
+            .WithPageGeometry(new PageGeometry(612, 792, 72, 72, 72, 72, ColumnCount: 2, ColumnGap: 36)
+                { ColumnSeparator = true });
+
+        using var stream = new MemoryStream();
+        var result = PdfWriter.Write(document, stream, new PdfWriteOptions(compressStreams: false),
+            PdfCodecServices.Base, TestContext.Current.CancellationToken);
+
+        Assert.Equal(DocumentResultStatus.Success, result.Status);
+        Assert.Equal(2, result.PageCount);
+        Assert.Contains("305.75 72 0.5 648 re", Encoding.ASCII.GetString(stream.ToArray()));
+    }
+
+    [Fact]
+    public void BuildFromArtifact_Paints_Column_Separators()
+    {
+        var options = PdfWriteOptions.Default;
+        var layout = new PdfPageLayout(options, new PdfApproximateFontMetrics(), PdfUriPolicy.Default,
+            new PdfDiagnosticSink(options.PdfLimits.MaxDiagnostics), CancellationToken.None);
+        var page = new StubPaginatedPage(1, 700, 792, [], [])
+        {
+            ColumnSeparators = [new(305.75, 72, 0.5, 100)],
+        };
+
+        var rule = Assert.Single(Assert.Single(layout.BuildFromArtifact(new StubPaginatedDocument([page]))).Shapes);
+        Assert.Equal(305.75, rule.X);
+        Assert.Equal(620, rule.Y);
+        Assert.Equal(0.5, rule.Width);
+        Assert.Equal(100, rule.Height);
+
+        using var stream = new MemoryStream();
+        var artifact = new StubPaginatedDocument([page]);
+        var writeOptions = new PdfWriteOptions(compressStreams: false).WithPaginatedArtifact(artifact);
+        var result = PdfWriter.Write(RichTextDocument.FromPlainText("Columns"), stream,
+            writeOptions, PdfCodecServices.Base, TestContext.Current.CancellationToken);
+        Assert.Equal(DocumentResultStatus.Success, result.Status);
+        Assert.Contains("305.75 620 0.5 100 re", Encoding.ASCII.GetString(stream.ToArray()));
+        Assert.Contains("/MediaBox [0 0 700 792]", Encoding.ASCII.GetString(stream.ToArray()));
     }
 
     [Fact]

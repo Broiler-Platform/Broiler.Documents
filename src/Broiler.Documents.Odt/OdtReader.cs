@@ -4406,13 +4406,17 @@ internal static class OdtReader
         if (TryLineHeight((string?)properties.Attribute(OdtNamespaces.Style + "line-height-at-least"), out float least))
             return style with { LineSpacing = 1f, LineHeightRule = LineHeightRule.AtLeast, LineHeight = least };
 
-        // Leading added between lines is a third kind, which the model does not
-        // hold.
-        if (properties.Attribute(OdtNamespaces.Style + "line-spacing") is not null)
+        if (properties.Attribute(OdtNamespaces.Style + "line-spacing") is { } leading)
         {
-            builder.AddDiagnosticOnce(
-                "odt.linespacing.leading",
-                "ODT line spacing stated as leading between lines was not represented.");
+            if (OdtUnits.TryParseLength(leading.Value, out double points))
+                return style with
+                {
+                    LineSpacing = 1f,
+                    LineHeightRule = LineHeightRule.Leading,
+                    LineHeight = (float)Math.Clamp(points, -ParagraphStyle.MaxLineHeight, ParagraphStyle.MaxLineHeight),
+                };
+
+            builder.AddDiagnosticOnce("odt.linespacing.leading", "An invalid fixed line spacing was ignored.");
         }
 
         return style;
@@ -4550,30 +4554,26 @@ internal static class OdtReader
                 : ClearCapitalization(style, TextCapitalization.SmallCaps);
         }
 
-        return ApplyTextTransform(properties, style, builder);
-    }
+        string? language = (string?)properties.Attribute(OdtNamespaces.Fo + "language");
+        string? country = (string?)properties.Attribute(OdtNamespaces.Fo + "country");
+        if (language is "none" or "zxx")
+            style = style with { Language = null };
+        else if (language is { Length: >= 2 and <= 3 } && language.All(char.IsAsciiLetter))
+            style = style with
+            {
+                Language = country is { Length: 2 } && country.All(char.IsAsciiLetter)
+                    ? language + "-" + country : language,
+            };
 
-    private static InlineStyle ApplyTextTransform(
-        XElement properties,
-        InlineStyle style,
-        OdtDocumentBuilder builder)
-    {
-        string? transform = (string?)properties.Attribute(OdtNamespaces.Fo + "text-transform");
-        if (transform is null)
-            return style;
-
-        if (transform.Equals("uppercase", StringComparison.OrdinalIgnoreCase))
-            return style with { Capitalization = TextCapitalization.AllCaps };
-
-        if (transform.Equals("lowercase", StringComparison.OrdinalIgnoreCase) ||
-            transform.Equals("capitalize", StringComparison.OrdinalIgnoreCase))
+        return ((string?)properties.Attribute(OdtNamespaces.Fo + "text-transform"))?.ToLowerInvariant() switch
         {
-            builder.AddDiagnosticOnce(
-                "odt.text.transform",
-                "An ODT lowercase or capitalize text transform was dropped; the model draws upper case only.");
-        }
-
-        return ClearCapitalization(style, TextCapitalization.AllCaps);
+            "uppercase" => style with { Capitalization = TextCapitalization.AllCaps },
+            "lowercase" => style with { Capitalization = TextCapitalization.Lowercase },
+            "capitalize" => style with { Capitalization = TextCapitalization.Capitalize },
+            "none" when style.Capitalization != TextCapitalization.SmallCaps =>
+                style with { Capitalization = TextCapitalization.None },
+            _ => style,
+        };
     }
 
     /// <summary>Turning one kind of capitalization off leaves the other alone.</summary>

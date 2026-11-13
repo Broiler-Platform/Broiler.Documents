@@ -38,6 +38,26 @@ public sealed class DocxStyleReferenceTests
         paragraph.StyleAt(paragraph.Text.IndexOf(text, StringComparison.Ordinal)).StyleReference;
 
     [Fact]
+    public void Character_Style_Reference_Roundtrips_As_A_Live_Field()
+    {
+        const string name = "Main Index Entry";
+        var field = new StyleReferenceField(name, FromBottom: true);
+        var document = RichTextDocument.FromParagraphs(
+            [RichTextParagraph.Create("Actual", new InlineStyle { CharacterStyle = name, Bold = true })])
+            .WithRunningContent(RunningContent.Empty.WithHeader(PageSelection.Default,
+                [RichTextParagraph.Create("Cached", new InlineStyle { StyleReference = field })]));
+        using var stream = new MemoryStream(DocxDocumentCodec.WriteToArray(document));
+        var result = new DocxDocumentCodec().Read(stream).Document;
+
+        var header = Assert.Single(result.RunningContent.Header(PageSelection.Default));
+        Assert.Equal("Cached", header.Text);
+        Assert.Equal(field, header.StyleAt(0).StyleReference);
+        Assert.Equal(name, result.Paragraphs[0].StyleAt(0).CharacterStyle);
+        Assert.True(result.Paragraphs[0].StyleAt(0).Bold);
+        Assert.Equal("Actual", field.Text(result.Paragraphs, (0, 0), (0, 6)));
+    }
+
+    [Fact]
     public void A_Styleref_Naming_A_Character_Style_Marks_Its_Saved_Result()
     {
         RichTextParagraph paragraph = Read(ComplexField(" STYLEREF \"Main Index Entry\" ", "mitosis"));

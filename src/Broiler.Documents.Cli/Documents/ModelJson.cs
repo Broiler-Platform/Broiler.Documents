@@ -76,6 +76,7 @@ public static class ModelJson
         {
             LineHeightRule.AtLeast => "atLeast",
             LineHeightRule.Exact => "exact",
+            LineHeightRule.Leading => "leading",
             _ => "proportional",
         },
         ["lineHeight"] = style.LineHeight,

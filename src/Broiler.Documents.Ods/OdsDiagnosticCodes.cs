@@ -19,4 +19,9 @@ public static class OdsDiagnosticCodes
 
     /// <summary>A control character that XML cannot represent was dropped.</summary>
     public const string ControlCharacterDropped = "ods.text.control";
+    /// <summary>A cell number format could not be translated to or from ODF.</summary>
+    public const string NumberFormatUnsupported = "ods.number-format";
+
+    /// <summary>The optional styles.xml entry could not be read.</summary>
+    public const string StylesInvalid = "ods.styles";
 }

@@ -196,6 +196,8 @@ internal sealed class DocxFields
             kind = PageFieldKind.PageNumber;
         else if (tokens[0].Equals("NUMPAGES", StringComparison.OrdinalIgnoreCase))
             kind = PageFieldKind.PageCount;
+        else if (tokens[0].Equals("SECTIONPAGES", StringComparison.OrdinalIgnoreCase))
+            kind = PageFieldKind.SectionPageCount;
         else
             return null;
 

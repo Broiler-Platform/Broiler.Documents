@@ -5,63 +5,13 @@ using Broiler.Dom;
 
 namespace Broiler.Documents.Html;
 
-/// <summary>
-/// The type-selector rules of a document's own stylesheet, resolved as a base
-/// beneath each element's <c>style</c> attribute.
-/// </summary>
-/// <remarks>
-/// <para>
-/// This codec applied CSS from <c>style</c> attributes and nowhere else, and the
-/// office conformance suite reported what that costs: HTML scoring below its own
-/// DOCX and ODT twins on documents carrying the same formatting. Converting DOCX
-/// to HTML, LibreOffice writes both a <c>p { line-height: 115% }</c> rule and an
-/// inline style on every paragraph that overrides it, so for those files the
-/// stylesheet does not matter. Converting HTML to HTML it writes bare
-/// <c>&lt;p&gt;</c> elements and leaves the rule to say everything - and every
-/// one of those read back here with no line spacing and no spacing after, in
-/// silence, because a declaration that was never looked at leaves nothing behind
-/// to report.
-/// </para>
-/// <para>
-/// What is implemented is one selector: a bare element name. A rule selecting
-/// <c>p</c>, or a list every one of whose items is such a name, contributes its
-/// declarations to those elements underneath whatever the element's own
-/// <c>style</c> attribute says. Nothing else is - not a class, an id, an
-/// attribute, a pseudo-class, a combinator, a descendant, <c>*</c>,
-/// <c>!important</c>, <c>@media</c>, or an external sheet.
-/// </para>
-/// <para>
-/// The line is drawn there because everything on the far side of it is the
-/// cascade, and the cascade is a browser. Specificity here is one comparison
-/// with one answer - the element beats the sheet - which can be stated in a
-/// sentence and applied to an element without knowing anything about the rest of
-/// the document. Class matching is not: a class rule, an id rule and a
-/// descendant rule all aimed at one paragraph have to be ordered against each
-/// other before any of them can be applied, and building the thing that orders
-/// them is not a smaller job than building the whole engine. A document reader
-/// wants the formatting a producer stated in the only way that producer states
-/// it; it does not want to become a rendering engine to get it.
-/// </para>
-/// <para>
-/// A selector list is all or nothing. <c>h1, .lead { ... }</c> applies to
-/// neither rather than to the <c>h1</c> alone, because applying the half this
-/// codec understands would return a document in which one of two elements the
-/// author deliberately styled together came back styled and the other did not,
-/// with nothing in the result to say which had happened. Skipping the whole rule
-/// is the answer that stays honest, and it is reported rather than silent.
-/// </para>
-/// <para>
-/// Two type rules stating the same property for the same element resolve by
-/// source order, the later winning, which is what CSS says for two rules of
-/// equal specificity - and unlike the class case it needs no specificity
-/// comparison to say so.
-/// </para>
-/// </remarks>
+/// <summary>Resolves type selectors and two-type descendant selectors from embedded CSS.</summary>
 internal sealed class HtmlStyleSheet
 {
-    private readonly Dictionary<string, Dictionary<string, string>> _rules;
+    private sealed record Rule(string? Ancestor, IReadOnlyDictionary<string, string> Declarations);
+    private readonly Dictionary<string, List<Rule>> _rules;
 
-    private HtmlStyleSheet(Dictionary<string, Dictionary<string, string>> rules, bool skipped)
+    private HtmlStyleSheet(Dictionary<string, List<Rule>> rules, bool skipped)
     {
         _rules = rules;
         HasSkippedRule = skipped;
@@ -83,7 +33,7 @@ internal sealed class HtmlStyleSheet
     /// <summary>Reads the type rules out of a document's stylesheet text.</summary>
     public static HtmlStyleSheet Parse(string? css)
     {
-        var rules = new Dictionary<string, Dictionary<string, string>>(StringComparer.OrdinalIgnoreCase);
+        var rules = new Dictionary<string, List<Rule>>(StringComparer.OrdinalIgnoreCase);
         bool skipped = false;
         if (!string.IsNullOrWhiteSpace(css))
             Collect(WithoutComments(css), rules, ref skipped);
@@ -106,16 +56,28 @@ internal sealed class HtmlStyleSheet
     {
         IReadOnlyDictionary<string, string> inline =
             HtmlCss.ParseDeclarations(element.GetAttribute("style"));
-        if (_rules.Count == 0 ||
-            !_rules.TryGetValue(element.LocalName, out Dictionary<string, string>? type))
-        {
+        if (!_rules.TryGetValue(element.LocalName, out List<Rule>? rules))
             return inline;
+
+        var resolved = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (Rule rule in rules)
+            if (rule.Ancestor is null)
+                ApplyDeclarations(rule);
+
+        var ancestors = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (DomNode? node = element.ParentNode; node is DomElement parent; node = parent.ParentNode)
+            ancestors.Add(parent.LocalName);
+
+        foreach (Rule rule in rules)
+            if (rule.Ancestor is not null && ancestors.Contains(rule.Ancestor))
+                ApplyDeclarations(rule);
+
+        void ApplyDeclarations(Rule rule)
+        {
+            foreach (var declaration in rule.Declarations)
+                resolved[declaration.Key] = declaration.Value;
         }
 
-        if (inline.Count == 0)
-            return type;
-
-        var resolved = new Dictionary<string, string>(type, StringComparer.OrdinalIgnoreCase);
         foreach (KeyValuePair<string, string> declaration in inline)
             resolved[declaration.Key] = declaration.Value;
 
@@ -136,7 +98,7 @@ internal sealed class HtmlStyleSheet
     /// was written to end rather than to add.
     /// </remarks>
     private static void Collect(
-        string css, Dictionary<string, Dictionary<string, string>> rules, ref bool skipped)
+        string css, Dictionary<string, List<Rule>> rules, ref bool skipped)
     {
         int index = 0;
         while (index < css.Length)
@@ -201,17 +163,19 @@ internal sealed class HtmlStyleSheet
     private static void Apply(
         string prelude,
         string body,
-        Dictionary<string, Dictionary<string, string>> rules,
+        Dictionary<string, List<Rule>> rules,
         ref bool skipped)
     {
-        string[] selectors = prelude.Split(',');
-        foreach (string selector in selectors)
+        var selectors = new List<string[]>();
+        foreach (string selector in prelude.Split(','))
         {
-            if (IsTypeSelector(selector.Trim()))
-                continue;
-
-            skipped = true;
-            return;
+            string[] names = selector.Split([' ', '\t', '\r', '\n', '\f'], StringSplitOptions.RemoveEmptyEntries);
+            if (names.Length is < 1 or > 2 || !Array.TrueForAll(names, IsTypeSelector))
+            {
+                skipped = true;
+                return;
+            }
+            selectors.Add(names);
         }
 
         IReadOnlyDictionary<string, string> declarations =
@@ -219,33 +183,14 @@ internal sealed class HtmlStyleSheet
         if (declarations.Count == 0)
             return;
 
-        foreach (string selector in selectors)
+        foreach (string[] names in selectors)
         {
-            string name = selector.Trim();
-            if (!rules.TryGetValue(name, out Dictionary<string, string>? declared))
-            {
-                declared = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-                rules[name] = declared;
-            }
-
-            foreach (KeyValuePair<string, string> declaration in declarations)
-                declared[declaration.Key] = declaration.Value;
+            if (!rules.TryGetValue(names[^1], out List<Rule>? matching))
+                rules[names[^1]] = matching = [];
+            matching.Add(new Rule(names.Length == 2 ? names[0] : null, declarations));
         }
     }
 
-    /// <summary>
-    /// Whether a selector is a bare element name and nothing else.
-    /// </summary>
-    /// <remarks>
-    /// Deliberately stricter than "does not obviously contain a class". An HTML
-    /// element name is an ASCII letter followed by letters, digits, hyphens and
-    /// underscores, so anything carrying a dot, a hash, a bracket, a colon, a
-    /// combinator, a space or a <c>*</c> falls out here and takes its rule with
-    /// it. Testing for the characters this codec cannot handle rather than
-    /// accepting the ones it can would let the next piece of selector syntax
-    /// through as a type name, and it would be applied to an element nobody
-    /// selected.
-    /// </remarks>
     private static bool IsTypeSelector(string selector)
     {
         if (selector.Length == 0 || !char.IsAsciiLetter(selector[0]))

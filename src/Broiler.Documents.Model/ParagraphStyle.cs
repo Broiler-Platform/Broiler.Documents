@@ -49,7 +49,7 @@ public readonly record struct ParagraphStyle
     public LineHeightRule LineHeightRule { get; init; }
 
     /// <summary>
-    /// The height a line is at least, or exactly, in points; nought where
+    /// The minimum or exact height, or fixed extra leading, in points; nought where
     /// <see cref="LineHeightRule"/> is proportional.
     /// </summary>
     public float LineHeight { get; init; }
@@ -69,8 +69,12 @@ public readonly record struct ParagraphStyle
     {
         LineHeightRule.Exact when LineHeight > 0 => LineHeight,
         LineHeightRule.AtLeast => Math.Max(natural, LineHeight),
+        LineHeightRule.Leading when float.IsFinite(LineHeight) => Math.Max(1, natural + LineHeight),
         _ => natural * (LineSpacing > 0 ? LineSpacing : 1f),
     };
+
+    /// <summary>The semantic heading level, or null for an ordinary paragraph.</summary>
+    public int? HeadingLevel { get; init; }
 
     public ListKind ListKind { get; init; }
 

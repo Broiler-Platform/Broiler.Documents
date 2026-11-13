@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -123,13 +123,20 @@ public static class MarkdownWriter
         List<DocumentDiagnostic> diagnostics)
     {
         ParagraphStyle style = paragraph.Style;
-        if (style.IndentLevel > 0)
-            builder.Append(new string(' ', Math.Max(0, style.IndentLevel - 1) * 2));
+        if (style.HeadingLevel is int heading and >= 1 and <= 6)
+        {
+            builder.Append('#', heading).Append(' ');
+        }
+        else
+        {
+            if (style.IndentLevel > 0)
+                builder.Append(new string(' ', Math.Max(0, style.IndentLevel - 1) * 2));
 
-        if (style.ListKind == ListKind.Bullet)
-            builder.Append("- ");
-        else if (style.ListKind == ListKind.Numbered)
-            builder.Append("1. ");
+            if (style.ListKind == ListKind.Bullet)
+                builder.Append("- ");
+            else if (style.ListKind == ListKind.Numbered)
+                builder.Append("1. ");
+        }
 
         // Markdown has no page, so it has no page break: there is no syntax to
         // write this one in and no fallback that would be honest, since a

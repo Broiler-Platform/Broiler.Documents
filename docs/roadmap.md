@@ -257,6 +257,8 @@ checklist here and document the implemented boundaries in the owning notes.
 
 ## Format fidelity
 
+The [formatting fidelity status](notes/formatting-fidelity.md) tracks all ten codecs, focused test results, pending office verification, and acceptance checks. The next implementation slice is RTF list support.
+
 Each item needs conformance fixtures and explicit diagnostics before it lands.
 
 - [x] **RTF style sheets — selected 2026-10-19.** Implemented style-sheet
@@ -265,16 +267,9 @@ Each item needs conformance fixtures and explicit diagnostics before it lands.
   protection, style name parsing with aliases and encoding escapes, `\pard` reset to
   `\s0` defaults, and `\plain` reset to active paragraph style character defaults
   ([notes/rtf.md](notes/rtf.md)).
-- **HTML list writing.** The writer keeps indentation and reports `html.list`
-  instead of emitting list structure.
 - **HTML relative links.** Every relative target is refused today. Decide on a
   policy first.
-- **HTML tables and descendant selectors.** Tables are flattened to their cell
-  paragraphs, and LibreOffice's `td p { … }` rules are not matched because only
-  bare type selectors are. The office suite's `table-simple` seed measures the
-  gap (ink box 107 px against DOCX's 11), and `fdo86857.html` loses the one
-  shaded cell on its red page. Weigh this first if the CSS boundary in
-  [notes/html.md](notes/html.md) ever moves.
+- **HTML office conformance.** Recheck the shaded-cell fixture and track remaining layout differences in the HTML table seed.
 - **HTML page header convention.** LibreOffice writes a page header as
   `<div title="header">`, and the reader treats it as body content. Decide
   whether to map it to `RunningContent`.
@@ -283,11 +278,7 @@ Each item needs conformance fixtures and explicit diagnostics before it lands.
   dimension/alt extraction, round-trip support, and diagnostic reporting (`html.image.*`,
   `markdown.image.*`). External and relative targets remain deferred/unfetched without
   network access ([notes/html.md](notes/html.md), [notes/markdown.md](notes/markdown.md)).
-- [x] **Nested list markers through RTF.** Resolved: LibreOffice's projection is right
-  (outer level 0 uses `•` U+2022, nested level 1 uses `◦` U+25E6 per Writer's bullet
-  hierarchy in `ascatr.cxx`). RTF list tables are detected and skipped (`rtf.list`)
-  so the model preserves `ListKind.None` without generating text bullet markers
-  ([notes/rtf.md](notes/rtf.md)).
+- **RTF list fidelity.** Basic body lists and top-level restart export are implemented. Add import coverage for restart overrides and cached markers, and extend custom-marker and non-body list coverage.
 - **Sections, the rest.** A `DocumentSection` carries its columns and its own
   margins, a DOCX section break starts the page it says it does, and the
   layout balances a section's columns where the next follows on the same page.
@@ -321,8 +312,7 @@ Each item needs conformance fixtures and explicit diagnostics before it lands.
 - **Page fields, the rest.** ODT's `text:page-number` and `text:page-count` are
   `InlineStyle.PageField` runs that a header or footer draws per page, and ODT's
   `style:page-number` restarts the count (`DocumentSection.PageNumberStart`), as
-  DOCX's `w:pgNumType` `w:start` does. Not yet: DOCX's `PAGE`, `NUMPAGES` and
-  `SECTIONPAGES` fields and `w:pgNumType`'s `w:fmt` and RTF's `\chpgn` and
+  DOCX's `w:pgNumType` `w:start` does. DOCX PAGE and NUMPAGES round-trip, including supported numbering switches. DOCX SECTIONPAGES also round-trips and resolves in shared pagination. Remaining items include RTF's `\chpgn` and
   `PAGE` field are read as their saved text; a field takes no number format from its page style; a page field in
   body text or in a header's text box keeps its saved value; the ODT writer writes
   one master page, so a restart is not written (`odt.section.page-number`).
@@ -347,8 +337,8 @@ Each item needs conformance fixtures and explicit diagnostics before it lands.
 - **Superscript and subscript.** The model has a run property for it
   (`InlineStyle.Shift`, `BaselineShift`), the line layout sets such a run
   smaller and raises or lowers it as Writer does, and the raster and PDF
-  painters draw it off the baseline. Only the ODT codec reads and writes it
-  (`style:text-position`, issue #242). `w:vertAlign` and `w:position`, RTF's
+  painters draw it off the baseline. ODT and DOCX read and write it
+  (`style:text-position`, issue #242). DOCX uses `w:vertAlign` and `w:position`. RTF's
   `\super`, `\sub` and `\up`, and HTML's `sup` and `sub` are not read yet;
   only a note's citation is raised and made smaller there. `tdf77417.docx`'s
   footnote marks "(a)" and "(b)" are drawn at full size on the baseline, and
@@ -502,9 +492,9 @@ it does is in [notes/csv.md](notes/csv.md).
   was revisited under ADR 0016: typed values (`CellValue`), formulas, number
   formatting, and multi-sheet workbooks (`SpreadsheetWorkbook`, `SpreadsheetWorksheet`,
   `SpreadsheetRow`, `SpreadsheetCell`) with bidirectional projection to and from
-  `RichTextDocument` tables. `Broiler.Documents.Xlsx` delivers full Open XML
+  `RichTextDocument` tables. `Broiler.Documents.Xlsx` delivers a subset of Open XML
   SpreadsheetML read/write with shared strings, styles, formulas, and merges;
-  `Broiler.Documents.Ods` delivers full OASIS OpenDocument Spreadsheet read/write
+  `Broiler.Documents.Ods` delivers a subset of OASIS OpenDocument Spreadsheet read/write
   with compliant uncompressed `mimetype` packaging and bounded repeated grid elements.
   Both codecs are registered in the CLI catalog with `--sheet` routing support.
 - **Corpus and office coverage.** CSV is not in the corpus suite's format list,

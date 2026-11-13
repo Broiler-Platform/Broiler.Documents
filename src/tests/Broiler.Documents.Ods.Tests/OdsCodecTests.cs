@@ -14,6 +14,32 @@ public sealed class OdsCodecTests
     private readonly OdsDocumentCodec _codec = new();
 
     [Fact]
+    public void Cell_Font_Borders_And_Alignment_Survive_On_A_Blank_Cell()
+    {
+        var color = Broiler.Graphics.Color.BColor.FromArgb(51, 102, 153);
+        var cell = new SpreadsheetCell(new CellAddress(0, 0), CellValue.Empty)
+        {
+            Font = new InlineStyle { FontFamily = "Arial", FontSize = 15, Bold = true, Foreground = color },
+            Borders = CellBorders.All(new TableBorder(color, 1.5, TableBorderStyle.Dashed)),
+            Alignment = TextAlignment.Right,
+            VerticalAlignment = CellVerticalAlignment.Center,
+        };
+        var workbook = new SpreadsheetWorkbook(
+            [new SpreadsheetWorksheet("Styles", [new SpreadsheetRow(0, [cell])])]);
+        using var stream = new MemoryStream();
+        Assert.Equal(DocumentResultStatus.Success, _codec.Write(workbook.ToRichTextDocument(), stream).Status);
+        stream.Position = 0;
+
+        var result = Assert.IsType<OdsReadResult>(_codec.Read(stream));
+        var actual = Assert.Single(result.Workbook.Sheets)[0, 0]!;
+        Assert.True(actual.Value.IsEmpty);
+        Assert.Equal(cell.Font, actual.Font);
+        Assert.Equal(cell.Borders, actual.Borders);
+        Assert.Equal(cell.Alignment, actual.Alignment);
+        Assert.Equal(cell.VerticalAlignment, actual.VerticalAlignment);
+    }
+
+    [Fact]
     public void Format_Descriptor_Matches_Expected_Extensions_And_Mime_Type()
     {
         Assert.Equal("ODS", _codec.Descriptor.Name);
@@ -56,6 +82,115 @@ public sealed class OdsCodecTests
 
         Assert.True(result.IsMatch);
         Assert.Equal(DocumentProbeConfidence.High, result.Confidence);
+    }
+
+    [Fact]
+    public void Roundtrip_Preserves_Styles_And_Dimensions()
+    {
+        var fill = Broiler.Graphics.Color.BColor.FromArgb(34, 102, 153);
+        var row = new SpreadsheetRow(0,
+        [
+            new(new CellAddress(0, 0), CellValue.FromNumber(450.75), formula: "=450+0.75",
+                numberFormat: "$#,##0.00", columnSpan: 2, shading: fill),
+            new(new CellAddress(0, 2), CellValue.FromNumber(0.25), numberFormat: "0.0%"),
+            new(new CellAddress(0, 3), CellValue.Empty, shading: fill)
+        ], height: 24);
+        var workbook = new SpreadsheetWorkbook([new SpreadsheetWorksheet("Styled", [row], [80, 90, 100, 110])]);
+        using var stream = new MemoryStream();
+        Assert.Equal(DocumentResultStatus.Success, _codec.Write(workbook.ToRichTextDocument(), stream).Status);
+
+        stream.Position = 0;
+        using (var archive = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: true))
+        using (var content = archive.GetEntry("content.xml")!.Open())
+        {
+            var xml = System.Xml.Linq.XElement.Load(content);
+            Assert.Equal("urn:oasis:names:tc:opendocument:xmlns:of:1.2",
+                xml.GetNamespaceOfPrefix("of")?.NamespaceName);
+        }
+
+        stream.Position = 0;
+        var result = Assert.IsType<OdsReadResult>(_codec.Read(stream));
+        Assert.Equal(DocumentResultStatus.Success, result.Status);
+        var sheet = Assert.Single(result.Workbook.Sheets);
+        Assert.Equal(new double[] { 80, 90, 100, 110 }, sheet.ColumnWidths);
+        Assert.Equal(24d, Assert.Single(sheet.Rows).Height);
+        Assert.Equal("$#,##0.00", sheet[0, 0]?.NumberFormat);
+        Assert.Equal(450.75, sheet[0, 0]?.Value.Number);
+        Assert.Equal("=450+0.75", sheet[0, 0]?.Formula);
+        Assert.Equal(2, sheet[0, 0]?.ColumnSpan);
+        Assert.Equal(fill, sheet[0, 0]?.Shading);
+        Assert.Equal("0.0%", sheet[0, 2]?.NumberFormat);
+        Assert.Equal(fill, sheet[0, 3]?.Shading);
+        Assert.True(sheet[0, 3]?.Value.IsEmpty);
+    }
+
+    [Theory]
+    [InlineData(45000d, "yyyy-mm-dd")]
+    [InlineData(45000d, "dd.mm.yyyy")]
+    [InlineData(45000d, "mm/dd/yyyy")]
+    [InlineData(59.5d, "yyyy-mm-dd")]
+    public void Date_Format_Roundtrips_With_Its_Numeric_Value(double serial, string format)
+    {
+        var row = new SpreadsheetRow(0,
+            [new(new CellAddress(0, 0), CellValue.FromNumber(serial), numberFormat: format)]);
+        var workbook = new SpreadsheetWorkbook([new SpreadsheetWorksheet("Dates", [row])]);
+        using var stream = new MemoryStream();
+        Assert.Equal(DocumentResultStatus.Success, _codec.Write(workbook.ToRichTextDocument(), stream).Status);
+
+        stream.Position = 0;
+        var result = Assert.IsType<OdsReadResult>(_codec.Read(stream));
+        Assert.Equal(DocumentResultStatus.Success, result.Status);
+        var cell = result.Workbook.Sheets[0][0, 0];
+        Assert.Equal(serial, cell?.Value.Number);
+        Assert.Equal(format, cell?.NumberFormat);
+    }
+
+    [Fact]
+    public void Iso_Date_Uses_The_Explicit_Null_Date_Without_Changing_Ordinary_Numbers()
+    {
+        const string content = """
+            <office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"
+                xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0"
+                xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0"
+                xmlns:number="urn:oasis:names:tc:opendocument:xmlns:datastyle:1.0">
+              <office:automatic-styles>
+                <number:date-style style:name="iso"><number:year number:style="long"/><number:text>-</number:text><number:month number:style="long"/><number:text>-</number:text><number:day number:style="long"/></number:date-style>
+                <style:style style:name="date" style:family="table-cell" style:data-style-name="iso"/>
+              </office:automatic-styles>
+              <office:body><office:spreadsheet>
+                <table:calculation-settings><table:null-date table:date-value="1904-01-01"/></table:calculation-settings>
+                <table:table table:name="Dates"><table:table-column table:default-cell-style-name="date"/><table:table-column/><table:table-row>
+                  <table:table-cell table:number-columns-repeated="2" office:value-type="float" office:value="0"/>
+                </table:table-row></table:table>
+              </office:spreadsheet></office:body>
+            </office:document-content>
+            """;
+        using var stream = new MemoryStream();
+        using (var zip = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: true))
+        using (var writer = new StreamWriter(zip.CreateEntry("content.xml").Open()))
+            writer.Write(content);
+
+        stream.Position = 0;
+        var result = Assert.IsType<OdsReadResult>(_codec.Read(stream));
+        var sheet = Assert.Single(result.Workbook.Sheets);
+        Assert.Equal(1462d, sheet[0, 0]?.Value.Number);
+        Assert.Equal("yyyy-mm-dd", sheet[0, 0]?.NumberFormat);
+        Assert.Equal(0d, sheet[0, 1]?.Value.Number);
+    }
+
+    [Fact]
+    public void Unsupported_Number_Format_Reports_Loss_And_Preserves_Value()
+    {
+        var row = new SpreadsheetRow(0,
+            [new(new CellAddress(0, 0), CellValue.FromNumber(45000), numberFormat: "dddd, mmmm d")]);
+        var workbook = new SpreadsheetWorkbook([new SpreadsheetWorksheet("Dates", [row])]);
+        using var stream = new MemoryStream();
+        var written = _codec.Write(workbook.ToRichTextDocument(), stream);
+        Assert.Contains(written.Diagnostics, d => d.Code == OdsDiagnosticCodes.NumberFormatUnsupported);
+
+        stream.Position = 0;
+        var read = Assert.IsType<OdsReadResult>(_codec.Read(stream));
+        Assert.Equal(45000d, read.Workbook.Sheets[0][0, 0]?.Value.Number);
     }
 
     [Fact]

@@ -61,14 +61,20 @@ section's page is read. The character-set words `\ansi`, `\mac`, `\pc` and
 `\fcharsetN`, or the caller's default, and nothing else sets it. Shape
 properties other than those named under [Drawings](#drawings) are ignored.
 
-List markup does not set `ListKind` in this release (it stays
-`ListKind.None`); list tables are detected and skipped (below). Numbering,
-restarts and nested marker reconstruction are not implemented, and no synthetic
-text bullet markers are generated. LibreOffice's plain text export marks nested
-levels where `broilerdoc dump` does not, and rightly: Writer's text projection
-(`ascatr.cxx`: `GetBulletChar`) uses `•` (`U+2022 BULLET`) at level 0, `◦`
-(`U+25E6 WHITE BULLET`) at level 1 and `▪` (`U+25AA BLACK SMALL SQUARE`) at
-level 2.
+Modern list tables can supply semantic paragraph lists. The reader recognizes
+decimal, letter, Roman and bullet levels, level starts and independent list
+instances. Marker groups are skipped as text. Custom marker templates, item
+restarts, nonzero override counts and semantic list export remain open.
+
+Baseline formatting reads and writes `\super`, `\sub`, `\up` and `\dn`.
+`\nosupersub` resets inherited positioning. Custom scaling can be approximated
+on export and reports `rtf.text.position`. Bare `PAGE` and `NUMPAGES` field
+instructions round-trip with their cached text. Unsupported field formats
+and adjustments fall back to saved text with `rtf.page-field`.
+
+The reader preserves named character styles on runs and recognizes STYLEREF
+fields targeting those styles, with the optional last-match switch. Field
+results retain their cached text. Export writes live character-style references and declares the named styles. Unsupported names fall back to cached text with `rtf.style-reference`.
 
 ## Skipped destinations — content dropped
 
@@ -105,14 +111,7 @@ subtree is a picture or object in it, because `rtf.embedded` reports what the
 document lost and a picture inside `{\*\shppict ...}` is a picture all the
 same.
 
-`\listtable` and `\listoverridetable`, with or without `\*`, are detected and
-skipped with one warning, `rtf.list`, per read, so the read status is
-`Partial`. The warning reports unsupported list semantics; it does not claim
-the table is valid or referenced by a body paragraph. The whole subtree stays
-opaque: nested fields, running content, formatting and font tables cannot leak
-into or change the body. Text before and after a closed table is preserved,
-truncated tables remain skipped, and the tokenizer byte and nesting limits
-apply. This is detection, not list-table interpretation.
+List destinations use the tokenizer byte and nesting limits. Unsupported or incomplete definitions report `rtf.list` once per read.
 
 `\header` and `\footer` are not skipped; see [Running content](#running-content).
 
@@ -579,7 +578,8 @@ caller asked for that this codec does not do.
 | `rtf.paragraphs` | Warning | Read | The document exceeded `MaxParagraphCount`; the text past the cap was dropped. |
 | `rtf.codepage` | Info | Read | A double-byte code page, or one the runtime does not carry, decoded its high bytes through a Latin-1 fallback; `\uN` text is unaffected. Once per read. |
 | `rtf.field.ruby` | Warning | Read | An empty-result ruby equation field was read as its base text; phonetic annotation layout is not represented. Once per read. |
-| `rtf.list` | Warning | Read | List tables were detected and skipped; list numbering and marker semantics are not imported. Once per read. |
+| `rtf.list.export` | Warning | Write | Some list formatting was approximated or omitted. Once per write. |
+| `rtf.list` | Warning | Read | An unsupported or incomplete list definition could not be fully imported. Once per read. |
 | `rtf.shape.line` | Info | Read | A legacy drawing-object slanted line was not read. Modern `shapeType` 20 lines retain their geometry. Once per read. |
 | `rtf.shape.table` | Warning | Write | Tables inside a text box are written as paragraphs. Their text is retained, but their cell layout is not written. Once per write. |
 | `rtf.shape.padding` | Warning | Write | Text-box inner padding was not written; the text and outer frame are retained. Once per write. |

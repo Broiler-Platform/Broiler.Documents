@@ -72,6 +72,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     /// <summary>How the page being laid out writes its number: its section's format.</summary>
     private ListNumberFormat? _pageNumberFormat;
     private readonly HashSet<DocumentSection> _restartedNumbering = [];
+    private Dictionary<DocumentSection, int>? _sectionPageCounts;
     private int? _pageCount;
 
     // Where each page's body text starts, as the pass laying it out found it,
@@ -200,6 +201,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         ArgumentNullException.ThrowIfNull(document);
         ArgumentNullException.ThrowIfNull(setup);
 
+        _sectionPageCounts = null;
         _pageCount = null;
         _pageStarts = null;
         LayoutResult result = LayoutOnce(document, setup);
@@ -207,6 +209,18 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         {
             _pageCount = result.Pages.Count;
             _pageStarts = [.. _pageStartsFound];
+            _sectionPageCounts = new Dictionary<DocumentSection, int>();
+            foreach (LayoutPage page in result.Pages)
+            {
+                var represented = new HashSet<DocumentSection>();
+                foreach (LayoutLine line in page.InlineLines)
+                {
+                    if (DocumentSection.Containing(document.Sections, line.ParagraphIndex) is { } section)
+                        represented.Add(section);
+                }
+                foreach (DocumentSection section in represented)
+                    _sectionPageCounts[section] = _sectionPageCounts.GetValueOrDefault(section) + 1;
+            }
             result = LayoutOnce(document, setup);
         }
 
@@ -226,7 +240,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 running.Header(selection).Concat(running.Footer(selection))
                     .Any(paragraph => paragraph.Runs.Any(run =>
                         run.Style.StyleReference is not null ||
-                        (run.Style.PageField is PageField field && (field.Kind == PageFieldKind.PageCount || field.Adjust != 0)))));
+                        (run.Style.PageField is PageField field && (field.Kind != PageFieldKind.PageNumber || field.Adjust != 0)))));
 
         return Shows(document.RunningContent) ||
             document.Sections.Any(section =>
@@ -440,7 +454,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
                 found = TextColumns.For(
                     section.ColumnCount, section.ColumnGap, width, left - setup.ContentLeftPoints,
-                    setup.Continuous, _notes, "a section's");
+                    setup.Continuous, _notes, "a section's", section.ColumnSeparator);
                 sectionColumns.Add((section, pageSection), found);
             }
 
@@ -463,8 +477,23 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         ParagraphStyle? borderedAbove = null;
         double borderBelowPrevious = 0;
         var sectionPaint = new List<LayoutShape>();
+        var columnSeparators = new List<BRect>();
         DocumentSection? paintedSection = null;
         double paintTop = y;
+
+        void AddColumnSeparators(double bottom)
+        {
+            bottom = Math.Min(bottom, contentBottom);
+            if (!columns.Separator || bottom <= regionTop)
+                return;
+
+            const double width = 0.5;
+            for (int i = 1; i < columns.Count; i++)
+            {
+                double center = setup.ContentLeftPoints + columns.Offset(i) - (columns.Stride - columns.Width) / 2;
+                columnSeparators.Add(new BRect(center - width / 2, regionTop, width, bottom - regionTop));
+            }
+        }
 
         void PaintSectionUntil(double bottom)
         {
@@ -611,20 +640,22 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             pageNotes.Clear();
         }
 
-        void BreakPage()
+        void BreakPage(bool columnOverflow = false)
         {
             if (truncated)
                 return;
 
             SetNotes();
+            AddColumnSeparators(columnOverflow ? contentBottom : Math.Max(regionDepth, y));
             PaintSectionUntil(contentBottom);
             var inlineLines = new List<LayoutLine>(currentLines);
             var inlineCells = new List<LayoutCell>(currentCells);
             currentLines.AddRange(floatLines);
             currentCells.AddRange(floatCells);
             pages.Add(NewPage(pages.Count + 1, setup, currentLines, currentCells, sectionPaint,
-                pageFloatingTables, inlineLines, inlineCells));
+                pageFloatingTables, inlineLines, inlineCells, columnSeparators));
             sectionPaint = [];
+            columnSeparators = [];
             currentLines = [];
             currentCells = [];
             floatLines = [];
@@ -976,7 +1007,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         {
             if (column + 1 >= columns.Count || currentLines.Count == columnStart)
             {
-                BreakPage();
+                BreakPage(columnOverflow: column + 1 >= columns.Count && ColumnHasContent());
                 return;
             }
 
@@ -1083,6 +1114,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 }
             }
 
+            AddColumnSeparators(Math.Max(regionDepth, y));
             PaintSectionUntil(Math.Max(regionDepth, y));
             region = next;
             bool pageHasContent = currentLines.Count > 0 || currentCells.Count > 0 || floatLines.Count > 0 || floatCells.Count > 0;
@@ -2005,13 +2037,14 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             BreakPage();
 
         SetNotes();
+        AddColumnSeparators(Math.Max(regionDepth, y));
         var finalInlineLines = new List<LayoutLine>(currentLines);
         var finalInlineCells = new List<LayoutCell>(currentCells);
         currentLines.AddRange(floatLines);
         currentCells.AddRange(floatCells);
         if (!truncated && (currentLines.Count > 0 || currentCells.Count > 0 || pages.Count == 0))
             pages.Add(NewPage(pages.Count + 1, setup, currentLines, currentCells, sectionPaint,
-                pageFloatingTables, finalInlineLines, finalInlineCells));
+                pageFloatingTables, finalInlineLines, finalInlineCells, columnSeparators));
 
         // A shape anchored to a page the text never reached still has to stand
         // on it, so the pages up to it are made, empty but for their running
@@ -2091,7 +2124,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         List<LayoutShape>? sectionPaint = null,
         List<LayoutFloatingTable>? floatingTables = null,
         List<LayoutLine>? inlineLines = null,
-        List<LayoutCell>? inlineCells = null)
+        List<LayoutCell>? inlineCells = null,
+        IReadOnlyList<BRect>? columnSeparators = null)
     {
         PageSelection selection = SelectionFor(number);
         NotePageStart(number, lines);
@@ -2176,6 +2210,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             VerticalWriting = _verticalWriting,
             PageBorders = setup.Continuous ? default : _currentPageGeometry?.Borders ?? default,
             PageBorderInsets = _currentPageGeometry?.BorderInsets ?? default,
+            ColumnSeparators = columnSeparators ?? [],
         };
     }
 
@@ -4475,6 +4510,20 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     /// there, as LibreOffice's does: a "continued on page 2" footer is blank on
     /// the last page.
     /// </remarks>
+    private int? SectionPageCount(int page)
+    {
+        if (_sectionPageCounts is null)
+            return null;
+        if (_sections.Count == 0)
+            return _pageCount;
+        if (_pageStarts is null || (uint)(page - 1) >= (uint)_pageStarts.Count ||
+            _pageStarts[page - 1] is not { } start ||
+            DocumentSection.Containing(_sections, start.Paragraph) is not { } section ||
+            !_sectionPageCounts.TryGetValue(section, out int count))
+            return null;
+        return count;
+    }
+
     private IReadOnlyList<RichTextParagraph> WithPageFields(IReadOnlyList<RichTextParagraph> paragraphs, int pageNumber, int page)
     {
         List<RichTextParagraph>? filled = null;
@@ -4493,6 +4542,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 int start = end - run.Length;
                 string? text = run.Style.StyleReference is StyleReferenceField reference
                     ? StyleReferenceText(reference, page)
+                    : run.Style.PageField is PageField { Kind: PageFieldKind.SectionPageCount } sectionPages
+                        ? sectionPages.Text(pageNumber, SectionPageCount(page))
                     : run.Style.PageField is PageField field && field.Kind == PageFieldKind.PageNumber && field.Adjust != 0 &&
                         (page + field.Adjust < 1 || (_pageCount is int count && page + field.Adjust > count))
                         ? ""
@@ -5276,7 +5327,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         if (style.LineHeightRule == LineHeightRule.Exact && style.LineHeight > 0)
             return new LayoutLine(pieces, 0, style.LineHeight, style.LineHeight * 0.8, paragraphIndex);
 
-        // Extra leading goes below the baseline. Putting it above would push the
+        // Proportional leading goes below the baseline. Putting it above would push the
         // first line of every double-spaced paragraph down by half a line, which
         // is not what a document that says "line spacing 2" is asking for. A
         // line made taller by an at-least height keeps its text at the top too,
@@ -5287,7 +5338,11 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         double height = style.LineHeightRule == LineHeightRule.Proportional
             ? Math.Max(imageAscent, style.LineBoxHeight(natural) + objectOverhang)
             : style.LineBoxHeight(natural + objectOverhang);
-        return new LayoutLine(pieces, 0, height, ascent + objectOverhang, paragraphIndex);
+        // LibreOffice applies fixed leading above the baseline, including on the first line.
+        double baselineOffset = style.LineHeightRule == LineHeightRule.Leading
+            ? height - (natural + objectOverhang)
+            : 0;
+        return new LayoutLine(pieces, 0, height, ascent + objectOverhang + baselineOffset, paragraphIndex);
     }
 
     /// <summary>
@@ -5415,7 +5470,10 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
                 word ??= LayoutToken.Empty();
                 int pieceStart = fragmentStart;
-                foreach (LayoutPiece piece in MakePieces(fragment, run.Style))
+                string display = run.Style.Capitalization == TextCapitalization.Capitalize
+                    ? CapitalizeWordStarts(fragment, paragraph.Text, fragmentStart, CasingCulture(run.Style.Language))
+                    : fragment;
+                foreach (LayoutPiece piece in MakePieces(display, run.Style))
                 {
                     piece.SourceOffset = pieceStart;
                     pieceStart += piece.Text.Length;
@@ -5543,7 +5601,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
         if (style.Capitalization != TextCapitalization.SmallCaps)
         {
-            yield return MakeTextPiece(Transform(text, style.Capitalization), style, _settings.DecorateLinks);
+            yield return MakeTextPiece(Transform(text, style), style, _settings.DecorateLinks);
             yield break;
         }
 
@@ -5713,9 +5771,38 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             style.Italic ? BFontSlant.Italic : BFontSlant.Normal);
     }
 
-    private static string Transform(string text, TextCapitalization capitalization) => capitalization switch
+    private static string CapitalizeWordStarts(string fragment, string source, int sourceOffset, CultureInfo culture)
     {
-        TextCapitalization.AllCaps => text.ToUpperInvariant(),
+        char[] characters = fragment.ToCharArray();
+        bool inWord = sourceOffset > 0 && char.IsLetterOrDigit(source, sourceOffset - 1);
+        for (int i = 0; i < characters.Length; i++)
+        {
+            if (!inWord && char.IsLetter(characters[i]))
+                characters[i] = char.ToUpper(characters[i], culture);
+            inWord = char.IsLetterOrDigit(characters[i]);
+        }
+        return new string(characters);
+    }
+
+    private static CultureInfo CasingCulture(string? language)
+    {
+        if (string.IsNullOrEmpty(language))
+            return CultureInfo.InvariantCulture;
+
+        try
+        {
+            return CultureInfo.GetCultureInfo(language);
+        }
+        catch (CultureNotFoundException)
+        {
+            return CultureInfo.InvariantCulture;
+        }
+    }
+
+    private static string Transform(string text, InlineStyle style) => style.Capitalization switch
+    {
+        TextCapitalization.AllCaps => text.ToUpper(CasingCulture(style.Language)),
+        TextCapitalization.Lowercase => text.ToLower(CasingCulture(style.Language)),
         _ => text,
     };
 
@@ -5732,7 +5819,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     /// word cannot be fitted into and the layout would otherwise spend a line
     /// per character on.
     /// </remarks>
-    private readonly record struct TextColumns(int Count, double Width, double Stride, double Left = 0)
+    private readonly record struct TextColumns(int Count, double Width, double Stride, double Left = 0, bool Separator = false)
     {
         /// <summary>A column narrower than this, in points, is not laid out as one.</summary>
         private const double MinimumWidth = 18;
@@ -5742,7 +5829,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             if (geometry is null || !geometry.HasColumns || !geometry.IsUsable)
                 return new TextColumns(1, setup.ContentWidthPoints, 0);
 
-            return For(geometry.ColumnCount, geometry.ColumnGap, setup.ContentWidthPoints, 0, setup.Continuous, notes, "the document's");
+            return For(geometry.ColumnCount, geometry.ColumnGap, setup.ContentWidthPoints, 0, setup.Continuous, notes, "the document's", geometry.ColumnSeparator);
         }
 
         /// <summary>
@@ -5754,7 +5841,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         /// it applies to.
         /// </summary>
         public static TextColumns For(
-            int count, double gap, double width, double left, bool continuous, List<string> notes, string owner)
+            int count, double gap, double width, double left, bool continuous, List<string> notes, string owner, bool separator)
         {
             var single = new TextColumns(1, width, 0, left);
             if (count <= 1)
@@ -5783,7 +5870,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 return single;
             }
 
-            return new TextColumns(count, each, each + gap, left);
+            return new TextColumns(count, each, each + gap, left, separator);
         }
 
         private static void Note(List<string> notes, string note)

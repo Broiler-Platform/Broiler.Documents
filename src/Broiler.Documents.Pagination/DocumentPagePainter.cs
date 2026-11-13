@@ -126,6 +126,9 @@ public sealed class DocumentPagePainter
                 DrawShape(list, shape, resolveImage);
         }
 
+        foreach (BRect separator in page.ColumnSeparators)
+            list.FillRect(separator, BColor.FromName("black"));
+
         if (page.FloatingTables.Count == 0)
         {
             DrawCells(list, page.Cells);

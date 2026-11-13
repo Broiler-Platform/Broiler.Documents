@@ -43,7 +43,7 @@ preserved whitespace (`xml:space="preserve"`), and rich text runs
   dates convert to ISO-8601 strings.
 - Cell formats (`<cellXfs>`): by the zero-based index a cell's `s` attribute
   names.
-- Fill colours (`<fills>`): solid pattern fills and RGB/theme colours become
+- Fill colours (`<fills>`): solid pattern fills with explicit ARGB colours become
   cell shading background colours.
 
 Each worksheet (`xl/worksheets/sheet{N}.xml`) becomes a `DocumentTable`:
@@ -77,7 +77,7 @@ The writer produces an OPC XLSX package:
 - `xl/workbook.xml`: sheets with unique names and sheet IDs.
 - `xl/_rels/workbook.xml.rels`: the workbook's links to each worksheet part,
   `styles.xml`, and `sharedStrings.xml`.
-- `xl/styles.xml`: base styles, default font, fills, borders, and number formats.
+- `xl/styles.xml`: base styles, default font and borders, plus deduplicated custom number formats and solid ARGB fills. Worksheets reference the combined cell styles, including on empty cells.
 - `xl/sharedStrings.xml`: text strings across all sheets, deduplicated.
 - `xl/worksheets/sheet{N}.xml`: sheet dimensions, column widths, rows, cells
   (coordinates, types, values, and formulas), and merge cells.

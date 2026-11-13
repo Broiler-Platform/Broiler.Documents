@@ -7,6 +7,7 @@ using System.Linq;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using Broiler.Documents.Model;
+using Broiler.Graphics.Color;
 using Broiler.Documents.Model.Spreadsheets;
 using Broiler.Documents.Packaging;
 
@@ -121,8 +122,14 @@ internal static class XlsxReader
             }
 
             // 4. Read styles & number formats
+            string? themeTarget = workbookRels.FirstOrDefault(r => r.Type.EndsWith("/theme", StringComparison.OrdinalIgnoreCase))?.Target;
+            XElement? theme = themeTarget is not null && FindEntry(archive, themeTarget) is { } themeEntry
+                ? DocumentPackage.LoadEntryXml(themeEntry, options.Limits.MaxBinBytes, diagnostics,
+                    XlsxDiagnosticCodes.StylesInvalid, "Theme")?.Descendants().FirstOrDefault(e => e.Name.LocalName == "clrScheme")
+                : null;
+            double digitWidth = 7;
             var customFormats = new Dictionary<int, string>();
-            var styleToNumFmt = new List<int>();
+            var cellStyles = new List<(int NumberFormatId, BColor Fill, CellVerticalAlignment Vertical, TextAlignment Horizontal, InlineStyle Font, CellBorders Borders)>();
             string? stylesRelTarget = workbookRels.FirstOrDefault(r => r.Type.EndsWith("/styles", StringComparison.OrdinalIgnoreCase))?.Target;
             if (stylesRelTarget is not null)
             {
@@ -146,6 +153,28 @@ internal static class XlsxReader
                             }
                         }
 
+                        XNamespace ns = XlsxNamespaces.Spreadsheet;
+                        XElement? indexed = stylesXml.Root.Element(ns + "colors")?.Element(ns + "indexedColors");
+                        var fills = new List<BColor>();
+                        foreach (XElement fill in stylesXml.Root.Element(ns + "fills")?.Elements(ns + "fill") ?? [])
+                        {
+                            XElement? pattern = fill.Element(ns + "patternFill");
+                            fills.Add((string?)pattern?.Attribute("patternType") == "solid"
+                                ? XlsxCellAppearance.ReadColor(pattern?.Element(ns + "fgColor"), theme, indexed)
+                                : default);
+                        }
+
+                        InlineStyle[] fonts = [.. (stylesXml.Root.Element(ns + "fonts")?.Elements(ns + "font") ?? [])
+                            .Select(font => XlsxCellAppearance.ReadFont(font, theme, indexed))];
+                        CellBorders[] borders = [.. (stylesXml.Root.Element(ns + "borders")?.Elements(ns + "border") ?? [])
+                            .Select(border => XlsxCellAppearance.ReadBorders(border, theme, indexed))];
+
+                        string? normalFontId = (string?)stylesXml.Root.Element(ns + "cellStyleXfs")?
+                            .Elements(ns + "xf").FirstOrDefault()?.Attribute("fontId");
+                        int.TryParse(normalFontId, out int normalFont);
+                        if ((uint)normalFont < (uint)fonts.Length && fonts[normalFont].FontSize is float size)
+                            digitWidth = Math.Clamp(Math.Round(7d * size / 11), 1, 255);
+
                         XElement? cellXfs = stylesXml.Root.Element(XlsxNamespaces.Spreadsheet + "cellXfs");
                         if (cellXfs is not null)
                         {
@@ -154,7 +183,25 @@ internal static class XlsxReader
                                 int numFmtId = 0;
                                 if (int.TryParse((string?)xf.Attribute("numFmtId"), NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsedId))
                                     numFmtId = parsedId;
-                                styleToNumFmt.Add(numFmtId);
+                                int.TryParse((string?)xf.Attribute("fillId"), NumberStyles.Integer, CultureInfo.InvariantCulture, out int fillId);
+                                var vertical = (string?)xf.Element(ns + "alignment")?.Attribute("vertical") switch
+                                {
+                                    "center" => CellVerticalAlignment.Center,
+                                    "bottom" => CellVerticalAlignment.Bottom,
+                                    _ => CellVerticalAlignment.Top,
+                                };
+                                var horizontal = (string?)xf.Element(ns + "alignment")?.Attribute("horizontal") switch
+                                {
+                                    "center" => TextAlignment.Center,
+                                    "right" => TextAlignment.Right,
+                                    "justify" => TextAlignment.Justify,
+                                    _ => TextAlignment.Left,
+                                };
+                                int.TryParse((string?)xf.Attribute("fontId"), NumberStyles.Integer, CultureInfo.InvariantCulture, out int fontId);
+                                int.TryParse((string?)xf.Attribute("borderId"), NumberStyles.Integer, CultureInfo.InvariantCulture, out int borderId);
+                                cellStyles.Add((numFmtId, (uint)fillId < (uint)fills.Count ? fills[fillId] : default, vertical,
+                                    horizontal, (uint)fontId < (uint)fonts.Length ? fonts[fontId] : default,
+                                    (uint)borderId < (uint)borders.Length ? borders[borderId] : default));
                             }
                         }
                     }
@@ -164,6 +211,8 @@ internal static class XlsxReader
             // 5. Read sheets listed in workbook.xml
             var sheets = new List<SpreadsheetWorksheet>();
             XElement? sheetsElem = workbookXml.Root.Element(XlsxNamespaces.Spreadsheet + "sheets");
+            bool use1904 = (string?)workbookXml.Root.Element(XlsxNamespaces.Spreadsheet + "workbookPr")?
+                .Attribute("date1904") is "1" or "true";
             if (sheetsElem is not null)
             {
                 foreach (XElement sheetElem in sheetsElem.Elements(XlsxNamespaces.Spreadsheet + "sheet"))
@@ -185,7 +234,7 @@ internal static class XlsxReader
                     if (sheetXml?.Root is null)
                         continue;
 
-                    SpreadsheetWorksheet sheet = ReadWorksheet(sheetName, sheetXml.Root, sharedStrings, styleToNumFmt, customFormats);
+                    SpreadsheetWorksheet sheet = ReadWorksheet(sheetName, sheetXml.Root, sharedStrings, cellStyles, customFormats, use1904, digitWidth);
                     sheets.Add(sheet);
                 }
             }
@@ -204,8 +253,8 @@ internal static class XlsxReader
         string sheetName,
         XElement worksheetRoot,
         IReadOnlyList<string> sharedStrings,
-        IReadOnlyList<int> styleToNumFmt,
-        IReadOnlyDictionary<int, string> customFormats)
+        IReadOnlyList<(int NumberFormatId, BColor Fill, CellVerticalAlignment Vertical, TextAlignment Horizontal, InlineStyle Font, CellBorders Borders)> cellStyles,
+        IReadOnlyDictionary<int, string> customFormats, bool use1904, double digitWidth)
     {
         // Parse column widths
         var columnWidths = new List<double>();
@@ -218,7 +267,7 @@ internal static class XlsxReader
                     int.TryParse((string?)col.Attribute("max"), NumberStyles.Integer, CultureInfo.InvariantCulture, out int max) &&
                     double.TryParse((string?)col.Attribute("width"), NumberStyles.Float, CultureInfo.InvariantCulture, out double width))
                 {
-                    double ptWidth = Math.Round(width * 7.5, 2);
+                    double ptWidth = XlsxColumnWidth.ToPoints(width, digitWidth);
                     while (columnWidths.Count < max)
                         columnWidths.Add(ptWidth);
                 }
@@ -302,7 +351,7 @@ internal static class XlsxReader
                     if (int.TryParse((string?)cElem.Attribute("s"), NumberStyles.Integer, CultureInfo.InvariantCulture, out int s))
                         styleIdx = s;
 
-                    int numFmtId = styleIdx < styleToNumFmt.Count ? styleToNumFmt[styleIdx] : 0;
+                    var (numFmtId, fill, vertical, horizontal, font, borders) = (uint)styleIdx < (uint)cellStyles.Count ? cellStyles[styleIdx] : default;
                     string? formatCode = customFormats.TryGetValue(numFmtId, out string? customCode)
                         ? customCode
                         : (BuiltinNumberFormats.TryGetValue(numFmtId, out string? builtin) ? builtin : null);
@@ -348,7 +397,13 @@ internal static class XlsxReader
                         cellVal = CellValue.FromNumber(numVal);
                         if (IsDateFormat(numFmtId, formatCode))
                         {
-                            DateTime dt = CellDateSerial.FromSerial(numVal);
+                            if (use1904 && HasCalendarDate(numFmtId, formatCode))
+                            {
+                                // Normalize to the model's 1900 system before any export.
+                                double serial = numVal + 1462;
+                                cellVal = CellValue.FromNumber(serial < 61 ? serial - 1 : serial);
+                            }
+                            DateTime dt = CellDateSerial.FromSerial(cellVal.Number);
                             cachedText = dt.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
                         }
                         else
@@ -377,7 +432,7 @@ internal static class XlsxReader
                         numberFormat: formatCode,
                         cachedText: cachedText,
                         columnSpan: colSpan,
-                        rowSpan: rowSpan));
+                        rowSpan: rowSpan, shading: fill) { VerticalAlignment = vertical, Alignment = horizontal, Font = font, Borders = borders });
                 }
 
                 rows.Add(new SpreadsheetRow(rowIndex, cells, height));
@@ -385,6 +440,18 @@ internal static class XlsxReader
         }
 
         return new SpreadsheetWorksheet(sheetName, rows, columnWidths);
+    }
+
+    private static bool HasCalendarDate(int numFmtId, string? formatCode)
+    {
+        if (numFmtId is >= 14 and <= 17 or 22)
+            return true;
+        if (string.IsNullOrEmpty(formatCode))
+            return false;
+
+        string clean = Regex.Replace(formatCode, "\"[^\"]*\"|\\[[^\\]]*\\]|\\\\.", string.Empty);
+        return clean.Contains('y', StringComparison.OrdinalIgnoreCase) ||
+            clean.Contains('d', StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsDateFormat(int numFmtId, string? formatCode)

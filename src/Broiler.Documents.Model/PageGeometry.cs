@@ -73,6 +73,9 @@ public sealed record PageGeometry(
     /// <summary>A4 portrait with 1 inch margins, for a document that states none.</summary>
     public static PageGeometry A4 { get; } = new(595.276, 841.89, 72, 72, 72, 72, 36, 36);
 
+    /// <summary>Whether a vertical rule separates adjacent text columns.</summary>
+    public bool ColumnSeparator { get; init; }
+
     /// <summary>The width left for text between the side margins.</summary>
     public double ContentWidth => Math.Max(0, Width - MarginLeft - MarginRight);
 
@@ -148,6 +151,6 @@ public sealed record PageGeometry(
     public PageGeometry WithColumns(int count, double gap)
     {
         PageGeometry divided = this with { ColumnCount = count, ColumnGap = gap };
-        return divided.IsUsable ? divided : this with { ColumnCount = 1, ColumnGap = 0 };
+        return divided.IsUsable ? divided : this with { ColumnCount = 1, ColumnGap = 0, ColumnSeparator = false };
     }
 }

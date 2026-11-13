@@ -485,7 +485,7 @@ public sealed class FormatCodeProjector
         6 => !style.Foreground.IsEmpty,
         7 => !style.Background.IsEmpty,
         8 => NormalizeLink(style.LinkHref) is not null,
-        9 => style.Capitalization != TextCapitalization.None,
+        9 => style.Capitalization is TextCapitalization.AllCaps or TextCapitalization.SmallCaps,
         _ => throw new ArgumentOutOfRangeException(nameof(property)),
     };
 

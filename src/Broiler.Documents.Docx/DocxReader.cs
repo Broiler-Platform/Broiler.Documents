@@ -768,7 +768,7 @@ internal static class DocxReader
                 "DOCX section columns left no room to write in a column; the page was read as one column."));
         }
 
-        return divided;
+        return divided with { ColumnSeparator = divided.HasColumns && columns.Separator };
     }
 
     /// <summary>ECMA-376 §17.10.1: the header/footer types, defaulting to the one for every page.</summary>
@@ -3858,6 +3858,26 @@ internal static class DocxReader
         XElement? size = rPr.Element(DocxNamespaces.Wordprocessing + "sz");
         if (DocxValueReader.TryReadHalfPoints(size?.Attribute(DocxNamespaces.Wordprocessing + "val"), out int halfPoints) && halfPoints > 0)
             style = style with { FontSize = halfPoints / 2f };
+
+        string? verticalAlign = DocxValueReader.WordValue(rPr.Element(DocxNamespaces.Wordprocessing + "vertAlign"));
+        style = verticalAlign switch
+        {
+            "superscript" => style with { Shift = BaselineShift.Superscript() },
+            "subscript" => style with { Shift = BaselineShift.Subscript() },
+            "baseline" => style with { Shift = null },
+            _ => style,
+        };
+
+        XElement? position = rPr.Element(DocxNamespaces.Wordprocessing + "position");
+        if (DocxValueReader.TryReadInt(position?.Attribute(DocxNamespaces.Wordprocessing + "val"), out int offset))
+        {
+            double fontSize = style.FontSize ?? UnstatedDefaultsFontSize;
+            style = style with
+            {
+                Shift = offset == 0 ? style.Shift : new BaselineShift(BaselinePosition.Offset,
+                    Math.Clamp(offset / (2 * fontSize), -10, 10), style.Shift?.Scale ?? 1),
+            };
+        }
 
         XElement? color = rPr.Element(DocxNamespaces.Wordprocessing + "color");
         string? colorValue = DocxValueReader.WordValue(color);

@@ -73,6 +73,11 @@ internal sealed record PdfPlacedShape(
 internal sealed class PdfLayoutPage
 {
     /// <summary>The boxes painted under this page's text.</summary>
+    public PdfPageSetup? Setup { get; set; }
+    public PageGeometry? Geometry { get; set; }
+    public bool IsParityBlank { get; set; }
+    public double? WidthPoints { get; init; }
+    public double? HeightPoints { get; init; }
     public List<PdfPlacedShape> Shapes { get; } = [];
     public List<PdfPlacedRun> Runs { get; } = [];
 }
@@ -149,11 +154,57 @@ internal sealed class PdfPageLayout(
 
         var pages = new List<PdfLayoutPage>();
         var page = new PdfLayoutPage();
-        PdfPageSetup setup = SetupFor(document);
+        PdfPageSetup defaultSetup = SetupFor(document);
+        PdfPageSetup setup = defaultSetup;
 
         double top = setup.Height - setup.MarginTop;
         double bottom = setup.MarginBottom;
         double y = top;
+        PageGeometry? geometry = document.PageGeometry;
+        page.Setup = setup;
+        page.Geometry = geometry;
+        PageGeometry? currentGeometry = geometry;
+        bool supportsColumns = !document.Tables.Any(table => table.IsFloating) && document.Shapes.Count == 0;
+        bool supportsSections = supportsColumns && document.Sections.All(section =>
+            (section.BreakType is SectionBreakType.NextPage or SectionBreakType.Continuous or
+                SectionBreakType.OddPage or SectionBreakType.EvenPage) &&
+            (section.Page is null || section.Page.IsUsable && section.BreakType != SectionBreakType.Continuous) &&
+            section.RunningContent is null && section.PageStyles is null && !section.Hidden &&
+            section.LeftIndent == 0 && section.RightIndent == 0 &&
+            section.PageNumberStart is null && section.PageNumberFormat is null &&
+            section.Background.IsEmpty && section.FootnotesEnding.Count == 0 &&
+            ((section.Page?.ContentWidth ?? defaultSetup.ContentWidth) - section.ColumnGap * (section.ColumnCount - 1)) / section.ColumnCount >= 18);
+        int columnCount = 1;
+        double gap = 0;
+        double columnWidth = setup.ContentWidth;
+        bool separator = false;
+
+        void SetColumns(int count, double spacing, bool rule)
+        {
+            double width = (setup.ContentWidth - spacing * (count - 1)) / count;
+            columnCount = supportsColumns && count > 1 && width >= 18 ? count : 1;
+            gap = columnCount > 1 ? spacing : 0;
+            columnWidth = columnCount > 1 ? width : setup.ContentWidth;
+            separator = columnCount > 1 && rule;
+        }
+
+        if (document.Sections.Count == 0 && geometry is not null)
+            SetColumns(geometry.ColumnCount, geometry.ColumnGap, geometry.ColumnSeparator);
+
+        int column = 0;
+        double regionTop = top;
+        double lowest = top;
+        bool columnHasContent = false;
+
+        void DrawSeparators(double end)
+        {
+            if (!separator || end >= regionTop)
+                return;
+            for (int i = 1; i < columnCount; i++)
+                page.Shapes.Add(new PdfPlacedShape(setup.MarginLeft + i * (columnWidth + gap) - gap / 2 - 0.25,
+                    end, 0.5, regionTop - end, ShapeFill.Solid(BColor.Black), BColor.Empty));
+        }
+
         int listNumber = 1;
         ListKind previousList = ListKind.None;
         var numberer = new ListNumberer();
@@ -173,11 +224,16 @@ internal sealed class PdfPageLayout(
         // One helper rather than a fourth copy of the reset, so a fifth site
         // cannot forget it. DocumentLayout.BreakPage is the same decision on the
         // other engine, taken for the same reason.
-        void BreakPage()
+        void BreakPage(bool overflow = false)
         {
+            DrawSeparators(overflow ? bottom : Math.Min(lowest, y));
             pages.Add(page);
-            page = new PdfLayoutPage();
+            page = new PdfLayoutPage { Setup = setup, Geometry = currentGeometry };
             y = top;
+            regionTop = top;
+            lowest = top;
+            column = 0;
+            columnHasContent = false;
             _wrap = new TextWrapExclusions();
             AddPageExclusions(document.Shapes, pages.Count + 1, setup.Height);
         }
@@ -191,13 +247,28 @@ internal sealed class PdfPageLayout(
         // This layout fills the document's page as one column, so text columns -
         // the page's or a section's - and a section's own margins are not drawn,
         // and a column break is the page break a page of one column makes of it.
+        void AdvanceColumn(bool overflow = true)
+        {
+            if (column + 1 >= columnCount)
+            {
+                BreakPage(overflow);
+                return;
+            }
+            lowest = Math.Min(lowest, y);
+            column++;
+            y = regionTop;
+            columnHasContent = false;
+        }
+
+        bool HasContent() => columnCount > 1 ? columnHasContent : page.Runs.Count > 0;
+
         if (document.Sections.Any(section => section.Hidden))
             _diagnostics.Warning(PdfDiagnosticCodes.WriteFeatureUnsupported,
                 "Hidden section visibility is not supported by the PDF layout; its retained content is drawn. Use the shared raster paginator to omit it.");
         if (document.Shapes.Any(shape => shape.OffsetXFromCell))
             _diagnostics.Warning(PdfDiagnosticCodes.WriteFeatureUnsupported,
                 "Cell-relative horizontal line placement is not supported by the PDF layout; use the shared raster paginator for this positioning.");
-        if (document.PageGeometry?.HasColumns == true || document.Sections.Count > 0)
+        if (document.Sections.Count > 0 ? !supportsSections : geometry?.HasColumns == true && columnCount == 1)
         {
             _diagnostics.Warning(
                 PdfDiagnosticCodes.WriteFeatureUnsupported,
@@ -236,18 +307,69 @@ internal sealed class PdfPageLayout(
                 "Section background colours were not painted by this PDF layout.");
 
         var anchors = new Dictionary<int, (PdfLayoutPage Page, double Top)>();
+        DocumentSection? currentSection = null;
         for (int paragraphIndex = 0; paragraphIndex < document.ParagraphCount; paragraphIndex++)
         {
             _cancellationToken.ThrowIfCancellationRequested();
 
+            if (supportsSections && document.Sections.Count > 0)
+            {
+                DocumentSection? section = DocumentSection.Containing(document.Sections, paragraphIndex);
+                if (!ReferenceEquals(section, currentSection))
+                {
+                    if (section?.BreakType == SectionBreakType.Continuous)
+                    {
+                        y = Math.Min(lowest, y);
+                        DrawSeparators(y);
+                        regionTop = lowest = y;
+                        column = 0;
+                        columnHasContent = false;
+                    }
+                    else if (column > 0 || y < top || page.Runs.Count > 0)
+                        BreakPage();
+                    if (section?.BreakType != SectionBreakType.Continuous)
+                    {
+                        currentGeometry = section?.Page ?? geometry;
+                        setup = section?.Page is { } ownPage
+                            ? new PdfPageSetup(ownPage.Width, ownPage.Height, ownPage.MarginLeft,
+                                ownPage.MarginRight, ownPage.MarginTop, ownPage.MarginBottom)
+                            : defaultSetup;
+                        page.Setup = setup;
+                        page.Geometry = currentGeometry;
+                        top = setup.Height - setup.MarginTop;
+                        bottom = setup.MarginBottom;
+                        y = regionTop = lowest = top;
+                    }
+
+                    int requiredParity = section?.BreakType switch
+                    {
+                        SectionBreakType.OddPage => 1,
+                        SectionBreakType.EvenPage => 0,
+                        _ => -1,
+                    };
+                    if (requiredParity >= 0 && (pages.Count + 1) % 2 != requiredParity)
+                    {
+                        page.IsParityBlank = true;
+                        BreakPage();
+                    }
+
+                    SetColumns(section?.ColumnCount ?? geometry?.ColumnCount ?? 1,
+                        section?.ColumnGap ?? geometry?.ColumnGap ?? 0,
+                        section?.ColumnSeparator ?? geometry?.ColumnSeparator ?? false);
+                    currentSection = section;
+                }
+            }
+
             if (DocumentTable.StartingAt(document.Tables, paragraphIndex) is DocumentTable table)
             {
-                if ((table.PageBreakBefore || table.ColumnBreakBefore) && y < setup.Height - setup.MarginTop)
+                if (table.PageBreakBefore && y < top)
                     BreakPage();
+                else if (table.ColumnBreakBefore && y < regionTop)
+                    AdvanceColumn(overflow: false);
                 // A row is placed whole: its cells sit beside each other, and
                 // breaking one across a page would mean breaking all of them at
                 // the same line.
-                List<CellContent> rows = ComposeTable(document, table, setup.MarginLeft, setup.ContentWidth);
+                List<CellContent> rows = ComposeTable(document, table, setup.MarginLeft, columnWidth);
                 if (table.KeepWithNext && table.ParagraphEnd < document.ParagraphCount &&
                     DocumentTable.StartingAt(document.Tables, table.ParagraphEnd) is null)
                 {
@@ -255,7 +377,7 @@ internal sealed class PdfPageLayout(
                     if (!following.Style.PageBreakBefore && !following.Style.ColumnBreakBefore)
                     {
                         ListNumberer probe = numberer.Snapshot();
-                        double nextWidth = Math.Max(1, setup.ContentWidth);
+                        double nextWidth = Math.Max(1, columnWidth);
                         List<LayoutLine> next = BreakParagraph(following, nextWidth,
                             Marker(following.Style, probe.Advance(following.Style), listNumber + 1));
                         double nextHeight = next.Sum(line => following.Style.LineBoxHeight(line.Height));
@@ -263,19 +385,43 @@ internal sealed class PdfPageLayout(
                             nextHeight = next.Take(Math.Max(1, following.Style.OrphanLines ?? 1)).Sum(line => following.Style.LineBoxHeight(line.Height));
                         double tableRequired = rows.Sum(row => row.Height) + Math.Max(0, following.Style.SpacingBefore) + nextHeight;
                         if (tableRequired <= setup.Height - setup.MarginTop - setup.MarginBottom &&
-                            y - tableRequired < bottom && page.Runs.Count > 0)
-                            BreakPage();
+                            y - tableRequired < bottom && HasContent())
+                            AdvanceColumn();
                     }
                 }
-                foreach (CellContent row in rows)
+                int groupEnd = 0;
+                for (int rowIndex = 0; rowIndex < rows.Count; rowIndex++)
                 {
-                    // Empty rows occupy space even when they emit no glyphs.
-                    // A glyph-count guard lets later text fall below the page
-                    // after a continuation page filled only by empty cells.
-                    if (y - row.Height < bottom && y < setup.Height - setup.MarginTop)
-                        BreakPage();
+                    double requiredHeight = rows[rowIndex].Height;
+                    if (columnCount > 1 && rowIndex == groupEnd)
+                    {
+                        groupEnd = rowIndex + 1;
+                        for (int member = rowIndex; member < groupEnd; member++)
+                        {
+                            foreach (TableCell cell in table.Rows[member].Cells)
+                            {
+                                if (!cell.IsRowSpanContinuation)
+                                    groupEnd = Math.Max(groupEnd, member + Math.Min(cell.RowSpan, rows.Count - member));
+                            }
+                        }
 
-                    row.PlaceOn(page, y, anchors);
+                        double groupHeight = 0;
+                        for (int member = rowIndex; member < groupEnd; member++)
+                            groupHeight += rows[member].Height;
+
+                        if (groupHeight <= top - bottom)
+                            requiredHeight = groupHeight;
+                        else if (groupEnd > rowIndex + 1)
+                            _diagnostics.Warning(PdfDiagnosticCodes.WriteFeatureUnsupported,
+                                "A merged row group taller than a column was split between columns.");
+                    }
+
+                    if (y - requiredHeight < bottom && (y < regionTop || regionTop < top))
+                        AdvanceColumn();
+
+                    CellContent row = rows[rowIndex];
+                    row.PlaceOn(page, y, anchors, column * (columnWidth + gap));
+                    columnHasContent = true;
                     y -= row.Height;
                 }
 
@@ -305,13 +451,15 @@ internal sealed class PdfPageLayout(
             // one is asking to start on a fresh page and is already on one. It is
             // the same guard the overflow break below uses, and the same rule the
             // CLI layout states on its own break.
-            if ((style.PageBreakBefore || style.ColumnBreakBefore) && page.Runs.Count > 0)
+            if (style.PageBreakBefore && page.Runs.Count > 0)
                 BreakPage();
+            else if (style.ColumnBreakBefore && HasContent())
+                AdvanceColumn(overflow: false);
 
             y -= style.SpacingBefore;
 
             double left = setup.MarginLeft;
-            double available = setup.ContentWidth;
+            double available = columnWidth;
             if (available <= 0)
             {
                 _diagnostics.Warning(
@@ -367,7 +515,7 @@ internal sealed class PdfPageLayout(
                 y -= style.LineBoxHeight(EmptyLineHeight());
                 y -= SpacingAfter(style, EmptyLineHeight());
                 if (y < bottom)
-                    BreakPage();
+                    AdvanceColumn();
 
                 continue;
             }
@@ -428,9 +576,9 @@ internal sealed class PdfPageLayout(
                 }
             }
             if ((style.KeepTogether || style.KeepWithNext) && required <= capacity &&
-                y - required < bottom && page.Runs.Count > 0)
+                y - required < bottom && HasContent())
             {
-                BreakPage();
+                AdvanceColumn();
                 RecomposeMovedParagraph();
             }
 
@@ -440,13 +588,13 @@ internal sealed class PdfPageLayout(
             {
                 if ((style.OrphanLines is > 0 || style.WidowLines is > 0) && lineIndex >= segmentEnd)
                 {
-                    if (segmentEnd >= 0 && page.Runs.Count > 0)
-                        BreakPage();
+                    if (segmentEnd >= 0 && HasContent())
+                        AdvanceColumn();
                     int fit = ParagraphPagination.LinesThatFit(lineHeights, lineIndex, y - bottom,
                         style.OrphanLines ?? 0, style.WidowLines ?? 0);
-                    if (fit == 0 && page.Runs.Count > 0)
+                    if (fit == 0 && HasContent())
                     {
-                        BreakPage();
+                        AdvanceColumn();
                         if (lineIndex == 0)
                             RecomposeMovedParagraph();
                         fit = ParagraphPagination.LinesThatFit(lineHeights, lineIndex, y - bottom,
@@ -459,15 +607,16 @@ internal sealed class PdfPageLayout(
                 LayoutLine line = lines[lineIndex];
                 TextBand band = lineIndex < bands.Count ? bands[lineIndex] : new TextBand(0, available);
                 double lineHeight = style.LineBoxHeight(line.Height);
-                if (y - lineHeight < bottom && page.Runs.Count > 0)
-                    BreakPage();
+                if (y - lineHeight < bottom && (HasContent() || regionTop < top))
+                    AdvanceColumn();
 
                 y -= lineHeight;
+                columnHasContent = true;
                 lastLineHeight = lineHeight;
                 Place(
                     page,
                     line,
-                    left + band.Left,
+                    left + column * (columnWidth + gap) + band.Left,
                     Math.Max(1, band.Width),
                     y,
                     style.Alignment,
@@ -477,6 +626,7 @@ internal sealed class PdfPageLayout(
             y -= SpacingAfter(style, lastLineHeight);
         }
 
+        DrawSeparators(Math.Min(lowest, y));
         pages.Add(page);
 
         // A shape anchored to a page the text never reached still stands on it,
@@ -512,13 +662,25 @@ internal sealed class PdfPageLayout(
 
         foreach (var pageArtifact in artifact.Pages)
         {
-            double pageHeight = pageArtifact.HeightPoints > 0 ? pageArtifact.HeightPoints : setup.Height;
-            var pdfPage = new PdfLayoutPage();
+            double pageHeight = pageArtifact.HeightPoints > 0 && double.IsFinite(pageArtifact.HeightPoints) ? pageArtifact.HeightPoints : setup.Height;
+            var pdfPage = new PdfLayoutPage
+            {
+                WidthPoints = pageArtifact.WidthPoints > 0 && double.IsFinite(pageArtifact.WidthPoints)
+                    ? pageArtifact.WidthPoints : setup.Width,
+                HeightPoints = pageHeight,
+            };
 
             if (pageArtifact.Background is not null)
             {
                 pdfPage.Shapes.Add(new PdfPlacedShape(
                     0, 0, pageArtifact.WidthPoints, pageHeight, pageArtifact.Background, BColor.Empty));
+            }
+
+            foreach (var rule in pageArtifact.ColumnSeparators)
+            {
+                if (rule.Width > 0 && rule.Height > 0)
+                    pdfPage.Shapes.Add(new PdfPlacedShape(rule.Left, pageHeight - rule.Bottom,
+                        rule.Width, rule.Height, ShapeFill.Solid(BColor.Black), BColor.Empty));
             }
 
             foreach (var shape in pageArtifact.Shapes)
@@ -613,23 +775,28 @@ internal sealed class PdfPageLayout(
         if (running is null || running.IsEmpty)
             return;
 
-        double left = setup.MarginLeft;
-        double available = setup.ContentWidth;
-
-        // A document that states how far its header sits from the edge gets that;
-        // one that states nothing keeps the old convention of halfway up the
-        // margin, which is the best guess available without a number.
-        double headerBaseline = geometry is not null && geometry.HeaderDistance > 0
-            ? setup.Height - geometry.HeaderDistance
-            : setup.Height - (setup.MarginTop / 2);
-        double footerBaseline = geometry is not null && geometry.FooterDistance > 0
-            ? geometry.FooterDistance
-            : setup.MarginBottom / 2;
-
         for (int i = 0; i < pages.Count; i++)
         {
+            if (pages[i].IsParityBlank)
+                continue;
+
             _cancellationToken.ThrowIfCancellationRequested();
             PageSelection selection = SelectionForPage(i);
+
+            PdfPageSetup pageSetup = pages[i].Setup ?? setup;
+            PageGeometry? pageGeometry = pages[i].Geometry ?? geometry;
+            double left = pageSetup.MarginLeft;
+            double available = pageSetup.ContentWidth;
+
+            // A document that states how far its header sits from the edge gets that;
+            // one that states nothing keeps the old convention of halfway up the
+            // margin, which is the best guess available without a number.
+            double headerBaseline = pageGeometry is not null && pageGeometry.HeaderDistance > 0
+            ? pageSetup.Height - pageGeometry.HeaderDistance
+            : pageSetup.Height - (pageSetup.MarginTop / 2);
+            double footerBaseline = pageGeometry is not null && pageGeometry.FooterDistance > 0
+            ? pageGeometry.FooterDistance
+            : pageSetup.MarginBottom / 2;
 
             PlaceRunningBlock(
                 pages[i],
@@ -637,7 +804,7 @@ internal sealed class PdfPageLayout(
                 left,
                 available,
                 headerBaseline,
-                setup.MarginTop,
+                pageSetup.MarginTop,
                 isHeader: true);
 
             PlaceRunningBlock(
@@ -646,11 +813,11 @@ internal sealed class PdfPageLayout(
                 left,
                 available,
                 footerBaseline,
-                setup.MarginBottom,
+                pageSetup.MarginBottom,
                 isHeader: false);
 
-            PlaceRunningShapes(pages[i], running.EffectiveHeaderShapes(selection), setup);
-            PlaceRunningShapes(pages[i], running.EffectiveFooterShapes(selection), setup);
+            PlaceRunningShapes(pages[i], running.EffectiveHeaderShapes(selection), pageSetup);
+            PlaceRunningShapes(pages[i], running.EffectiveFooterShapes(selection), pageSetup);
         }
     }
 
@@ -1006,17 +1173,18 @@ internal sealed class PdfPageLayout(
         /// the shading, then each edge the cell states as a thin filled box. PDF
         /// measures up from the bottom of the page, so a box's y is its foot.
         /// </summary>
-        public void Draw(PdfLayoutPage page, double top)
+        public void Draw(PdfLayoutPage page, double top, double shift)
         {
             double height = RowHeight + ExtraHeight;
             if (Width <= 0 || height <= 0)
                 return;
 
+            double left = Left + shift;
             double boxTop = top - Offset;
             if (!Cell.Shading.IsEmpty && Cell.Shading.A > 0)
             {
                 page.Shapes.Add(new PdfPlacedShape(
-                    Left,
+                    left,
                     boxTop - height,
                     Width,
                     height,
@@ -1025,13 +1193,13 @@ internal sealed class PdfPageLayout(
             }
 
             CellBorders borders = Cell.Borders;
-            AddEdge(page, borders.Top, Left, boxTop - borders.Top.Width, Width, borders.Top.Width);
-            AddEdge(page, borders.Bottom, Left, boxTop - height, Width, borders.Bottom.Width);
-            AddEdge(page, borders.Left, Left, boxTop - height, borders.Left.Width, height);
+            AddEdge(page, borders.Top, left, boxTop - borders.Top.Width, Width, borders.Top.Width);
+            AddEdge(page, borders.Bottom, left, boxTop - height, Width, borders.Bottom.Width);
+            AddEdge(page, borders.Left, left, boxTop - height, borders.Left.Width, height);
             AddEdge(
                 page,
                 borders.Right,
-                Left + Width - borders.Right.Width,
+                left + Width - borders.Right.Width,
                 boxTop - height,
                 borders.Right.Width,
                 height);
@@ -1090,10 +1258,10 @@ internal sealed class PdfPageLayout(
         public void PlaceOn(
             PdfLayoutPage page,
             double top,
-            Dictionary<int, (PdfLayoutPage Page, double Top)> anchors)
+            Dictionary<int, (PdfLayoutPage Page, double Top)> anchors, double shift = 0)
         {
             foreach (CellBoxDraft box in Boxes)
-                box.Draw(page, top);
+                box.Draw(page, top, shift);
 
             foreach ((int paragraphIndex, double offset) in Anchors)
                 anchors[paragraphIndex] = (page, top - offset);
@@ -1103,7 +1271,7 @@ internal sealed class PdfPageLayout(
                 Place(
                     page,
                     line.Line,
-                    line.Left,
+                    line.Left + shift,
                     line.Available,
                     top - line.Offset,
                     line.Alignment,

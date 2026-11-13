@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using Broiler.Graphics.Color;
+using Broiler.Graphics.Geometry;
 
 namespace Broiler.Documents.Model.Pagination;
 
@@ -33,6 +34,9 @@ public interface IPaginatedPageArtifact
 
     /// <summary>Shapes, borders, and backgrounds placed on this page.</summary>
     IReadOnlyList<IPaginatedShapeArtifact> Shapes { get; }
+
+    /// <summary>Column separator rectangles positioned from the top-left of the page.</summary>
+    IReadOnlyList<BRect> ColumnSeparators => [];
 
     /// <summary>Page background fill, or null if unpainted.</summary>
     ShapeFill? Background { get; }
