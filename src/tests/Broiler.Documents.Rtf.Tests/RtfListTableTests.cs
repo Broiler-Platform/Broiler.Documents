@@ -35,7 +35,7 @@ public sealed class RtfListTableTests
     public void Cached_Roman_And_Decimal_Labels_Preserve_Producer_Numbering()
     {
         var input = Read(@"{\rtf1{\*\listtable" +
-            @"{\list{\listlevel\levelnfc0\levelstartat1}\listid1}" +
+            @"{\list{\listlevel\levelnfc0\levelstartat1{\leveltext \'02\'00.;}{\levelnumbers\'01;}}\listid1}" +
             @"{\list{\listlevel\levelnfc2\levelstartat4{\leveltext \'02\'00);}}\listid2}}" +
             @"{\*\listoverridetable{\listoverride\listid1\listoverridecount0\ls1}" +
             @"{\listoverride\listid2\listoverridecount0\ls2}}" +
@@ -50,7 +50,7 @@ public sealed class RtfListTableTests
     [Fact]
     public void A_Format_Override_Changes_Only_Its_Own_List_Instance()
     {
-        var result = Read(@"{\rtf1{\*\listtable{\list{\listlevel\levelnfc0\levelstartat1}\listid1}}" +
+        var result = Read(@"{\rtf1{\*\listtable{\list{\listlevel\levelnfc0\levelstartat1{\leveltext \'02\'00.;}{\levelnumbers\'01;}}\listid1}}" +
             @"{\*\listoverridetable{\listoverride\listid1\listoverridecount0\ls1}" +
             @"{\listoverride\listid1\listoverridecount1{\lfolevel\listoverrideformat1\listoverridestartat" +
             @"{\listlevel\levelnfc2\levelstartat4{\leveltext \'02\'00);}{\levelnumbers\'01;}}}\ls2}}" +
@@ -150,7 +150,7 @@ public sealed class RtfListTableTests
     [Fact]
     public void Reads_A_Start_Override_As_An_Independent_Counter()
     {
-        var result = Read(@"{\rtf1{\*\listtable{\list{\listlevel\levelnfc0\levelstartat1}\listid1}}" +
+        var result = Read(@"{\rtf1{\*\listtable{\list{\listlevel\levelnfc0\levelstartat1{\leveltext \'02\'00.;}{\levelnumbers\'01;}}\listid1}}" +
             @"{\*\listoverridetable{\listoverride\listid1\listoverridecount0\ls1}" +
             @"{\listoverride\listid1\listoverridecount1{\lfolevel\listoverridestartat\levelstartat7}\ls2}}" +
             @"\pard\ls1 First\par\pard\ls2 Restart\par\pard\ls2 Next\par\pard\ls1 Continue}");
@@ -288,5 +288,117 @@ public sealed class RtfListTableTests
     public void Ordinary_Documents_Do_Not_Report_List_Tables()
     {
         Assert.Empty(Read(@"{\rtf1 Body}").Diagnostics);
+    }
+
+    private static string Label(string listTable, string paragraph = @"\pard\ls1 Item")
+    {
+        DocumentReadResult result = Read(@"{\rtf1\ansi{\*\listtable{\list" + listTable + @"\listid1}}" +
+            @"{\*\listoverridetable{\listoverride\listid1\listoverridecount0\ls1}}" + paragraph + "}");
+        return new ListNumberer().Advance(result.Document.Paragraphs[0].Style) ?? string.Empty;
+    }
+
+    [Theory]
+    // tdf122455 and tdf116265: LibreOffice draws no label for a numbered level
+    // with no \leveltext, or an empty one.
+    [InlineData(@"{\listlevel\levelnfc0\levelstartat1}", "")]
+    [InlineData(@"{\listlevel\levelnfc0\levelstartat1{\leveltext}{\levelnumbers\'01;}}", "")]
+    // A bullet level with none still draws LibreOffice's default bullet.
+    [InlineData(@"{\listlevel\levelnfc23\levelstartat1}", "\u2022")]
+    // invalidParagraphStyle: no \levelnfc is decimal.
+    [InlineData(@"{\listlevel\levelstartat1{\leveltext\'02\'00.;}{\levelnumbers\'01;}}", "1.")]
+    // tdf108416: a control word inside the level text is not part of it.
+    [InlineData(@"{\listlevel\levelnfc0\levelstartat1{\leveltext\leveltemplateid510954734\'03(\'00);}{\levelnumbers\'02;}}", "(1)")]
+    // A \levelnfc LibreOffice does not map draws no number but keeps the text.
+    [InlineData(@"{\listlevel\levelnfc9\levelstartat1{\leveltext\'02\'00.;}{\levelnumbers\'01;}}", ".")]
+    // arabic-zero-numbering: \levelnfc22 is decimal with a leading zero.
+    [InlineData(@"{\listlevel\levelnfc22\levelstartat1{\leveltext\'02\'00.;}{\levelnumbers\'01;}}", "01.")]
+    // cjklist12, cjklist34, cjklist38.
+    [InlineData(@"{\listlevel\levelnfc12\levelstartat1{\leveltext\'02\'00.;}{\levelnumbers\'01;}}", "ｱ.")]
+    [InlineData(@"{\listlevel\levelnfc34\levelstartat10{\leveltext\'02\'00.;}{\levelnumbers\'01;}}", "壹拾.")]
+    [InlineData(@"{\listlevel\levelnfc38\levelstartat2{\leveltext\'02\'00.;}{\levelnumbers\'01;}}", "贰.")]
+    // tdf106953 and tdf78506: a ';' given as \u59 in \levelnumbers leaves
+    // LibreOffice 24.2 with no label for the level.
+    [InlineData(@"{\listlevel\levelnfc0\levelstartat1{\leveltext\'02\'00.;}{\levelnumbers \'01{\uc1 \u59 ?}}}", "")]
+    [InlineData(@"{\listlevel\levelnfc0\levelstartat1{\leveltext{\uc1 \u2 ?}{\uc1 \u0 ?}{\uc1 \u46 ?}{\uc1 \u59 ?}}{\levelnumbers\'01;}}", "1.")]
+    // tdf104016: a bullet in the Symbol font is the character it draws.
+    [InlineData(@"{\listlevel\levelnfc23\levelstartat1{\leveltext\'01\'b7 ;}{\levelnumbers;}\f2}", "•")]
+    public void Reads_Level_Labels_As_LibreOffice_Does(string level, string expected)
+    {
+        string document = @"{\fonttbl{\f2\fnil\fcharset0 Symbol;}}";
+        DocumentReadResult result = Read(@"{\rtf1\ansi" + document + @"{\*\listtable{\list" + level + @"\listid1}}" +
+            @"{\*\listoverridetable{\listoverride\listid1\listoverridecount0\ls1}}\pard\ls1 Item}");
+        Assert.Equal(expected, new ListNumberer().Advance(result.Document.Paragraphs[0].Style) ?? string.Empty);
+    }
+
+    [Fact]
+    public void Level_Numbers_Are_Counted_Back_From_The_Level_Itself()
+    {
+        // LibreOffice numbers the n-th of k positions at level l as %(n + l + 1 - k):
+        // one position at the second level is that level's own number.
+        const string table = @"{\listlevel\levelnfc3\levelstartat1{\leveltext\'02\'00.;}{\levelnumbers\'01;}}" +
+            @"{\listlevel\levelnfc0\levelstartat1{\leveltext\'03\'00.\'01;}{\levelnumbers\'01\'03;}}" +
+            @"{\listlevel\levelnfc2\levelstartat1{\leveltext\'02\'02);}{\levelnumbers\'01;}}";
+        DocumentReadResult result = Read(@"{\rtf1\ansi{\*\listtable{\list" + table + @"\listid1}}" +
+            @"{\*\listoverridetable{\listoverride\listid1\listoverridecount0\ls1}}" +
+            @"\pard\ls1 A\par\pard\ls1\ilvl1 B\par\pard\ls1\ilvl2 C}");
+        var numberer = new ListNumberer();
+        Assert.Equal(new[] { "A.", "A.1", "i)" },
+            System.Linq.Enumerable.Select(result.Document.Paragraphs, p => numberer.Advance(p.Style)));
+    }
+
+    [Fact]
+    public void A_Double_Byte_Level_Text_Is_Decoded_Before_It_Is_Counted()
+    {
+        // cp950listleveltext2: the length and the positions count Big5 characters,
+        // each written as a lead byte and a trail byte that may be a letter.
+        DocumentReadResult result = Read(@"{\rtf1\ansi\ansicpg950{\*\listtable{\list{\listlevel\levelnfc30" +
+            @"{\leveltext\leveltemplateid2028996680\'06\'abe\'b8m\'00\'a1B\'ab\'e1\'b8m;}{\levelnumbers\'03;}}" +
+            @"\listid1}}{\*\listoverridetable{\listoverride\listid1\listoverridecount0\ls1}}\pard\ls1 Item}");
+        Assert.Equal("前置甲、後置",
+            new ListNumberer().Advance(result.Document.Paragraphs[0].Style));
+    }
+
+    [Fact]
+    public void List_And_Instance_Zero_Are_Lists()
+    {
+        // tdf141964_numId0 and arabic-zero-numbering: \listid0 and \ls0 name lists.
+        DocumentReadResult result = Read(@"{\rtf1\ansi{\*\listtable{\list{\listlevel\levelnfc0\levelstartat1" +
+            @"{\leveltext\'02\'00.;}{\levelnumbers\'01;}}\listid0}}" +
+            @"{\*\listoverridetable{\listoverride\listid0\listoverridecount0\ls0}}\pard\ls0 A\par\pard\ls0 B}");
+        Assert.Empty(result.Diagnostics);
+        var numberer = new ListNumberer();
+        Assert.Equal(new[] { "1.", "2." },
+            System.Linq.Enumerable.Select(result.Document.Paragraphs, p => numberer.Advance(p.Style)));
+    }
+
+    [Fact]
+    public void Reads_Word_95_Paragraph_Numbering()
+    {
+        // fdo47107, tdf104085 and tdf116841: \pn numbers the paragraphs it stands
+        // in, and a bullet is the first character of \pntxtb.
+        DocumentReadResult result = Read(@"{\rtf1\ansi{\fonttbl{\f1\fcharset2 Symbol;}}" +
+            @"\pard{\*\pn\pnlvlbody\pndec\pnstart1{\pntxta .}}{Alpha\par Beta\par}" +
+            @"\pard{\*\pn\pnlvlblt\pnf1\pnstart1{\pntxtb \'b7}}{Gamma\par}" +
+            @"\pard{\*\pn\pnlvlblt\pnstart0{\pntxtb\bullet}}{Delta\par}" +
+            @"\pard{\*\pn\pnlvlbody\pnlcrm\pnstart3{\pntxtb (}{\pntxta )}}Epsilon\par\pard Plain}");
+        Assert.Equal("Alpha\nBeta\nGamma\nDelta\nEpsilon\nPlain", result.Document.PlainText);
+        var numberer = new ListNumberer();
+        Assert.Equal(new[] { "1.", "2.", "•", "•", "(iii)", null },
+            System.Linq.Enumerable.Select(result.Document.Paragraphs, p => numberer.Advance(p.Style)));
+    }
+
+    [Fact]
+    public void A_Pard_Before_The_Paragraph_Mark_Keeps_The_Paragraphs_Numbering()
+    {
+        // tdf141964_numId0: the last item's \pard comes after its text and before
+        // its \par; LibreOffice still numbers it, and the paragraph after it not.
+        DocumentReadResult result = Read(@"{\rtf1\ansi{\*\listtable{\list{\listlevel\levelnfc0\levelstartat1" +
+            @"{\leveltext\'02\'00.;}{\levelnumbers\'01;}}\listid1}}" +
+            @"{\*\listoverridetable{\listoverride\listid1\listoverridecount0\ls1}}" +
+            @"\pard\ls1 First\par\pard\ls1 Last\pard\li68 \par After\par}");
+        Assert.Equal("First\nLast\nAfter", result.Document.PlainText);
+        var numberer = new ListNumberer();
+        Assert.Equal(new[] { "1.", "2.", null },
+            System.Linq.Enumerable.Select(result.Document.Paragraphs, p => numberer.Advance(p.Style)));
     }
 }

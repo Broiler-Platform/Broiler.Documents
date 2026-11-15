@@ -38,7 +38,7 @@ public static class RtfReader
 
     private struct State
     {
-        public int ListId;
+        public int? ListId;
         public int ListLevel;
         public InlineStyle Char;
         public ParagraphStyle Para;
@@ -114,6 +114,12 @@ public static class RtfReader
         public PageField? Page;
         public StyleReferenceField? StyleReference;
         public int Characters;
+
+        /// <summary>
+        /// The result's text, held back to the end of a field LibreOffice makes a
+        /// text field of, or null for a field whose result stands where it is read.
+        /// </summary>
+        public List<(string Text, InlineStyle Style)>? Deferred;
     }
 
     private sealed class Worker
@@ -228,6 +234,9 @@ public static class RtfReader
         // takes.
         private Accumulator? _noteText;
         private bool _noteIsEndnote;
+        private string? _noteCustomMark;
+        // The text run that ended where the group being opened starts.
+        private (string Text, InlineStyle Style)? _textBeforeGroup;
         private InlineStyle _noteCitationStyle;
 
         // The paragraphs of the frame being read, and the frame they share.
@@ -307,7 +316,8 @@ public static class RtfReader
         private readonly StringBuilder _infoAuthor = new();
         private readonly StringBuilder _infoSubject = new();
         private int _fontIndex;
-        private int _fontCharset;
+        private int _fontCharset = -1;
+        private int? _fontCodePage;
         private int _r, _g, _b;
         private bool _colorSeen;
 
@@ -321,6 +331,8 @@ public static class RtfReader
         private readonly RtfLists _lists = new();
         private readonly ListNumberer _listNumberer = new();
         private string? _cachedListMarker;
+        // The list in effect when the open paragraph received its first text.
+        private ListReference? _firstTextList;
         private bool _reportedListTable;
         private bool _titlePage;
         private bool _reportedEmptyPage;
@@ -384,6 +396,7 @@ public static class RtfReader
                         // Flushing lazily was fine while everything landed in one
                         // accumulator; now a header's text would be attributed to
                         // whatever destination happened to be current at flush time.
+                        _textBeforeGroup = _hasPending && _pending.Length > 0 ? (_pending.ToString(), _pendingStyle) : null;
                         FlushPending();
                         if (_state.Dest == RtfDestination.StyleSheet && _stack.Count == _stylesheetDepth)
                         {
@@ -422,8 +435,21 @@ public static class RtfReader
                             destination < tokens.Count && tokens[destination].Keyword is "listtable" or "listoverridetable")
                         {
                             next = destination + 1;
-                            if (!_lists.Read(tokens, ref next, tokens[destination].Keyword == "listoverridetable", _state.DocumentCodePage))
+                            if (!_lists.Read(tokens, ref next, tokens[destination].Keyword == "listoverridetable", _state.DocumentCodePage, _fonts))
                                 ReportUnsupportedList();
+                            break;
+                        }
+                        // Word 6/95 paragraph numbering, which numbers the
+                        // paragraph the group stands in.
+                        if (_state.Dest == RtfDestination.Normal && destination > next && destination < tokens.Count &&
+                            tokens[destination].Keyword == "pn")
+                        {
+                            next = destination + 1;
+                            if (_lists.ReadParagraphNumbering(tokens, ref next, _state.DocumentCodePage, _fonts) is { } numbering)
+                            {
+                                _state.ListId = null;
+                                _state.Para = _state.Para with { List = numbering, ListKind = numbering.Kind };
+                            }
                             break;
                         }
                         if (_state.Dest == RtfDestination.Normal && destination < tokens.Count &&
@@ -529,6 +555,7 @@ public static class RtfReader
                 instruction.Link = ExtractHyperlink(instruction.Instruction.ToString());
                 instruction.RubyBase = ExtractRubyBase(instruction.Instruction.ToString());
                 instruction.StyleReference = ReadStyleReference(instruction.Instruction.ToString());
+                instruction.Deferred = IsTextField(instruction.Instruction.ToString()) ? [] : null;
                 instruction.Page = instruction.Instruction.ToString().Trim().ToUpperInvariant() switch
                 {
                     "PAGE" => new PageField(PageFieldKind.PageNumber),
@@ -538,6 +565,25 @@ public static class RtfReader
             }
             else if (closing.Dest == RtfDestination.FontTable && _fontName.Length > 0)
                 CommitFont();
+
+            if (closing.Dest == RtfDestination.Field && closing.Field is { Deferred.Count: > 0 } textField &&
+                (_stack.Count == 0 || _stack.Peek().Field != closing.Field))
+            {
+                // The result goes in where the field ends, the paragraph marks in
+                // it left behind, as LibreOffice gathers a text field's content.
+                var runs = textField.Deferred;
+                textField.Deferred = null;
+                InlineStyle host = _state.Char;
+                _state.Dest = closing.FieldHost;
+                foreach (var (text, style) in runs)
+                {
+                    _state.Char = style;
+                    AppendBody(text);
+                }
+                FlushPending();
+                _state.Char = host;
+                _state.Dest = closing.Dest;
+            }
             else if (closing.Dest == RtfDestination.Field && closing.Field is { Characters: 0 } field &&
                 (_stack.Count == 0 || _stack.Peek().Field != closing.Field))
             {
@@ -549,6 +595,46 @@ public static class RtfReader
                     _state.Dest = closing.Dest;
                     if (!_diagnostics.Any(diagnostic => diagnostic.Code == "rtf.field.ruby"))
                         _diagnostics.Add(DocumentDiagnostic.Warning("rtf.field.ruby", "An empty-result ruby equation field was read as its base text; phonetic annotation layout is not represented."));
+                }
+                else if (ReadLoweredEquation(field.Instruction.ToString()) is var (lowered, down))
+                {
+                    // EQ \s\doN(text): LibreOffice writes the text lowered by N
+                    // points (DomainMapper_Impl, FIELD_EQ), as in fdo36089.rtf.
+                    _state.Dest = closing.FieldHost;
+                    InlineStyle host = _state.Char;
+                    double size = host.FontSize ?? 12;
+                    _state.Char = host with { Shift = new BaselineShift(BaselinePosition.Offset, -down / size, 1) };
+                    AppendBody(lowered);
+                    FlushPending();
+                    _state.Char = host;
+                    _state.Dest = closing.Dest;
+                }
+                else if (field.Page is PageField emptyPage)
+                {
+                    // A PAGE or NUMPAGES field with no saved result: LibreOffice
+                    // shows the number all the same (fdo48193.rtf), as for \chpgn.
+                    _state.Dest = closing.FieldHost;
+                    FlushPending();
+                    Active.Append("1", _state.Char with { PageField = emptyPage, LinkHref = null, Image = null });
+                    _state.Dest = closing.Dest;
+                }
+                else if (ReadSymbolField(field.Instruction.ToString()) is var (symbol, symbolFont) &&
+                    !IsSymbolFontName(symbolFont))
+                {
+                    // LibreOffice inserts a SYMBOL field's character itself, in
+                    // the font its \f switch names (DomainMapper_Impl, FIELD_SYMBOL).
+                    // In a Windows symbol font it draws the character through its
+                    // symbol-font tables, which with no such font installed draws
+                    // nothing (165333.rtf, Wingdings); the Latin character this
+                    // model would draw instead is left out with it.
+                    _state.Dest = closing.FieldHost;
+                    InlineStyle host = _state.Char;
+                    if (symbolFont is not null)
+                        _state.Char = host with { FontFamily = symbolFont };
+                    AppendBody(symbol);
+                    FlushPending();
+                    _state.Char = host;
+                    _state.Dest = closing.Dest;
                 }
                 else if (ResolveFieldFallback(field.Instruction.ToString()) is string fallback && fallback.Length > 0)
                 {
@@ -640,6 +726,10 @@ public static class RtfReader
 
         private bool _noteLabelSeen;
 
+        private static bool IsRaised(InlineStyle style) =>
+            style.Shift is { } shift && (shift.Position == BaselinePosition.AutoSuperscript ||
+                shift.Position == BaselinePosition.Offset && shift.Offset > 0);
+
         /// <summary>
         /// Closes the <c>\footnote</c> group just ended: its paragraphs become a
         /// note, and the note's citation one character where the group stood.
@@ -670,7 +760,8 @@ public static class RtfReader
             }
 
             _noteLabelSeen = false;
-            var note = new DocumentNote(_noteIsEndnote ? NoteKind.Endnote : NoteKind.Footnote, paragraphs);
+            var note = new DocumentNote(_noteIsEndnote ? NoteKind.Endnote : NoteKind.Footnote, paragraphs, _noteCustomMark);
+            _noteCustomMark = null;
             FlushPending();
             Active.Append(DocumentNote.PlaceholderText, _noteCitationStyle with { Note = note, Image = null, LinkHref = null });
         }
@@ -723,9 +814,9 @@ public static class RtfReader
         private void ApplyList()
         {
             ListReference? reference = null;
-            if (_state.ListId != 0)
+            if (_state.ListId is int listId)
             {
-                if (_lists.Find(_state.ListId) is { } definition &&
+                if (_lists.Find(listId) is { } definition &&
                     (uint)_state.ListLevel < ListDefinition.MaxLevels)
                     reference = new ListReference(definition, _state.ListLevel);
                 else
@@ -922,6 +1013,10 @@ public static class RtfReader
                     _state.Field?.Instruction.Clear();
                     return;
                 case "fldrslt":
+                    // A result with no field around it is ordinary text where it
+                    // stands (tdf108947.rtf has one in a header).
+                    if (_state.Field is null)
+                        return;
                     _state.Dest = RtfDestination.FieldResult;
                     if (_state.Field?.StyleReference is { } reference)
                         _state.Char = _state.Char with { StyleReference = reference };
@@ -977,6 +1072,13 @@ public static class RtfReader
                         _noteText = new Accumulator(_maxParagraphs) { OnWrite = MarkContent };
                         _noteIsEndnote = false;
                         _noteCitationStyle = _stack.Count > 0 ? _stack.Peek().Char : _state.Char;
+                        // Raised text just before the note, in the group the note
+                        // stands in, is its custom mark: LibreOffice reads the
+                        // text of a \super run that a \footnote follows as the
+                        // note's label (RTFDocumentImpl's super buffer), and keeps
+                        // it in the text too (tdf130817.rtf: "$" draws "$$").
+                        _noteCustomMark = _textBeforeGroup is var (before, beforeStyle) && IsRaised(beforeStyle) &&
+                            IsRaised(_noteCitationStyle) ? before : null;
                         return;
                     }
 
@@ -1009,6 +1111,16 @@ public static class RtfReader
                 case "listtext":
                 case "pntext":
                     _state.Dest = RtfDestination.Skip;
+                    return;
+                // An index entry's and a table-of-contents entry's text is the
+                // entry, not body text: LibreOffice makes them marks
+                // (Destination::INDEXENTRY and TOCENTRY), as in fdo84685.rtf.
+                case "xe":
+                case "tc":
+                case "tcn":
+                    if (_state.Dest is RtfDestination.Normal or RtfDestination.FieldResult or RtfDestination.Note ||
+                        IsRunning(_state.Dest))
+                        _state.Dest = RtfDestination.Skip;
                     return;
             }
 
@@ -1123,10 +1235,8 @@ public static class RtfReader
                         _state.Char = activePara.ResolvedInline;
                     else
                         _state.Char = InlineStyle.Default;
-                    int defaultCharset = _defaultFont is int defaultIndex ? _fonts.GetCharset(defaultIndex) : -1;
-                    _state.CodePage = defaultCharset >= 0
-                        ? RtfCodePage.CharsetToCodePage(defaultCharset)
-                        : _state.DocumentCodePage;
+                    int defaultCodePage = _defaultFont is int defaultIndex ? _fonts.GetCodePage(defaultIndex) : -1;
+                    _state.CodePage = defaultCodePage >= 0 ? defaultCodePage : _state.DocumentCodePage;
                     break;
                 case "super":
                 case "sub":
@@ -1147,9 +1257,10 @@ public static class RtfReader
                     break;
                 case "fs": _state.Char = _state.Char with { FontSize = has ? p / 2f : null }; _state.HasDirectCharFormatting = true; break;
                 case "f":
-                    int charset = _fonts.GetCharset(p);
-                    if (charset >= 0)
-                        _state.CodePage = RtfCodePage.CharsetToCodePage(charset);
+                    // A font that states no charset or code page is in the
+                    // document's code page, as LibreOffice reads it.
+                    int fontCodePage = _fonts.GetCodePage(p);
+                    _state.CodePage = fontCodePage >= 0 ? fontCodePage : _state.DocumentCodePage;
                     _state.Char = _state.Char with { FontFamily = _fonts.GetName(p) };
                     _state.HasDirectCharFormatting = true;
                     break;
@@ -1189,6 +1300,11 @@ public static class RtfReader
                     if (has)
                         _state.DocumentCodePage = _state.CodePage = p;
                     break;
+                // The character sets the RTF header can name instead of \ansi:
+                // IBM PC (437), IBM PC page 850 and Apple Macintosh Roman.
+                case "pc": _state.DocumentCodePage = _state.CodePage = 437; break;
+                case "pca": _state.DocumentCodePage = _state.CodePage = 850; break;
+                case "mac": _state.DocumentCodePage = _state.CodePage = 10000; break;
                 case "uc": _state.UnicodeSkip = has ? Math.Max(0, p) : 1; break;
                 case "u": HandleUnicode(p); break;
 
@@ -1345,10 +1461,11 @@ public static class RtfReader
                     if (has) { _state.ListId = p; ApplyList(); }
                     break;
                 case "ilvl":
-                    if (has) { _state.ListLevel = p; ApplyList(); }
+                    if (has) { _state.ListLevel = p; if (_state.ListId.HasValue) ApplyList(); }
                     break;
                 case "pard":
-                    _state.ListId = _state.ListLevel = 0;
+                    _state.ListId = null;
+                    _state.ListLevel = 0;
                     _state.ActiveParaStyleId = 0;
                     _state.TabsFromStyle = true;
                     if (_styleSheet.TryGetParagraphStyle(0, out RtfStyle? normalPara))
@@ -1913,10 +2030,14 @@ public static class RtfReader
                 case "f":
                     _fontIndex = parameter;
                     _fontName.Clear();
-                    _fontCharset = 0;
+                    _fontCharset = -1;
+                    _fontCodePage = null;
                     break;
                 case "fcharset":
                     _fontCharset = parameter;
+                    break;
+                case "cpg":
+                    _fontCodePage = parameter;
                     break;
                 case "uc":
                     _state.UnicodeSkip = Math.Max(0, parameter);
@@ -2075,9 +2196,10 @@ public static class RtfReader
 
         private void CommitFont()
         {
-            _fonts.Set(_fontIndex, _fontName.ToString().Trim(), _fontCharset);
+            _fonts.Set(_fontIndex, _fontName.ToString().Trim(), _fontCharset, _fontCodePage);
             _fontName.Clear();
-            _fontCharset = 0;
+            _fontCharset = -1;
+            _fontCodePage = null;
         }
 
         private void HandleColorTableControlWord(string kw, int parameter)
@@ -3077,7 +3199,14 @@ public static class RtfReader
         private void CloseParagraph()
         {
             ApplyCachedListOrdinal();
-            Active.EndParagraph(_state.Para, _state.Char with { LinkHref = null, Image = null });
+            ParagraphStyle style = _state.Para;
+            // LibreOffice sends a paragraph's numbering with its first text, and a
+            // \pard before the paragraph mark does not take it back
+            // (tdf141964_numId0.rtf ends its last item so).
+            if (style.List is null && _firstTextList is ListReference kept && Active.HasPendingText)
+                style = style with { List = kept, ListKind = kept.Kind };
+            _firstTextList = null;
+            Active.EndParagraph(style, _state.Char with { LinkHref = null, Image = null });
             if (_state.Para.List is { RestartAt: not null } list)
                 _state.Para = _state.Para with { List = list with { RestartAt = null } };
         }
@@ -3209,12 +3338,19 @@ public static class RtfReader
             if (text.Length == 0)
                 return;
             if (_state.Field is FieldFrame field && !string.IsNullOrWhiteSpace(text)) field.Characters += text.Length;
+            if (_state.Dest == RtfDestination.FieldResult && _state.Field?.Deferred is { } deferred)
+            {
+                deferred.Add((text, _state.Char));
+                return;
+            }
 
             if (_hasPending && !_pendingStyle.Equals(_state.Char))
                 FlushPending();
 
             if (!_hasPending)
             {
+                if (!Active.HasPendingText)
+                    _firstTextList = _state.Para.List;
                 _pendingStyle = _state.Char;
                 _hasPending = true;
             }
@@ -3228,6 +3364,90 @@ public static class RtfReader
             string code = instruction.TrimStart();
             return code.StartsWith("INCLUDEPICTURE", StringComparison.OrdinalIgnoreCase) &&
                 (code.Length == 14 || char.IsWhiteSpace(code[14]));
+        }
+
+        /// <summary>
+        /// The character a <c>SYMBOL</c> field inserts - its code in decimal or
+        /// as <c>0x</c> hexadecimal - and the font its <c>\f</c> switch names.
+        /// </summary>
+        /// <summary>
+        /// The text and the drop in points of an <c>EQ \s\doN(text)</c> field, the
+        /// one equation form besides ruby LibreOffice writes as text.
+        /// </summary>
+        internal static (string Text, double Down)? ReadLoweredEquation(string instruction)
+        {
+            string code = instruction.Trim();
+            if (!code.StartsWith("EQ ", StringComparison.OrdinalIgnoreCase))
+                return null;
+            code = code[3..].Trim();
+            if (!code.StartsWith(@"\s\do", StringComparison.OrdinalIgnoreCase))
+                return null;
+            code = code[5..];
+            int open = code.IndexOf('(');
+            int close = code.IndexOf(')');
+            if (open <= 0 || close <= open ||
+                !int.TryParse(code.AsSpan(0, open), NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out int down))
+                return null;
+            string text = code[(open + 1)..close];
+            return text.Length == 0 ? null : (text, down);
+        }
+
+        /// <summary>
+        /// Whether LibreOffice reads the field as a text field, whose result is
+        /// one string: the field types its text export was measured to gather
+        /// into one run across a paragraph mark in the result (tdf169298.rtf).
+        /// </summary>
+        private static bool IsTextField(string instruction)
+        {
+            ReadOnlySpan<char> code = instruction.AsSpan().TrimStart();
+            int end = code.IndexOfAny(" \t\r\n\\");
+            ReadOnlySpan<char> keyword = end < 0 ? code : code[..end];
+            return keyword.Equals("DOCVARIABLE", StringComparison.OrdinalIgnoreCase) ||
+                keyword.Equals("DOCPROPERTY", StringComparison.OrdinalIgnoreCase) ||
+                keyword.Equals("AUTHOR", StringComparison.OrdinalIgnoreCase) ||
+                keyword.Equals("REF", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsSymbolFontName(string? font) =>
+            font is not null && (font.Equals("Symbol", StringComparison.OrdinalIgnoreCase) ||
+                font.StartsWith("Wingdings", StringComparison.OrdinalIgnoreCase) ||
+                font.Equals("Webdings", StringComparison.OrdinalIgnoreCase));
+
+        internal static (string Symbol, string? Font)? ReadSymbolField(string instruction)
+        {
+            string code = instruction.Trim();
+            if (!code.StartsWith("SYMBOL", StringComparison.OrdinalIgnoreCase) || code.Length == 6 ||
+                !char.IsWhiteSpace(code[6]))
+                return null;
+
+            string[] parts = code[6..].Split((char[]?)null, 2, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length == 0)
+                return null;
+            string number = parts[0];
+            bool parsed = number.StartsWith("0x", StringComparison.OrdinalIgnoreCase)
+                ? int.TryParse(number.AsSpan(2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out int value)
+                : int.TryParse(number, NumberStyles.None, CultureInfo.InvariantCulture, out value);
+            if (!parsed || value is <= 0 or > 0xFFFF || char.IsSurrogate((char)value) || char.IsControl((char)value))
+                return null;
+
+            string? font = null;
+            string switches = parts.Length > 1 ? parts[1] : string.Empty;
+            int at = switches.IndexOf(@"\f", StringComparison.OrdinalIgnoreCase);
+            if (at >= 0)
+            {
+                string rest = switches[(at + 2)..].TrimStart();
+                if (rest.StartsWith('"'))
+                {
+                    int end = rest.IndexOf('"', 1);
+                    font = end > 1 ? rest[1..end] : null;
+                }
+                else
+                {
+                    int end = rest.IndexOfAny([' ', '\t', '\\']);
+                    font = (end < 0 ? rest : rest[..end]) is { Length: > 0 } name ? name : null;
+                }
+            }
+            return (((char)value).ToString(), font);
         }
 
         private string? ResolveFieldFallback(string instruction)

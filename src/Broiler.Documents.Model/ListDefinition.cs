@@ -76,6 +76,33 @@ public enum ListNumberFormat
 
     /// <summary>〇, 一, 二 ... 一〇, 一一 ... 二〇 (Korean Hanja digital).</summary>
     KoreanDigital2,
+
+    /// <summary>ｱ, ｲ, ｳ ... ﾝ, then ｱ again: the 46 half-width katakana in gojūon order.</summary>
+    AiueoHalfWidth,
+
+    /// <summary>ア, イ, ウ ... ン, then ア again: the 46 katakana in gojūon order.</summary>
+    AiueoFullWidth,
+
+    /// <summary>ｲ, ﾛ, ﾊ ... ﾝ, then ｲ again: the 48 half-width katakana in iroha order.</summary>
+    IrohaHalfWidth,
+
+    /// <summary>イ, ロ, ハ ... ン, then イ again: the 48 katakana in iroha order.</summary>
+    IrohaFullWidth,
+
+    /// <summary>壱, 弐, 参 ... 九, 壱零, 壱壱: Japanese legal digits, one per decimal digit.</summary>
+    JapaneseLegal,
+
+    /// <summary>壹, 贰, 叁 ... 壹拾, 壹拾壹: simplified Chinese financial numerals.</summary>
+    ChineseLegalSimplified,
+
+    /// <summary>가, 나, 다 ... 하, then 가 again: the 14 Hangul syllables.</summary>
+    HangulSyllable,
+
+    /// <summary>ㄱ, ㄴ, ㄷ ... ㅎ, then ㄱ again: the 14 Hangul consonants.</summary>
+    HangulJamo,
+
+    /// <summary>①, ② ... ㊿, then 51, 52: numbers in a circle up to fifty.</summary>
+    EnclosedCircle,
 }
 
 /// <summary>One level of a <see cref="ListDefinition"/>.</summary>
