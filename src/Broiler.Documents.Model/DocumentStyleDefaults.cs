@@ -182,6 +182,22 @@ public sealed record DocumentStyleDefaults
     /// </remarks>
     public bool ProportionalSpacingRunsPastBottom { get; init; }
 
+    /// <summary>
+    /// Whether a run of spaces leaves its line's height alone where the line
+    /// holds anything but spaces and tabs, as a tab already does: Word sizes
+    /// such a line by its other text.
+    /// </summary>
+    /// <remarks>
+    /// Set by the DOCX reader for Word 2010 and earlier (<c>compatibilityMode</c>
+    /// 14 or below, or none), as LibreOffice 24.2 lays such a document out
+    /// (tdf#117988): tdf117988.docx's 72 point spaces between 12 point words
+    /// leave its line 12 points tall, and only its "Proof line", whose 72 point
+    /// run starts with an "h", is tall. In a Word 2013 document 24.2 still
+    /// sizes the line by its spaces: tdf137335_whitespaceLineHeight2.docx's
+    /// lines of words and 72 point spaces are 72 points tall in its reference.
+    /// </remarks>
+    public bool IgnoresBlanksInLineHeight { get; init; }
+
     /// <summary>Keep a heading with the opening lines of its splittable successor.</summary>
     public bool KeepWithNextOpeningLines { get; init; }
 
@@ -240,7 +256,7 @@ public sealed record DocumentStyleDefaults
         FontSizePoints == FallbackFontSizePoints && FontFamily is null && !WidensSpaceRuns && !ShrinksJustifiedLines &&
         !TabsOverMargin && !UndecoratedLinks && WidowOrphanLines == 0 && !PreserveOpeningParagraphSpacing &&
         !KeepWithNextOpeningLines && !CollapsesParagraphSpacing && !LaysOutBodyParagraphBorders &&
-        !ProportionalSpacingRunsPastBottom;
+        !ProportionalSpacingRunsPastBottom && !IgnoresBlanksInLineHeight;
 
     /// <summary>
     /// What <see cref="WidensSpaceRuns"/> adds to the width of

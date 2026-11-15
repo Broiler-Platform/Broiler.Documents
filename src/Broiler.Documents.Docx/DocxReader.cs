@@ -123,6 +123,7 @@ internal static class DocxReader
                 CollapsesParagraphSpacing = styles.HtmlParagraphAutoSpacing,
                 LaysOutBodyParagraphBorders = true,
                 ProportionalSpacingRunsPastBottom = true,
+                IgnoresBlanksInLineHeight = compatibilityMode <= 14,
             });
             document = document.WithNoteNumbering(notes.Numbering with { RaisedLabels = notes.LabelsRaised ?? false });
             document = document.WithShowsRevisions(DocxRevisions.Shown(settings.Root));
@@ -646,15 +647,22 @@ internal static class DocxReader
     }
 
     private static bool HasSplitPgBreakAndParaMark(XElement? settings) =>
-        settings?.Element(DocxNamespaces.Wordprocessing + "compat")
-            ?.Element(DocxNamespaces.Wordprocessing + "splitPgBreakAndParaMark") is XElement split &&
-        ReadOnOff(split);
+        HasCompatFlag(settings, "splitPgBreakAndParaMark");
 
     /// <summary>Whether the settings' <c>w:compat</c> turns <paramref name="name"/> on.</summary>
     private static bool HasCompatFlag(XElement? settings, string name) =>
-        settings?.Element(DocxNamespaces.Wordprocessing + "compat")
-            ?.Element(DocxNamespaces.Wordprocessing + name) is XElement flag &&
+        CompatElements(settings).Elements(DocxNamespaces.Wordprocessing + name).FirstOrDefault() is XElement flag &&
         ReadOnOff(flag);
+
+    /// <summary>
+    /// Every <c>w:compat</c> of the settings. A part may hold more than one:
+    /// LibreOffice writes its own flags in one and Word's
+    /// <c>compatibilityMode</c> in another (tdf142404_tabSpacing.docx), and
+    /// writerfilter's <c>SettingsTable</c> reads them all, so that document
+    /// is a Word 2013 one whose tabs do not go over the margin.
+    /// </summary>
+    private static IEnumerable<XElement> CompatElements(XElement? settings) =>
+        settings?.Elements(DocxNamespaces.Wordprocessing + "compat") ?? [];
 
     /// <summary>
     /// The Word version whose layout the document asks for: the highest
@@ -667,11 +675,7 @@ internal static class DocxReader
     private static int WordCompatibilityMode(XElement? settings)
     {
         int mode = -1;
-        XElement? compat = settings?.Element(DocxNamespaces.Wordprocessing + "compat");
-        if (compat is null)
-            return mode;
-
-        foreach (XElement setting in compat.Elements(DocxNamespaces.Wordprocessing + "compatSetting"))
+        foreach (XElement setting in CompatElements(settings).Elements(DocxNamespaces.Wordprocessing + "compatSetting"))
         {
             if ((string?)setting.Attribute(DocxNamespaces.Wordprocessing + "name") != "compatibilityMode" ||
                 (string?)setting.Attribute(DocxNamespaces.Wordprocessing + "uri") != WordCompatibilityUri ||

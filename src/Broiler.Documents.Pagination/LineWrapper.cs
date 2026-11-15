@@ -175,6 +175,21 @@ internal sealed class LineWrapper(double tabStopPoints, IDocumentTextMeasurer? t
                         target = position - origin - alignment;
                         token.Pieces[0].TabLeader = selected.Leader;
                     }
+                    else if (!tabsOverMargin && target > maxWidth + 0.01 && (current.Count > 0 || pendingSpace.Count > 0))
+                    {
+                        // A tab whose next default stop lies past the row's
+                        // right edge starts a new row, where it goes to its
+                        // first stop, unless tabs may go over the margin.
+                        // Measured with LibreOffice 24.2 on
+                        // tdf142404_tabSpacing.docx (Word 2013 mode): ten tabs
+                        // after one leader stop near the edge take five lines,
+                        // two to a line, and tdf142404_tabOverMarginC15.docx's
+                        // thirteen tabs to a stop at the edge one line each.
+                        KeepTrailingLeaders();
+                        Flush();
+                        tokenIndex--;
+                        continue;
+                    }
                     token.ResolveTabWidth(Math.Max(0, target - reached));
                 }
 
@@ -193,6 +208,18 @@ internal sealed class LineWrapper(double tabStopPoints, IDocumentTextMeasurer? t
                     continue;
                 }
 
+                Flush();
+            }
+
+            // A row holding nothing but tabs is a row as well, where tabs may
+            // not go over the margin: a word that does not fit after them
+            // starts the next row, and a leader they draw stays on this one
+            // (tdf142404_tabOverMarginC15.docx's "Was" below its last line
+            // of underscores).
+            bool onlyTabs = current.Count == 0 && !tabsOverMargin && pendingSpace.Exists(space => space.IsTab);
+            if (onlyTabs && pendingWidth + token.Width > maxWidth + 0.01)
+            {
+                KeepTrailingLeaders();
                 Flush();
             }
 

@@ -1723,7 +1723,18 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                     }
                 }
 
-                if ((style.KeepTogether || style.KeepWithNext) &&
+                // A paragraph that only continues a run of paragraphs kept with
+                // the next, begun higher in this column, does not move on by
+                // itself: Writer moves such a run from its first paragraph, and
+                // leaves it where it is when that one cannot move. LibreOffice
+                // 24.2 keeps defaultStyle.docx's two empty headings on page 1
+                // below the heading that opens the page, and moves only the
+                // "Title" that does not fit.
+                bool continuesKeptRun = style.KeepWithNext && !style.KeepTogether && paragraphIndex > 0 &&
+                    document.Paragraphs[paragraphIndex - 1].Style.KeepWithNext &&
+                    !document.Tables.Any(table => table.Covers(paragraphIndex - 1)) &&
+                    currentLines.Skip(columnStart).Any(line => line.ParagraphIndex == paragraphIndex - 1);
+                if ((style.KeepTogether || style.KeepWithNext) && !continuesKeptRun &&
                     required <= capacity &&
                     y + spacingBefore + required > contentBottom - NotesHeight(composed.Lines) &&
                     ColumnHasContent())
@@ -5237,6 +5248,10 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         return band;
     }
 
+    /// <summary>A piece of text that is nothing but spaces.</summary>
+    private static bool IsBlank(LayoutPiece piece) =>
+        !piece.IsImage && !piece.IsTab && piece.Text.Length > 0 && piece.Text.AsSpan().TrimStart(' ').IsEmpty;
+
     /// <summary>The spaces a justified line can spend its slack on.</summary>
     private static int CountSpaces(List<LayoutPiece> pieces, int first)
     {
@@ -5285,10 +5300,16 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         // the words beside it leaves the line at the words' height
         // (tdf164905.docx's table of contents, whose tab runs are 11 pt and
         // whose entries are 9 pt).
+        // So do spaces beside other text where the document says so
+        // (IgnoresBlanksInLineHeight); beside nothing but pictures they still
+        // count, as tdf165359_SdtWithInline.docx's line of bold spaces before
+        // a small logo keeps their height in LibreOffice 24.2.
         bool tabsSized = pieces.All(piece => piece.IsTab);
+        bool blanksIgnored = _styleDefaults.IgnoresBlanksInLineHeight &&
+            pieces.Exists(piece => !piece.IsImage && !piece.IsTab && piece.Text.Length > 0 && !IsBlank(piece));
         for (int i = 0; i < pieces.Count; i++)
         {
-            if (pieces[i].IsTab && !tabsSized)
+            if ((pieces[i].IsTab && !tabsSized) || (blanksIgnored && IsBlank(pieces[i])))
             {
                 if (i >= first)
                     used += pieces[i].Width;
@@ -5374,6 +5395,17 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         double height = style.LineHeightRule == LineHeightRule.Proportional
             ? Math.Max(imageAscent, style.LineBoxHeight(natural) + objectOverhang)
             : style.LineBoxHeight(natural + objectOverhang);
+        // A line of nothing but pictures still takes the spacing past single
+        // the paragraph's own type would: Writer scales the line's font
+        // height, which an as-character picture leaves to the paragraph. A
+        // 526-point picture set 1.5 in 12-point type is 6.9 points taller in
+        // LibreOffice 24.2 than set single (tdf109137.docx's figure).
+        if (style.LineHeightRule == LineHeightRule.Proportional && style.LineSpacing > 1 &&
+            pieces.Count > 0 && pieces.TrueForAll(piece => piece.IsImage))
+        {
+            var font = VerticalMetrics(defaultFont);
+            height = Math.Max(height, imageAscent + ((style.LineSpacing - 1) * (font.Ascent + font.Descent + font.LineGap)));
+        }
         // LibreOffice applies fixed leading above the baseline, including on the first line.
         double baselineOffset = style.LineHeightRule == LineHeightRule.Leading
             ? height - (natural + objectOverhang)

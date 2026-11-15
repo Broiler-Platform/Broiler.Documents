@@ -135,4 +135,49 @@ public sealed class DocxIssue249PaginationTests
         Assert.All(result.Document.Paragraphs, paragraph => Assert.False(paragraph.Style.PageBreakBefore));
         Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "docx.pagebreak.trailing");
     }
+
+    [Fact]
+    public void A_Compatibility_Mode_In_A_Second_Compat_Element_Counts()
+    {
+        // tdf142404_tabSpacing.docx: LibreOffice's own flags in one w:compat,
+        // Word's compatibilityMode 15 in another; tabs then do not go over the margin.
+        const string settings =
+            "<w:compat><w:doNotExpandShiftReturn/></w:compat>" +
+            "<w:compat><w:compatSetting w:name=\"compatibilityMode\" w:uri=\"http://schemas.microsoft.com/office/word\" w:val=\"15\"/></w:compat>";
+        var parts = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["word/settings.xml"] = "<w:settings " + DocxTestPackage.BodyNamespaceDeclarations + ">" + settings + "</w:settings>",
+        };
+        using var stream = new MemoryStream(DocxTestPackage.FromBody(DocxTestPackage.Paragraph("a"), parts), writable: false);
+        DocumentStyleDefaults defaults = new DocxDocumentCodec().Read(stream).Document.StyleDefaults;
+
+        Assert.False(defaults.TabsOverMargin);
+        Assert.True(defaults.ShrinksJustifiedLines);
+        Assert.False(defaults.IgnoresBlanksInLineHeight);
+    }
+
+    [Theory]
+    [InlineData("14", true)]
+    [InlineData("15", false)]
+    public void Spaces_Leave_The_Line_Height_Alone_Only_Up_To_Word_2010(string mode, bool ignores)
+    {
+        DocumentReadResult result = Read(
+            DocxTestPackage.Paragraph("a"),
+            "<w:compatSetting w:name=\"compatibilityMode\" w:uri=\"http://schemas.microsoft.com/office/word\" w:val=\"" + mode + "\"/>");
+
+        Assert.Equal(ignores, result.Document.StyleDefaults.IgnoresBlanksInLineHeight);
+    }
+
+    [Fact]
+    public void The_Last_Paragraph_Style_Marked_Default_Is_The_Default()
+    {
+        // defaultStyle.docx marks "Normal" and then "Title" default; LibreOffice
+        // gives its unstyled paragraphs "Title".
+        DocumentReadResult result = DocxTestPackage.ReadStyled(
+            DocxTestPackage.Paragraph("text"),
+            DocxTestPackage.Style("Normal", "<w:rPr><w:sz w:val=\"24\"/></w:rPr>", isDefault: true) +
+            DocxTestPackage.Style("Title", "<w:rPr><w:sz w:val=\"56\"/></w:rPr>", isDefault: true));
+
+        Assert.Equal(28f, result.Document.Paragraphs[0].StyleAt(0).FontSize ?? result.Document.StyleDefaults.FontSizePoints);
+    }
 }

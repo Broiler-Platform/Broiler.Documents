@@ -145,8 +145,13 @@ internal sealed class DocxStyles
             styles[id] = definition;
 
             bool isDefault = IsOn((string?)style.Attribute(DocxNamespaces.Wordprocessing + "default"));
+            // Of several paragraph styles marked default, the last is the one:
+            // writerfilter's style sheet keeps overwriting its default
+            // paragraph style name, and LibreOffice 24.2 gives
+            // defaultStyle.docx's unstyled paragraphs its "Title", listed
+            // after "Normal" (the upstream test's ParaStyleName).
             if (isDefault && type.Equals("paragraph", StringComparison.Ordinal))
-                defaultParagraphStyleId ??= id;
+                defaultParagraphStyleId = id;
             if (isDefault && type.Equals("table", StringComparison.Ordinal))
                 defaultTableStyleId ??= id;
         }
