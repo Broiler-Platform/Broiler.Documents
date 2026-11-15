@@ -77,6 +77,21 @@ ownership and limits) and RichEdit ADR 0016 (sanitize, then fall back).
   fragment — no codec reads or writes a bookmark — so it preserves a reference
   the source made, not a jump that works.
 
+- **Pictures linked beside the document are an explicit host opt-in.** No
+  codec reads a file because document content names it. A host that has
+  decided to may hand a codec a resolver through that codec's own options,
+  and only `broilerdoc render --allow-local-images` does: HTML's
+  `HtmlReadOptions` for an `img` naming a sibling file, and ODT's
+  `OdtReadOptions` for a package's picture linked as `../<name>` (ODF 1.2
+  part 3, §3.7: a relative link resolves against the package as a folder, so
+  `../name` is a file in the document's own directory). The ODT reader asks
+  only for exactly that form, by the bare name, never for a deeper path,
+  another traversal or a flat document's link. The CLI applies the same name
+  rules (ASCII letters, digits, `.`, `-`, `_` and space) and byte limits
+  (`MaxBinBytes` per file, `MaxDocumentBytes` in all) to both, and hands each
+  codec only its own option type. Without the flag nothing changes; a link
+  the resolver cannot answer reads as it does without one.
+
 - **Embedded images are opt-in and delegated.** `\pict` decoding is **off by
   default**. When a caller opts in via `DocumentReadOptions`, the payload is
   routed through `Broiler.Media.Image` with *its own* limits — the RTF codec never

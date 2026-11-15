@@ -2,8 +2,14 @@ using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Drawing;
+using System.IO;
+using System.IO.Compression;
+using System.Text;
 using Broiler.Graphics.Color;
+using Broiler.Graphics.Geometry;
 using Broiler.Graphics.Imaging;
+using Broiler.Graphics.RenderList;
+using Broiler.Graphics.Text;
 
 namespace Broiler.Documents.Resources;
 
@@ -13,8 +19,10 @@ namespace Broiler.Documents.Resources;
 /// embedded object under <c>ObjectReplacements/</c>) to a PNG: filled and stroked
 /// rectangles, polygons and poly-polygons, and polylines, in their line and fill
 /// colours, under the header's and each MAPMODE action's map mode, absolute or
-/// relative. Text and bitmaps are not drawn and clip regions are ignored. Returns null
-/// when the metafile draws nothing this subset understands.
+/// relative, and text (TEXT, TEXTARRAY, STRETCHTEXT) in the FONT, TEXTCOLOR and
+/// TEXTALIGN in force, and bitmaps placed at a stated size (BMPSCALE, and
+/// BMPEXSCALE without transparency), plain or zlib-compressed. Clip regions are
+/// ignored. Returns null when the metafile draws nothing this subset understands.
 /// </summary>
 /// <remarks>
 /// Every action is a <c>u16</c> type followed by a version-compat header (<c>u16</c>
@@ -30,15 +38,33 @@ internal static class SvmRasterizer
     private const ushort ActionPolyLine = 109;
     private const ushort ActionPolygon = 110;
     private const ushort ActionPolyPolygon = 111;
+    private const ushort ActionBmpScale = 117;
+    private const ushort ActionBmpExScale = 120;
+    private const ushort ActionText = 112;
+    private const ushort ActionTextArray = 113;
+    private const ushort ActionStretchText = 114;
     private const ushort ActionLineColor = 132;
     private const ushort ActionFillColor = 133;
+    private const ushort ActionTextColor = 134;
+    private const ushort ActionTextAlign = 136;
     private const ushort ActionMapMode = 137;
+    private const ushort ActionFont = 138;
     private const ushort ActionPush = 139;
     private const ushort ActionPop = 140;
 
     private const ushort PushLineColor = 0x1;
     private const ushort PushFillColor = 0x2;
+    private const ushort PushFont = 0x4;
+    private const ushort PushTextColor = 0x8;
     private const ushort PushMapMode = 0x10;
+    private const ushort PushTextAlign = 0x100;
+
+    // VCL's TextAlign; a new Font is ALIGN_TOP.
+    private const ushort AlignTop = 0;
+    private const ushort AlignBottom = 2;
+
+    // RTL_TEXTENCODING_UNICODE: a string streamed as UTF-16 with a u32 count.
+    private const ushort CharSetUnicode = 0xFFFF;
 
     /// <summary>
     /// A map mode as the affine map it makes, logical units to 0.01 mm on each
@@ -62,9 +88,13 @@ internal static class SvmRasterizer
             new(ScaleX * scaleX, ScaleX * originX * scaleX + OffsetX, ScaleY * scaleY, ScaleY * originY * scaleY + OffsetY);
     }
 
-    private sealed record State(BColor Line, BColor Fill, MapMode Map, ushort Flags);
+    private sealed record State(BColor Line, BColor Fill, MapMode Map, ushort Flags, SvmFont? Font, BColor TextColor, ushort Align);
 
-    private sealed record Op(PointF[][] Contours, BColor Color, float StrokeWidth);
+    /// <summary>A FONT action's face: its family, em height in logical units, and orientation in tenths of a degree.</summary>
+    private sealed record SvmFont(string Family, int Height, bool Bold, bool Italic, int Orientation, ushort CharSet);
+
+    private sealed record Op(PointF[][] Contours, BColor Color, float StrokeWidth, EmfRasterizer.TextDraw? Text = null,
+        EmfRasterizer.Blit? Blit = null);
 
     public static bool IsSvm(ReadOnlySpan<byte> data) =>
         data.Length >= 12 && data[..6].SequenceEqual("VCLMTF"u8);
@@ -150,11 +180,91 @@ internal static class SvmRasterizer
 
         var line = new BColor(0, 0, 0);
         var fill = new BColor(255, 255, 255);
+        SvmFont? font = null;
+        var textColor = new BColor(0, 0, 0);
+        ushort align = AlignTop;
+        // The character set strings are streamed in: the last FONT's, which a
+        // POP does not restore (SvmReader's meActualCharSet).
+        ushort charSet = 0;
         var saved = new Stack<State>();
         var ops = new List<Op>();
         int totalPoints = 0;
 
-        PointF Map(int x, int y) => new((float)(map.X(x) * sx), (float)(map.Y(y) * sy));
+        PointF Map(double x, double y) => new((float)(map.X(x) * sx), (float)(map.Y(y) * sy));
+
+        // A text action's string, then its index and length into it. Version 2
+        // repeats the string as UTF-16, which is the one to draw.
+        void AddText(ref Reader r, ushort type, ushort version)
+        {
+            int x = r.I32(), y = r.I32();
+            string? text = ReadString(ref r, charSet == CharSetUnicode);
+            uint stretchWidth = type == ActionStretchText ? r.U32() : 0;
+            int index = r.U16(), length = r.U16();
+            int[]? dx = null;
+            if (type == ActionTextArray)
+            {
+                uint entries = r.U32();
+                if (entries > 0)
+                {
+                    if (entries > r.Remaining / 4)
+                        return;
+                    dx = new int[entries];
+                    for (int i = 0; i < dx.Length; i++)
+                        dx[i] = r.I32();
+                }
+            }
+            if (version >= 2 && r.Remaining >= 2 && ReadUtf16(ref r) is string wide)
+                text = wide;
+            if (!r.Ok || text is null || index >= text.Length || font is not SvmFont face || textColor.IsEmpty)
+                return;
+            text = text.Substring(index, Math.Min(length, text.Length - index));
+            if (string.IsNullOrWhiteSpace(text))
+                return;
+
+            // The baseline runs along the font's orientation, counterclockwise.
+            double angle = face.Orientation / 10.0 * Math.PI / 180;
+            double cos = Math.Cos(angle), sin = Math.Sin(angle);
+            PointF origin = Map(x, y);
+            PointF along = Map(x + cos, y - sin), across = Map(x + sin, y + cos);
+            double ax = along.X - origin.X, ay = along.Y - origin.Y, alongScale = Math.Sqrt(ax * ax + ay * ay);
+            double cx = across.X - origin.X, cy = across.Y - origin.Y, acrossScale = Math.Sqrt(cx * cx + cy * cy);
+            double sizePx = Math.Abs(face.Height) * acrossScale;
+            if (!(alongScale > 0) || !double.IsFinite(alongScale) || !(sizePx >= 0.5) || sizePx > 4096)
+                return;
+            (double ux, double uy) = (ax / alongScale, ay / alongScale);
+
+            var style = new BFontStyle(face.Family, sizePx, face.Bold ? BFontWeight.Bold : BFontWeight.Normal,
+                face.Italic ? BFontSlant.Italic : BFontSlant.Normal);
+            double[]? offsets = null;
+            if (dx is { Length: > 0 })
+            {
+                // A DX array is each character's end, from the start of the text.
+                offsets = new double[text.Length];
+                for (int i = 1; i < offsets.Length; i++)
+                    offsets[i] = dx[Math.Min(i - 1, dx.Length - 1)] * alongScale;
+            }
+            else if (stretchWidth > 0 && text.Length > 1)
+            {
+                // Stretched text spreads its characters over the stated width.
+                double natural = BTextMeasurer.MeasureAdvance(text, style);
+                if (natural > 0)
+                {
+                    double k = stretchWidth * alongScale / natural;
+                    offsets = new double[text.Length];
+                    for (int i = 1; i < offsets.Length; i++)
+                        offsets[i] = BTextMeasurer.MeasureAdvance(text[..i], style) * k;
+                }
+            }
+
+            double drop = align switch
+            {
+                AlignTop => sizePx * 0.8,
+                AlignBottom => -Math.Max(0, BTextMeasurer.GetLineHeight(style) - sizePx * 0.8),
+                _ => 0, // ALIGN_BASELINE
+            };
+            var baseline = new BPoint(origin.X - uy * drop, origin.Y + ux * drop);
+            ops.Add(new Op([], BColor.Empty, 0, new EmfRasterizer.TextDraw(text, offsets, baseline, ux, uy, style, textColor)));
+        }
 
         void Emit(PointF[][] contours, bool closed, float strokeWidth)
         {
@@ -232,7 +342,8 @@ internal static class SvmRasterizer
             uint length = BinaryPrimitives.ReadUInt32LittleEndian(data[(offset + 4)..]);
             if (length > (uint)(data.Length - offset - 8))
                 break;
-            var r = new Reader(data.Slice(offset + 8, (int)length));
+            ReadOnlySpan<byte> payload = data.Slice(offset + 8, (int)length);
+            var r = new Reader(payload);
             offset += 8 + (int)length;
 
             switch (type)
@@ -254,8 +365,46 @@ internal static class SvmRasterizer
                     if (ReadMapMode(ref r, map) is MapMode mode)
                         map = mode;
                     break;
+                case ActionFont:
+                    if (ReadFont(ref r) is SvmFont read)
+                    {
+                        font = read;
+                        charSet = read.CharSet;
+                        align = AlignTop;
+                    }
+                    break;
+                case ActionTextColor:
+                {
+                    uint value = r.U32();
+                    if (r.Ok)
+                        textColor = ColorOf(value);
+                    break;
+                }
+                case ActionTextAlign:
+                {
+                    ushort value = r.U16();
+                    if (r.Ok)
+                        align = value;
+                    break;
+                }
+                case ActionText or ActionTextArray or ActionStretchText:
+                    AddText(ref r, type, version);
+                    break;
+                case ActionBmpScale or ActionBmpExScale when payload.Length >= 16:
+                {
+                    // The bitmap, then the point and size it is drawn at.
+                    ReadOnlySpan<byte> place = payload[^16..];
+                    int x = BinaryPrimitives.ReadInt32LittleEndian(place), y = BinaryPrimitives.ReadInt32LittleEndian(place[4..]);
+                    int w = BinaryPrimitives.ReadInt32LittleEndian(place[8..]), h = BinaryPrimitives.ReadInt32LittleEndian(place[12..]);
+                    if (w != 0 && h != 0 && ReadDib(payload[..^16], type == ActionBmpExScale) is EmfRasterizer.Dib dib)
+                    {
+                        ops.Add(new Op([], BColor.Empty, 0, Blit: new EmfRasterizer.Blit(dib, Map(x, y), Map(x + w, y), Map(x, y + h),
+                            0, 0, dib.Width, dib.Height, SourceAlpha: false, ConstantAlpha: 255)));
+                    }
+                    break;
+                }
                 case ActionPush:
-                    saved.Push(new State(line, fill, map, r.U16()));
+                    saved.Push(new State(line, fill, map, r.U16(), font, textColor, align));
                     break;
                 case ActionPop:
                     if (saved.Count > 0)
@@ -267,6 +416,12 @@ internal static class SvmRasterizer
                             fill = state.Fill;
                         if ((state.Flags & PushMapMode) != 0)
                             map = state.Map;
+                        if ((state.Flags & PushFont) != 0)
+                            font = state.Font;
+                        if ((state.Flags & PushTextColor) != 0)
+                            textColor = state.TextColor;
+                        if ((state.Flags & (PushFont | PushTextAlign)) != 0)
+                            align = state.Align;
                     }
                     break;
                 case ActionRect:
@@ -339,11 +494,31 @@ internal static class SvmRasterizer
         if (ops.Count == 0)
             return null;
 
-        using var bitmap = new BBitmap(pixelsWide, pixelsHigh);
-        using (var canvas = bitmap.OpenCanvas())
+        byte[] rgba = new byte[checked(pixelsWide * pixelsHigh * 4)];
+        using var bitmap = new BBitmap(pixelsWide, pixelsHigh, rgba, takeOwnership: true);
+        int run = 0;
+        while (run < ops.Count)
         {
-            foreach (Op op in ops)
+            if (ops[run].Blit is EmfRasterizer.Blit blit)
             {
+                EmfRasterizer.Composite(rgba, pixelsWide, pixelsHigh, blit);
+                run++;
+                continue;
+            }
+            if (ops[run].Text is not null)
+            {
+                // Text goes through the renderer, which owns font resolution, onto
+                // a transparent layer composited over what is drawn so far.
+                var list = new BRenderList();
+                for (; run < ops.Count && ops[run].Text is EmfRasterizer.TextDraw text; run++)
+                    EmfRasterizer.DrawText(list, text);
+                EmfRasterizer.CompositeLayer(rgba, pixelsWide, pixelsHigh, list);
+                continue;
+            }
+            using var canvas = bitmap.OpenCanvas();
+            for (; run < ops.Count && ops[run].Text is null && ops[run].Blit is null; run++)
+            {
+                Op op = ops[run];
                 if (op.StrokeWidth > 0)
                 {
                     foreach (PointF[] contour in op.Contours)
@@ -358,6 +533,149 @@ internal static class SvmRasterizer
         }
 
         return EmfRasterizer.EncodePng(bitmap);
+    }
+
+    // dibtools' ZCOMPRESS: the pixel data is zlib-compressed behind its coded
+    // size, uncoded size and real compression.
+    private const uint ZCompress = 0x01004453;
+    private const int MaxDibBytes = 64 * 1024 * 1024;
+
+    /// <summary>
+    /// A bitmap as vcl's WriteDIB streams it in a metafile: a BITMAPFILEHEADER,
+    /// the info header and palette, then the pixels, plain or ZCOMPRESS. A
+    /// BitmapEx (<paramref name="extended"/>) follows it with two magic numbers
+    /// and its transparency type, and is read only when it has none: a mask or
+    /// alpha this does not apply would paint over what lies under it.
+    /// </summary>
+    private static EmfRasterizer.Dib? ReadDib(ReadOnlySpan<byte> data, bool extended)
+    {
+        if (data.Length < 54 || data[0] != (byte)'B' || data[1] != (byte)'M')
+            return null;
+        int bitsAt = BinaryPrimitives.ReadInt32LittleEndian(data[10..]);
+        int headerSize = BinaryPrimitives.ReadInt32LittleEndian(data[14..]);
+        if (headerSize < 40 || bitsAt < 14 + headerSize || bitsAt > data.Length)
+            return null;
+        byte[] info = data[14..bitsAt].ToArray();
+        uint compression = BinaryPrimitives.ReadUInt32LittleEndian(info.AsSpan(16));
+        int width = BinaryPrimitives.ReadInt32LittleEndian(info.AsSpan(4));
+        int height = Math.Abs(BinaryPrimitives.ReadInt32LittleEndian(info.AsSpan(8)));
+        int bitCount = BinaryPrimitives.ReadUInt16LittleEndian(info.AsSpan(14));
+        long stride = ((long)width * bitCount + 31) / 32 * 4;
+        if (width <= 0 || height <= 0 || stride * height > MaxDibBytes)
+            return null;
+
+        ReadOnlySpan<byte> bits;
+        int end;
+        if (compression == ZCompress)
+        {
+            if (bitsAt + 12 > data.Length)
+                return null;
+            uint coded = BinaryPrimitives.ReadUInt32LittleEndian(data[bitsAt..]);
+            uint uncoded = BinaryPrimitives.ReadUInt32LittleEndian(data[(bitsAt + 4)..]);
+            uint real = BinaryPrimitives.ReadUInt32LittleEndian(data[(bitsAt + 8)..]);
+            if (coded > (uint)(data.Length - bitsAt - 12) || uncoded > MaxDibBytes)
+                return null;
+            byte[]? inflated = Inflate(data.Slice(bitsAt + 12, (int)coded), (int)uncoded);
+            if (inflated is null)
+                return null;
+            BinaryPrimitives.WriteUInt32LittleEndian(info.AsSpan(16), real);
+            bits = inflated;
+            end = bitsAt + 12 + (int)coded;
+        }
+        else
+        {
+            if (stride * height > data.Length - bitsAt)
+                return null;
+            bits = data[bitsAt..];
+            end = bitsAt + (int)(stride * height);
+        }
+
+        // BitmapEx: 0x25091962, 0xACB20201, then TransparentType NONE (0).
+        if (extended && (end + 9 > data.Length ||
+                BinaryPrimitives.ReadUInt32LittleEndian(data[end..]) != 0x25091962 ||
+                BinaryPrimitives.ReadUInt32LittleEndian(data[(end + 4)..]) != 0xACB20201 ||
+                data[end + 8] != 0))
+            return null;
+
+        return EmfRasterizer.DecodeDib(info, bits);
+    }
+
+    private static byte[]? Inflate(ReadOnlySpan<byte> coded, int uncoded)
+    {
+        try
+        {
+            using var input = new MemoryStream(coded.ToArray(), writable: false);
+            using var zlib = new ZLibStream(input, CompressionMode.Decompress);
+            byte[] output = new byte[uncoded];
+            zlib.ReadAtLeast(output, uncoded, throwOnEndOfStream: false);
+            return output;
+        }
+        catch (InvalidDataException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// A version-compat Font (vcl's ReadImplFont): family and style names, the
+    /// size, then character set, family, pitch, weight, underline, strikeout,
+    /// italic, language and width type as u16s, and the orientation.
+    /// </summary>
+    private static SvmFont? ReadFont(ref Reader r)
+    {
+        r.U16();
+        uint length = r.U32();
+        int start = r.Position;
+        string? family = ReadString(ref r, unicode: false);
+        ReadString(ref r, unicode: false);
+        r.I32();
+        int height = r.I32();
+        ushort charSet = r.U16();
+        r.U16();
+        r.U16();
+        ushort weight = r.U16();
+        r.U16();
+        r.U16();
+        ushort italic = r.U16();
+        r.U16();
+        r.U16();
+        short orientation = (short)r.U16();
+        r.Seek(start + (int)Math.Min(length, int.MaxValue));
+        if (!r.Ok || family is null)
+            return null;
+        family = family.Trim();
+        // WEIGHT_SEMIBOLD and heavier; ITALIC_OBLIQUE or ITALIC_NORMAL.
+        return new SvmFont(family.Length == 0 ? "Liberation Serif" : family, height, weight is >= 7 and <= 10,
+            italic is 1 or 2, orientation, charSet);
+    }
+
+    /// <summary>
+    /// A string as SvStream::ReadUniOrByteString reads it: UTF-16 with a u32
+    /// count in the Unicode character set, else a byte string with a u16 count.
+    /// </summary>
+    private static string? ReadString(ref Reader r, bool unicode)
+    {
+        if (unicode)
+        {
+            uint count = r.U32();
+            if (!r.Ok || count > (uint)r.Remaining / 2)
+                return null;
+            return Encoding.Unicode.GetString(r.Bytes((int)count * 2));
+        }
+
+        int bytes = r.U16();
+        if (!r.Ok || bytes > r.Remaining)
+            return null;
+        return Encoding.Latin1.GetString(r.Bytes(bytes));
+    }
+
+    /// <summary>A UTF-16 string with a u16 count, the Unicode copy a version 2 text action carries.</summary>
+    private static string? ReadUtf16(ref Reader r)
+    {
+        int count = r.U16();
+        if (!r.Ok || count > r.Remaining / 2)
+            return null;
+        return Encoding.Unicode.GetString(r.Bytes(count * 2));
     }
 
     /// <summary>
