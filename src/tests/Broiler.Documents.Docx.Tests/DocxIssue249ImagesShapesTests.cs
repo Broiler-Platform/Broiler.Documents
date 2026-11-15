@@ -223,6 +223,37 @@ public sealed class DocxIssue249ImagesShapesTests
     }
 
     [Fact]
+    public void A_Band_Shape_Is_Placed_On_The_Page_Of_The_Section_That_Shows_It()
+    {
+        // watermark-shapetype.docx: a portrait section and a landscape one,
+        // each with a watermark centred in the margin. The portrait one was
+        // centred on the landscape page.
+        const string Header =
+            "<w:p><w:r><w:pict><v:rect xmlns:v=\"urn:schemas-microsoft-com:vml\" fillcolor=\"silver\" " +
+            "style=\"position:absolute;margin-left:0;margin-top:0;width:100pt;height:100pt;" +
+            "mso-position-vertical:center;mso-position-vertical-relative:margin\"/></w:pict></w:r></w:p>";
+        static string Section(int width, int height) =>
+            "<w:sectPr><w:headerReference w:type=\"default\" r:id=\"rH\"/><w:pgSz w:w=\"" + width + "\" w:h=\"" + height + "\"/>" +
+            "<w:pgMar w:top=\"1440\" w:right=\"1440\" w:bottom=\"1440\" w:left=\"1440\" w:header=\"720\" w:footer=\"720\" w:gutter=\"0\"/></w:sectPr>";
+        var parts = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["word/_rels/document.xml.rels"] =
+                "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">" +
+                "<Relationship Id=\"rH\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/header\" Target=\"header1.xml\"/>" +
+                "</Relationships>",
+            ["word/header1.xml"] = "<w:hdr " + DocxTestPackage.BodyNamespaceDeclarations + ">" + Header + "</w:hdr>",
+        };
+        using var stream = new MemoryStream(DocxTestPackage.FromBody(
+            "<w:p><w:pPr>" + Section(11906, 16838) + "</w:pPr><w:r><w:t>portrait</w:t></w:r></w:p>" +
+            "<w:p><w:r><w:t>landscape</w:t></w:r></w:p>" + Section(16838, 11906), parts), writable: false);
+        RichTextDocument document = new DocxDocumentCodec().Read(stream).Document;
+
+        double Top(RunningContent running) => Assert.Single(running.HeaderShapes(PageSelection.Default)).OffsetY;
+        Assert.Equal(72 + (16838 / 20d - 144 - 100) / 2, Top(document.Sections[0].RunningContent!), 3);
+        Assert.Equal(72 + (11906 / 20d - 144 - 100) / 2, Top(document.RunningContent), 3);
+    }
+
+    [Fact]
     public void A_Hidden_Picture_Is_Still_Printed()
     {
         // tdf162527_hidden_image.docx: LibreOffice 24.2 draws the hidden picture.

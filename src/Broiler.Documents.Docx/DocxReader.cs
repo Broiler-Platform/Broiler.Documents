@@ -379,7 +379,7 @@ internal static class DocxReader
             return [RunningContent.Empty];
 
         IReadOnlyList<XElement> sections = DocxSections.Properties(body);
-        var parts = new Dictionary<(string Id, bool IsHeader), (IReadOnlyList<RichTextParagraph> Paragraphs, IReadOnlyList<DocumentShape> Shapes, IReadOnlyList<DocumentTable> Tables)?>();
+        var parts = new Dictionary<(string Id, bool IsHeader, PageGeometry? Page), (IReadOnlyList<RichTextParagraph> Paragraphs, IReadOnlyList<DocumentShape> Shapes, IReadOnlyList<DocumentTable> Tables)?>();
         var contents = new List<RunningContent>(sections.Count);
         for (int index = 0; index < sections.Count; index++)
         {
@@ -410,6 +410,12 @@ internal static class DocxReader
             }
 
             RunningContent content = RunningContent.Empty.WithDifferentFirstPage(differentFirstPage);
+
+            // A band's shapes are placed on the page of the section that shows
+            // it: watermark-shapetype.docx's portrait first section centres its
+            // watermark in a portrait margin, where the last section's
+            // landscape page put it 108 points right and 130 points up.
+            PageGeometry? sectionPage = DocxSections.ReadPage(sections[index]) ?? page;
 
             foreach (XElement reference in ContinuedReferences(sections, index))
             {
@@ -452,15 +458,15 @@ internal static class DocxReader
                     continue;
                 }
 
-                if (!parts.TryGetValue((relationshipId, isHeader), out var part))
+                if (!parts.TryGetValue((relationshipId, isHeader, sectionPage), out var part))
                 {
                     part = ReadPart(
                         archive, relationship.Target, numbering, styles, images, limits, diagnostics, reported,
                         isHeader ? RunningBand.Header : RunningBand.Footer,
-                        page,
+                        sectionPage,
                         compatibilityMode,
                         splitPgBreakAndParaMark);
-                    parts.Add((relationshipId, isHeader), part);
+                    parts.Add((relationshipId, isHeader, sectionPage), part);
                 }
 
                 if (part is not var (paragraphs, shapes, tables) || (paragraphs.Count == 0 && shapes.Count == 0))
@@ -696,10 +702,10 @@ internal static class DocxReader
     /// <remarks>
     /// <para>
     /// The body-level w:sectPr is the document's final section. A document split
-    /// into several can give each its own page; the last one is the document's -
-    /// the same choice the header and footer reader makes, and for the same
-    /// reason: it is the section the running content belongs to - and a section
-    /// that states another keeps it as its own <see cref="DocumentSection.Page"/>.
+    /// into several can give each its own page; the last one is the document's,
+    /// the section the document's running content belongs to, and a section
+    /// that states another keeps it as its own <see cref="DocumentSection.Page"/>
+    /// (the header and footer reader places each section's bands on that page).
     /// Geometry a producer states nonsensically is dropped rather than honoured.
     /// </para>
     /// <para>
