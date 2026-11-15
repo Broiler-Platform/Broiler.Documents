@@ -189,6 +189,21 @@ public sealed class DocxIssue249ImagesShapesTests
         Assert.True(shape.BehindText);
     }
 
+    [Theory]
+    // tdf105143.docx's freeform: "hd" before its curve, which LibreOffice passes over.
+    [InlineData("m,57hdc80,137,78,189,131,282v41,72,98,127,131,205c270,505,271,526,281,543l2039,132xe", true)]
+    [InlineData("m,57ha12,34l2039,132xe", true)]
+    [InlineData("m,57hz l2039,132xe", false)] // only ha to hi are Office's tokens
+    public void A_Vml_Freeform_Passes_Over_Offices_H_Tokens(string path, bool drawn)
+    {
+        var shape = new System.Xml.Linq.XElement("shape", new System.Xml.Linq.XAttribute("coordsize", "2039,1347"));
+
+        byte[]? png = DocxVmlPath.Render(shape, path, 102, 67, new Broiler.Graphics.Color.BColor(0, 0, 0),
+            new Broiler.Graphics.Color.BColor(0, 0, 0), 0.75);
+
+        Assert.Equal(drawn, png is not null);
+    }
+
     [Fact]
     public void A_Hidden_Picture_Is_Still_Printed()
     {
