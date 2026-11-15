@@ -194,4 +194,21 @@ public sealed class DocumentLayoutListTests
 
         Assert.Equal("Text.1 Morei", Broiler.Documents.Cli.Commands.DocumentCommands.LabelledText(document));
     }
+
+    [Theory]
+    [InlineData(NoteNumberingRestart.EachPage, "a1\nb0\nc0")]
+    [InlineData(NoteNumberingRestart.EachSection, "a1\nb2\nc3")]
+    public void The_Text_Dump_Writes_Footnotes_Numbered_Per_Page_As_LibreOffices_Unpaginated_Export_Does(
+        NoteNumberingRestart restart, string expected)
+    {
+        // tdf92470_footnoteRestart.docx: LibreOffice 24.2 writes 1, 0, 0, 0 for
+        // footnotes numbered per page, wherever the page breaks fall.
+        RichTextParagraph Cited(string text) => RichTextParagraph.Plain(text).InsertText(
+            1, DocumentNote.PlaceholderText,
+            InlineStyle.Default with { Note = new DocumentNote(NoteKind.Footnote, [RichTextParagraph.Plain("n")]) });
+        RichTextDocument document = RichTextDocument.FromParagraphs([Cited("a"), Cited("b"), Cited("c")])
+            .WithNoteNumbering(NoteNumbering.Default with { FootnoteRestart = restart });
+
+        Assert.Equal(expected, Broiler.Documents.Cli.Commands.DocumentCommands.LabelledText(document));
+    }
 }

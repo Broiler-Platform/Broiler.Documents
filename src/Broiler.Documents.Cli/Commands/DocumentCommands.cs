@@ -385,6 +385,14 @@ public static class DocumentCommands
             }
         }
 
+        // A footnote numbered per page has the number its page gives it, and
+        // LibreOffice's text export writes the document before any page is
+        // laid out: the document's first such footnote is 1 and every other
+        // one 0, wherever the pages break (tdf92470_footnoteRestart.docx, and a
+        // copy of it without its page break or with numbering per section,
+        // which LibreOffice 24.2 writes 1, 0, 0, 0 and 1, 2, 3, 4).
+        bool perPageFootnotes = document.NoteNumbering.FootnoteRestart == NoteNumberingRestart.EachPage;
+        bool firstFootnote = true;
         bool first = true;
         foreach (int i in body)
         {
@@ -409,7 +417,16 @@ public static class DocumentCommands
             {
                 int length = Math.Min(run.Length, paragraph.Length - offset);
                 if (run.Style.Note is DocumentNote note)
-                    builder.Append(notes.Label(note));
+                {
+                    string citation = notes.Label(note);
+                    if (perPageFootnotes && note.Kind == NoteKind.Footnote && note.CustomMark is null)
+                    {
+                        if (!firstFootnote)
+                            citation = ListNumberer.Format(0, note.Section?.Format ?? document.NoteNumbering.FootnoteFormat);
+                        firstFootnote = false;
+                    }
+                    builder.Append(citation);
+                }
                 else if (!run.Style.IsImage)
                     builder.Append(paragraph.Text, offset, length);
                 offset += length;
