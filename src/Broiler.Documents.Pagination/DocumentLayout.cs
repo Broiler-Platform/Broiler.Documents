@@ -2202,8 +2202,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         List<LayoutShape> shapes = PlaceShapes(setup, number, lines);
         if (sectionPaint is not null)
             shapes.AddRange(sectionPaint);
-        shapes.AddRange(PlaceRunningShapes(_running.EffectiveHeaderShapes(selection), setup));
-        shapes.AddRange(PlaceRunningShapes(_running.EffectiveFooterShapes(selection), setup));
+        shapes.AddRange(PlaceRunningShapes(_running.EffectiveHeaderShapes(selection), setup, headerLines, frame.HeaderDistance ?? 0));
+        shapes.AddRange(PlaceRunningShapes(_running.EffectiveFooterShapes(selection), setup, footerLines, frame.TextBottom));
         shapes = [.. shapes.OrderBy(shape => shape.ZOrder)];
 
         List<LayoutCell> grid = setup.Continuous ? [] : GridLines(frame);
@@ -2504,11 +2504,15 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     private bool Draws(DocumentShape shape) => shape.Printable || _settings.DrawNonPrintingShapes;
 
     /// <summary>
-    /// Places a running band's shapes on every page it applies to. There is no
-    /// paragraph to hang one from - a header repeats - so the offset is measured
-    /// from the top of the page.
+    /// Places a running band's shapes on every page it applies to. The offset
+    /// is measured from the top of the page, or, for a shape that hangs from
+    /// its band's paragraph (<see cref="DocumentShape.OffsetFromBandParagraph"/>),
+    /// from the top of that paragraph's first line among <paramref name="bandLines"/>,
+    /// the band's own lines as placed on this page; from <paramref name="bandTop"/>
+    /// when that paragraph has no line drawn.
     /// </summary>
-    private List<LayoutShape> PlaceRunningShapes(IReadOnlyList<DocumentShape> shapes, DocumentPageBox setup)
+    private List<LayoutShape> PlaceRunningShapes(IReadOnlyList<DocumentShape> shapes, DocumentPageBox setup,
+        IReadOnlyList<LayoutLine> bandLines, double bandTop)
     {
         var placed = new List<LayoutShape>();
         foreach (DocumentShape shape in shapes)
@@ -2520,7 +2524,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 ? new BRect(line.TextAreaLeft, line.Top, BoxWidth(shape), BoxHeight(shape))
                 : new BRect(
                 setup.ContentLeftPoints + (shape.FitsText ? shape.OffsetX + (shape.Width - BoxWidth(shape)) / 2 : shape.OffsetX),
-                shape.OffsetY,
+                shape.OffsetY + (shape.OffsetFromBandParagraph ? BandParagraphTop(shape.ParagraphIndex) : 0),
                 BoxWidth(shape),
                 BoxHeight(shape));
             if ((bounds.Width <= 0 || bounds.Height <= 0) && !shape.IsRule)
@@ -2547,6 +2551,19 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         }
 
         return placed;
+
+        // Running lines carry their paragraph's index below zero (ComposeRunningCore).
+        double BandParagraphTop(int paragraph)
+        {
+            double top = double.PositiveInfinity;
+            foreach (LayoutLine line in bandLines)
+            {
+                if (line.ParagraphIndex == -1 - paragraph)
+                    top = Math.Min(top, line.Top);
+            }
+
+            return double.IsFinite(top) ? top : bandTop;
+        }
     }
 
     /// <summary>

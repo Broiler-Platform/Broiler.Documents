@@ -1892,6 +1892,7 @@ internal static class DocxReader
             WrapPolygon = Wrap == ShapeWrap.None ? null : ReadWrapPolygon(anchor),
             BoundedByPage = !context.Builder.InTableCell,
             OffsetXFromColumn = FromColumn(anchor, context),
+            OffsetFromBandParagraph = FromHeaderParagraph(anchor, context),
         });
         return true;
     }
@@ -2109,6 +2110,7 @@ internal static class DocxReader
                     WrapMargins = Wrap == ShapeWrap.None ? null : Margins,
                     BoundedByPage = !context.Builder.InTableCell,
                     OffsetXFromColumn = FromColumn(anchor, context),
+                    OffsetFromBandParagraph = FromHeaderParagraph(anchor, context),
                 });
             }
             else if (child.Name == DocxNamespaces.WordGroup + "grpSp" && depth < MaxGroupDepth)
@@ -2245,13 +2247,15 @@ internal static class DocxReader
             geometry: geometry,
             outlineWidth: long.TryParse((string?)spPr?.Element(DocxNamespaces.Drawing + "ln")?.Attribute("w"), out long lineWidth) && lineWidth >= 0 ? lineWidth / 12700d : 0.75,
             offsetXFromCell: context.Builder.InTableCell && RelativeFrom(anchor, "positionH") == "column" &&
-                (geometry is ShapeGeometry.Line or ShapeGeometry.LineAscending || LaysOutInCell(anchor)))
+                (geometry is ShapeGeometry.Line or ShapeGeometry.LineAscending || LaysOutInCell(anchor)),
+            printable: !HiddenObject(anchor))
         {
             IsCustomShape = context.InDiagram,
             TextFlow = ReadShapeTextFlow(wsp.Element(DocxNamespaces.WordShape + "bodyPr")),
             WrapMargins = Wrap == ShapeWrap.None ? null : Margins,
             BoundedByPage = !context.Builder.InTableCell,
             OffsetXFromColumn = FromColumn(anchor, context),
+            OffsetFromBandParagraph = FromHeaderParagraph(anchor, context),
         });
         return true;
     }
@@ -2657,6 +2661,10 @@ internal static class DocxReader
             StretchesTextToBox = wordArtText,
             TextOutline = textOutline,
             TextOutlineWidth = outlineWidth,
+            // No vertical frame, "text" or "line": the header paragraph, as a
+            // DrawingML anchor's (FromHeaderParagraph). LibreOffice ignores
+            // w10:wrap's anchory here (n779834.docx, measured).
+            OffsetFromBandParagraph = context.Band == RunningBand.Header && verticalFrom is null && !fromPage,
         });
         return true;
     }
@@ -2738,6 +2746,17 @@ internal static class DocxReader
     /// being required only on <c>wp:anchor</c> - reads as behind, so a producer
     /// that omits it gets the letterhead answer rather than a box over the text.
     /// </remarks>
+    /// <summary>
+    /// True for a drawn shape its document hides (<c>wp:docPr hidden="1"</c>).
+    /// LibreOffice 24.2 imports it neither visible nor printable but still
+    /// wraps text around it (<c>tdf169802_hidden_shape.docx</c>,
+    /// <c>tdf156484.docx</c>, measured), which is what a shape that is not
+    /// printable is here. A hidden picture it still draws
+    /// (<c>tdf162527_hidden_image.docx</c>), so pictures do not ask.
+    /// </summary>
+    private static bool HiddenObject(XElement anchor) =>
+        (string?)anchor.Element(DocxNamespaces.WordDrawing + "docPr")?.Attribute("hidden") is "1" or "true";
+
     private static bool BehindDoc(XElement anchor) =>
         (string?)anchor.Attribute("behindDoc") switch
         {
@@ -2928,6 +2947,17 @@ internal static class DocxReader
                 return offset;
         }
     }
+
+    /// <summary>
+    /// True for a header's object placed down from its paragraph or line
+    /// (<c>relativeFrom="paragraph"</c> or <c>"line"</c>, or no frame), whose
+    /// offset <see cref="VerticalOffset"/> keeps as stated: the layout measures
+    /// it from where that header paragraph lands
+    /// (<see cref="DocumentShape.OffsetFromBandParagraph"/>).
+    /// </summary>
+    private static bool FromHeaderParagraph(XElement anchor, DocxReadContext context) =>
+        context.Band == RunningBand.Header && SimplePosition(anchor) is null &&
+        RelativeFrom(anchor, "positionV") is null or "paragraph" or "line";
 
     /// <summary>
     /// The vertical offset in points, and whether it is measured from the top of

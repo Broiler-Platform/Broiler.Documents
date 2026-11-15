@@ -265,6 +265,23 @@ public sealed class DocumentShape(
     public bool OffsetXFromColumn { get; init; }
 
     /// <summary>
+    /// True for a header's shape whose <see cref="OffsetY"/> is measured from
+    /// the top of the header paragraph <see cref="ParagraphIndex"/> names, not
+    /// from the top edge of the page as a running band's shapes otherwise are:
+    /// DOCX's <c>wp:positionV relativeFrom="paragraph"</c> (or <c>"line"</c>),
+    /// and a VML shape that names no vertical frame.
+    /// </summary>
+    /// <remarks>
+    /// Where a header's paragraph lands is a layout result: the header
+    /// distance and the lines above it. LibreOffice 24.2 draws
+    /// <c>Cool15691_headerTextWrapsAroundImage.docx</c>'s picture, at nought
+    /// from its paragraph, from the header's top 35.4 points down, and
+    /// <c>n779834.docx</c>'s full-page picture from its header paragraph
+    /// 28.35 points down; both were drawn from the top of the page.
+    /// </remarks>
+    public bool OffsetFromBandParagraph { get; init; }
+
+    /// <summary>
     /// Where the shape sits among the other shapes: a higher number draws later,
     /// and therefore on top.
     /// </summary>
@@ -412,6 +429,7 @@ public sealed class DocumentShape(
             MinimumWrapRoom = MinimumWrapRoom,
             BoundedByPage = BoundedByPage,
             OffsetXFromColumn = OffsetXFromColumn,
+            OffsetFromBandParagraph = OffsetFromBandParagraph,
         };
 
     /// <summary>The shape's own text, empty when it holds none.</summary>
