@@ -476,6 +476,25 @@
       "samples": ["layout/data/tdf165094.fodt"],
       "evidence": "Forty-five paragraphs fill most of page one; then a hidden paragraph names the Style1 page style with page number 5, and a table follows. The pinned 24.2 PDF has one page: the table follows paragraph 45 under the first page's 'first' header, and the page style change is lost. The fix ('do not skip empty page because of wrong page descriptor', master 2025-05-26, first released in 25.8) explains that Writer's initial layout put an automatic break before paragraph 26 and the manual break before the hidden paragraph, and that moving the content back skipped the page with the new style in SwFrame::WrongPageDesc, so the break was ignored. It came with this sample, whose table text says it must be after the page break, on a page with style Style1 and number 5, and a layout test that asserts it. broilerdoc draws the fixed layout: two pages, the table on the second under the 'first (Style1)' header. Cut-down copies converted with LibreOffice 24.2.7.2 show the defect depends on the page style: with a plain fo:break-before on the hidden paragraph instead, 24.2 does break the page. The text export holds the same text either way.",
       "reference": "docs/notes/office-issue-242-odt-layout.md"
+    },
+    {
+      "id": "tdf166141-link-styles-missing-template",
+      "bug": "tdf#166141",
+      "fixedIn": "26.2",
+      "fixCommits": [
+        "bf326cd72905df985a1f150dbaabf4470fb5aabb"
+      ],
+      "upstreamTests": [
+        "sw/qa/extras/ooxmlexport/ooxmlexport25.cxx testTdf166141_linkedStyles"
+      ],
+      "axes": [
+        "pixel"
+      ],
+      "samples": [
+        "ooxmlexport/data/tdf166141_linkedStyles.docx"
+      ],
+      "evidence": "settings.xml states w:linkStyles and a w:attachedTemplate that is not in the package; Normal states no space below its paragraphs. The pinned 24.2 PDF puts 10 points under every paragraph (lines 13.9 points apart within a paragraph, 23.9 between paragraphs), because 24.2 updates the styles from Word's defaults (200 twips below, 115 % lines) whenever linkStyles is on. The fix ('writerfilter docx: linkStyles != 0.35cm bottom margin', gerrit change 186855, merged on master 2025-06-24 after the libreoffice-25-8 branch was cut and not cherry-picked to it, so first released in 26.2) leaves the styles alone when the template to update them from does not exist, and its test asserts the Standard style keeps ParaBottomMargin 0 for this sample. Its twin tdf166141_linkedStyles2.docx, with linkStyles and no attachedTemplate, keeps the Word defaults in the fixed release too, and broilerdoc draws both as the fixed release does. Cut-down copies converted with 24.2.7.2 show the defaults sit under w:docDefaults and the styles: a Normal stating 3 points below keeps 3, a pPrDefault stating 20 keeps 20.",
+      "reference": "docs/notes/office-issue-249-docx-headers.md"
     }
   ]
 }
