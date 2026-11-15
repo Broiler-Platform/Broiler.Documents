@@ -238,7 +238,26 @@ Tracked changes (ECMA-376 §17.13.5) are a `TextRevision` with `w:author` and
   LibreOffice's import does (tdf#77417, `DomainMapper_Impl::finishParagraph`),
   with the info diagnostic `docx.table.trailingspace`. `tdf77417.docx` needs
   both: its amount tables end cells in a tab and no-break spaces, with stops
-  past narrow cells' right indents.
+  past narrow cells' right indents. Below mode 15 the reader also sets
+  `IgnoresBlanksInLineHeight`: a run of spaces beside other text leaves its
+  line's height alone, as LibreOffice 24.2 sizes `tdf117988.docx`'s line of
+  12 point words and 72 point spaces.
+- **Several `w:compat`.** Every `w:compat` of the settings is read, as
+  writerfilter's `SettingsTable` reads them all: `tdf142404_tabSpacing.docx`
+  keeps LibreOffice's own flags in one and `compatibilityMode` 15 in another.
+- Where tabs do not go over the margin, a tab whose next default stop lies
+  past the row's edge starts a new row, and a word that does not fit after a
+  row of tabs starts the next one below their leader
+  (`tdf142404_tabSpacing.docx`: two tabs a line; `tdf142404_tabOverMarginC15.docx`).
+- Every DOCX sets `ProportionalSpacingRunsPastBottom`: the last line on a page
+  or in a column needs room only for its text, not for the space
+  proportional line spacing adds below it (issue 249 note).
+- Of several paragraph styles marked `w:default`, the last is the default
+  paragraph style, as writerfilter keeps overwriting it (`defaultStyle.docx`).
+  A paragraph style whose `w:basedOn` chain never reaches the default
+  paragraph style takes the size and family `w:docDefaults` gives (10 point
+  Times New Roman with an empty `w:rPrDefault`, 11 point Calibri with none),
+  not the default style's (`tdf108350_noFontdefaults.docx`).
 
 ### Tables
 

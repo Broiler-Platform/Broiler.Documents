@@ -184,6 +184,23 @@ public sealed class DocumentLayoutIssue249PaginationTests
         Assert.Equal(3, Assert.Single(result.Pages[1].Lines).ParagraphIndex);
     }
 
+    [Fact]
+    public void A_Picture_Line_In_A_Text_Box_Keeps_Its_Height()
+    {
+        // test_msword_hang.docx: a frame its picture already overfills, set
+        // 1.15, keeps the picture's line as it was and still draws it.
+        var image = new InlineImage(BImageResource.FromPixels(new BPixelBuffer(1, 1, [0, 0, 0, 255])), width: 100, height: 100);
+        RichTextParagraph picture = RichTextParagraph.Create(InlineImage.PlaceholderText, new InlineStyle { Image = image },
+            ParagraphStyle.Default with { LineHeightRule = LineHeightRule.Proportional, LineSpacing = 1.5f });
+        using var images = new ImageStore();
+        LayoutPage page = Assert.Single(new DocumentLayout(new LayoutSettings(), images).Layout(
+            RichTextDocument.FromPlainText("body").WithShapes([new DocumentShape(0, 0, 0, 120, 90, paragraphs: [picture])]),
+            new DocumentPageBox(600, 600, 10, 10, 10, 10)).Pages);
+
+        LayoutLine line = Assert.Single(Assert.Single(page.Shapes).Lines);
+        Assert.Equal(100, line.Height, 3);
+    }
+
     private static LayoutLine LayoutOne(RichTextParagraph paragraph, DocumentStyleDefaults defaults)
     {
         using var images = new ImageStore();

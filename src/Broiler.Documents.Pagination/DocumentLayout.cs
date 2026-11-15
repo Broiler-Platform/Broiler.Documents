@@ -4277,7 +4277,9 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         DocumentShape shape, DocumentPageBox setup, double left, double? boxWidth)
     {
         ListNumberer bodyLists = _lists;
+        bool composingShapeText = _composingShapeText;
         _lists = _linkedStarts.TryGetValue(shape, out ListNumberer? start) ? start.Snapshot() : new ListNumberer();
+        _composingShapeText = true;
         try
         {
             RichTextDocument content = RichTextDocument.FromParagraphs(ShapeParagraphs(shape)).WithTables(shape.Tables);
@@ -4287,8 +4289,12 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         finally
         {
             _lists = bodyLists;
+            _composingShapeText = composingShapeText;
         }
     }
+
+    /// <summary>True while a shape's text is composed rather than the document's flow.</summary>
+    private bool _composingShapeText;
 
     private (List<LayoutLine> Lines, List<LayoutCell> Cells) PlaceShapeContent(DocumentShape shape, BRect bounds, DocumentPageBox setup)
     {
@@ -5399,8 +5405,11 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         // the paragraph's own type would: Writer scales the line's font
         // height, which an as-character picture leaves to the paragraph. A
         // 526-point picture set 1.5 in 12-point type is 6.9 points taller in
-        // LibreOffice 24.2 than set single (tdf109137.docx's figure).
-        if (style.LineHeightRule == LineHeightRule.Proportional && style.LineSpacing > 1 &&
+        // LibreOffice 24.2 than set single (tdf109137.docx's figure). Only
+        // outside text boxes, where it was measured: a text box's lines keep
+        // their height, as test_msword_hang.docx's frame, which its picture
+        // already overfills, then lost its text.
+        if (style.LineHeightRule == LineHeightRule.Proportional && style.LineSpacing > 1 && !_composingShapeText &&
             pieces.Count > 0 && pieces.TrueForAll(piece => piece.IsImage))
         {
             var font = VerticalMetrics(defaultFont);
