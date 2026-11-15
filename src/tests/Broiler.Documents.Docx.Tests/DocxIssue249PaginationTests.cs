@@ -64,6 +64,29 @@ public sealed class DocxIssue249PaginationTests
         Assert.True(paragraphs[1].Style.PageBreakBefore);
     }
 
+    [Theory]
+    [InlineData("<w:cols w:num=\"2\" w:space=\"720\"/>", false)]
+    [InlineData("<w:cols w:space=\"720\"/>", true)]
+    public void A_Column_Break_Ending_A_Section_Of_Columns_Starts_Nothing(string endingColumns, bool startsPage)
+    {
+        // tdf103975_notPageBreakE.docx: the last paragraph of a two-column
+        // section ends on a column break, and the next, continuous section of
+        // one column goes on right below it in LibreOffice 24.2. Out of a
+        // section of one column the break is still a page break.
+        const string continuous = "<w:type w:val=\"continuous\"/><w:pgSz w:w=\"11906\" w:h=\"16838\"/>";
+        DocumentReadResult result = Read(
+            "<w:p><w:pPr><w:sectPr>" + continuous + endingColumns + "</w:sectPr></w:pPr>" +
+            "<w:r><w:t>A</w:t></w:r><w:r><w:br w:type=\"column\"/></w:r></w:p>" +
+            DocxTestPackage.Paragraph("B") +
+            "<w:sectPr>" + continuous + "<w:cols w:space=\"720\"/></w:sectPr>",
+            "<w:splitPgBreakAndParaMark/>");
+
+        RichTextParagraph[] paragraphs = [.. result.Document.Paragraphs];
+        Assert.Equal(new[] { "A", "B" }, paragraphs.Select(p => p.Text));
+        Assert.False(paragraphs[1].Style.ColumnBreakBefore);
+        Assert.Equal(startsPage, paragraphs[1].Style.PageBreakBefore);
+    }
+
     [Fact]
     public void A_Style_Based_On_Nothing_Takes_The_Document_Defaults_Not_The_Default_Style()
     {

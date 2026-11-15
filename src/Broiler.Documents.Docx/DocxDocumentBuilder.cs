@@ -568,6 +568,30 @@ internal sealed class DocxDocumentBuilder(
     }
 
     /// <summary>
+    /// Drops a column break the last paragraph of a section of several columns
+    /// ended on, before it can reach the next section's first paragraph.
+    /// LibreOffice 24.2 imports it as a column break before that paragraph
+    /// (tdf#103975), which its layout honours only inside columns: the
+    /// following section's text goes on right below, on the same page
+    /// (tdf103975_notPageBreakD.docx and E draw on one page). Measured with
+    /// LibreOffice 24.2 whether the next section has one column or several. A
+    /// page break, and a column break out of a section of one column, still
+    /// start a page.
+    /// </summary>
+    public void DropHeldColumnBreakAtSectionEnd()
+    {
+        if (!_pageBreakStartsNextParagraph || !_heldBreakIsColumn)
+            return;
+
+        _pageBreakStartsNextParagraph = false;
+        _heldBreakIsColumn = false;
+        _heldBreakKeepsSpaceAbove = false;
+        AddDiagnosticOnce(
+            "docx.columnbreak.sectionend",
+            "A column break ending a section of several columns was dropped; the next section goes on below it, as LibreOffice lays it out.");
+    }
+
+    /// <summary>
     /// Separates a page break that ends a body paragraph from the paragraph's
     /// mark, as <c>w:splitPgBreakAndParaMark</c> asks: the mark goes to the
     /// page the break starts. LibreOffice 24.2's import does this

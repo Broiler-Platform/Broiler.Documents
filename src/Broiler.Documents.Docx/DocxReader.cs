@@ -1027,7 +1027,9 @@ internal static class DocxReader
     /// </remarks>
     private static void EndSection(DocxReadContext context, bool markKept)
     {
-        context.Sections!.Advance(context.Builder.CurrentParagraphIndex);
+        if (context.Sections!.CurrentColumnCount > 1)
+            context.Builder.DropHeldColumnBreakAtSectionEnd();
+        context.Sections.Advance(context.Builder.CurrentParagraphIndex);
         if (context.Sections.CurrentStartsPage)
             context.Builder.HoldPageBreak(keepsSpaceAbove: markKept || context.Builder.WordCompatibilityMode < 15);
     }

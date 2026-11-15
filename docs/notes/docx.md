@@ -379,7 +379,18 @@ LibreOffice's `DomainMapperTableHandler` does:
   held over or `w:pageBreakBefore`.
 - A break in a part's last paragraph has none to start and is dropped
   (`docx.pagebreak.trailing`); a document deliberately ending on a blank page
-  loses it.
+  loses it. Not so under `w:splitPgBreakAndParaMark`: there a page break
+  ending a body paragraph is parted from the paragraph's mark, as
+  LibreOffice 24.2 imports it (`m_bIsSplitPara`, tdf#123636). A paragraph with
+  content before the break, or the first of its section, is split and an empty
+  paragraph with its properties (no space above, first-line indent or list)
+  opens the next page; an empty paragraph holding only the break moves there
+  itself. The page exists at the end of the document too. A paragraph that
+  ends a section keeps the break travelling to the next one.
+- A column break that the last paragraph of a section of several columns ends
+  on is dropped (`docx.columnbreak.sectionend`): LibreOffice 24.2 gives the
+  next section's first paragraph a column break, which its layout ignores
+  outside columns, and the next section goes on below (tdf#103975).
 - `w:br w:type="column"` in a one-column section is a page break, read exactly
   as `w:type="page"` with all the cases above: ECMA-376's `ST_BrType` restarts
   the text on the next page there, and Word and LibreOffice both do. With
@@ -709,6 +720,7 @@ told apart from one that *is* blank:
 | `docx.pagebreak.fragment` | Warning | A page or column break with text after it split the paragraph into two fragments. |
 | `docx.pagebreak.repeated` | Warning | A paragraph stated more than one page break; the first was kept, the blank pages the others make dropped. |
 | `docx.pagebreak.trailing` | Warning | A page break in a part's last paragraph was dropped. |
+| `docx.columnbreak.sectionend` | Warning | A column break ending the last paragraph of a section of several columns was dropped; the next section goes on below it. |
 | `docx.table.trailingspace` | Info | A Word 2010-or-earlier document (`compatibilityMode` 11 to 14) ended a cell paragraph with spaces, tabs or no-break spaces, dropped as Word ignores and LibreOffice removes them. |
 | `docx.pagebreak.table` | Warning | A page or column break in a table cell started no page or column: a page break was dropped, a column break split its paragraph; rows break only where the page runs out. |
 | `docx.section.columns` | Info | Sections differ in columns; each keeps its own, the page records those of the section with the most paragraphs. |
