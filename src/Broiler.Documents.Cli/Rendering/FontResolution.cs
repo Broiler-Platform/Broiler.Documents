@@ -47,14 +47,16 @@ public sealed class FontResolution
     private readonly Dictionary<string, TrueTypeFont?> _metricFonts = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, int?> _metricLineGaps = new(StringComparer.OrdinalIgnoreCase);
     private readonly string? _hostFallback;
+    private readonly string? _hostFallbackBold;
     private readonly DocumentFontService _fontService;
     private readonly PaginationFontAdapter _textMeasurer;
 
-    private FontResolution(Dictionary<string, FontFaceSet> families, string? hostFallback)
+    private FontResolution(Dictionary<string, FontFaceSet> families, string? hostFallback, string? hostFallbackBold)
     {
         _families = families;
         _hostFallback = hostFallback;
-        _fontService = new DocumentFontService(hostFallback);
+        _hostFallbackBold = hostFallback is null ? null : hostFallbackBold;
+        _fontService = new DocumentFontService(hostFallback, _hostFallbackBold);
         _textMeasurer = new PaginationFontAdapter(_fontService);
     }
 
@@ -80,20 +82,25 @@ public sealed class FontResolution
     /// Builds a mapping from <c>--font-file family=path</c> and <c>--font-dir</c>
     /// options. An empty mapping is legal and means "use whatever the host has".
     /// </summary>
-    public static FontResolution FromCommandLine(CommandLine line) => FromCommandLine(line, HostFallbackFile());
+    public static FontResolution FromCommandLine(CommandLine line)
+    {
+        string? hostFallback = HostFallbackFile();
+        return FromCommandLine(line, hostFallback, HostFallbackBoldFile(hostFallback));
+    }
 
     /// <summary>
     /// Builds a mapping as <see cref="FromCommandLine(CommandLine)"/> does, with
     /// <paramref name="hostFallback"/> standing for the file the host draws an
     /// unmapped family with.
     /// </summary>
-    internal static FontResolution FromCommandLine(CommandLine line, string? hostFallback)
+    internal static FontResolution FromCommandLine(CommandLine line, string? hostFallback, string? hostFallbackBold = null)
     {
         ArgumentNullException.ThrowIfNull(line);
 
         var resolution = new FontResolution(
             new Dictionary<string, FontFaceSet>(StringComparer.OrdinalIgnoreCase),
-            hostFallback);
+            hostFallback,
+            hostFallbackBold);
 
         foreach (string directory in line.GetAll("font-dir"))
             resolution.AddDirectory(directory);
@@ -206,15 +213,16 @@ public sealed class FontResolution
     /// or the host fallback when the family has none.
     /// </summary>
     /// <remarks>
-    /// The fallback is one face for every weight and slant, as the renderer's
-    /// own fallback is, so a bold run in an unmapped family is measured with the
-    /// regular face. DejaVu Sans states the same ascent and descent for both.
+    /// The renderer's fallback keeps a regular and a bold face, so a bold run
+    /// in an unmapped family is measured with the bold one where the host has
+    /// it (<see cref="HostFallbackBoldFile"/>), and every other run with the
+    /// regular one.
     /// </remarks>
     internal string? MetricPath(BFontStyle font) =>
         TryResolve(font.FamilyName, font.Weight >= BFontWeight.Bold,
             font.Slant is BFontSlant.Italic or BFontSlant.Oblique, out string path)
             ? path
-            : _hostFallback;
+            : font.Weight >= BFontWeight.Bold && _hostFallbackBold is not null ? _hostFallbackBold : _hostFallback;
 
     /// <summary>
     /// The file the host draws an unmapped family with, or null when the renderer
@@ -225,6 +233,29 @@ public sealed class FontResolution
     {
         string described = DescribeHostFallback();
         return File.Exists(described) ? described : null;
+    }
+
+    /// <summary>
+    /// The file the host draws a bold run in an unmapped family with: the bold
+    /// face of <paramref name="regular"/>'s family as the host lists it, or
+    /// null when it has none.
+    /// </summary>
+    /// <remarks>
+    /// The renderer's fallback holds a regular and a bold face, and draws a
+    /// bold run in the bold one (DejaVu Sans Bold beside DejaVu Sans). It was
+    /// measured with the regular face, a tenth narrower, so the words of
+    /// fdo77887.docx's bold Noto Sans heading ran into each other where
+    /// LibreOffice sets the same DejaVu Sans Bold with its spaces.
+    /// </remarks>
+    private static string? HostFallbackBoldFile(string? regular)
+    {
+        if (regular is null || FontMetadataReader.ReadFromFile(regular)?.Family is not string family)
+            return null;
+
+        return BSystemFonts.TryGetFontFile(family, bold: true, italic: false, out string? bold) &&
+            File.Exists(bold) && !string.Equals(Path.GetFullPath(bold), Path.GetFullPath(regular), StringComparison.Ordinal)
+            ? bold
+            : null;
     }
 
     private TrueTypeFont? MetricFace(string path)

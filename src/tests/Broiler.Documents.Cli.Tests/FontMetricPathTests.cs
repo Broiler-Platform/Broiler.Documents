@@ -63,6 +63,32 @@ public sealed class FontMetricPathTests
     }
 
     [Fact]
+    public void A_Bold_Run_In_An_Unmapped_Family_Is_Measured_From_The_Host_Bold_Face()
+    {
+        // fdo77887.docx: the renderer draws a bold run in the unmapped Noto
+        // Sans with its fallback's bold face (DejaVu Sans Bold); measured with
+        // the regular face, its words ran into each other.
+        string mapped = Path.GetTempFileName();
+        string fallback = Path.GetTempFileName();
+        string boldFallback = Path.GetTempFileName();
+        try
+        {
+            FontResolution fonts = FontResolution.FromCommandLine(
+                CommandLine.Parse(Spec, ["--font-file", "Arial=" + mapped]), fallback, boldFallback);
+
+            Assert.Equal(boldFallback, fonts.MetricPath(Font("Noto Sans", bold: true)));
+            Assert.Equal(fallback, fonts.MetricPath(Font("Noto Sans")));
+            Assert.Equal(mapped, fonts.MetricPath(Font("Arial", bold: true)));
+        }
+        finally
+        {
+            File.Delete(mapped);
+            File.Delete(fallback);
+            File.Delete(boldFallback);
+        }
+    }
+
+    [Fact]
     public void With_No_Mapping_Every_Family_Is_Measured_From_The_Host_Fallback()
     {
         // No resolver is installed, so the renderer draws every family with the

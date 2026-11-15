@@ -1,3 +1,5 @@
+using Broiler.Documents.Model.Fonts;
+
 namespace Broiler.Documents.Pagination.Tests;
 
 /// <summary>
@@ -49,6 +51,31 @@ public sealed class DocumentLayoutIssue249ImagesShapesTests
         LayoutLine second = page.Lines.First(line => line.ParagraphIndex == -2);
         Assert.True(second.Top > 30);
         Assert.Equal(second.Top, Assert.Single(page.Shapes).Bounds.Top, 3);
+    }
+
+    [Fact]
+    public void A_Bold_Run_In_An_Unmapped_Family_Takes_The_Host_Bold_Face()
+    {
+        // The renderer draws it with its fallback's bold face; the service
+        // measured it with the regular one (fdo77887.docx).
+        string regular = Path.GetTempFileName();
+        string bold = Path.GetTempFileName();
+        try
+        {
+            using var service = new DocumentFontService(regular, bold);
+
+            Assert.Equal(bold, service.ResolveWithOutcome("Noto Sans", bold: true).Face!.SourcePath);
+            Assert.Equal(regular, service.ResolveWithOutcome("Noto Sans").Face!.SourcePath);
+            Assert.Equal(FontResolutionOutcome.HostFallback, service.ResolveWithOutcome("Noto Sans", bold: true).Outcome);
+
+            using var regularOnly = new DocumentFontService(regular);
+            Assert.Equal(regular, regularOnly.ResolveWithOutcome("Noto Sans", bold: true).Face!.SourcePath);
+        }
+        finally
+        {
+            File.Delete(regular);
+            File.Delete(bold);
+        }
     }
 
     [Fact]
