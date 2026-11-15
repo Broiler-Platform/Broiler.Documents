@@ -2260,7 +2260,8 @@ internal static class DocxReader
             geometry: geometry,
             outlineWidth: long.TryParse((string?)spPr?.Element(DocxNamespaces.Drawing + "ln")?.Attribute("w"), out long lineWidth) && lineWidth >= 0 ? lineWidth / 12700d : 0.75,
             offsetXFromCell: context.Builder.InTableCell && RelativeFrom(anchor, "positionH") == "column" &&
-                (geometry is ShapeGeometry.Line or ShapeGeometry.LineAscending || LaysOutInCell(anchor)))
+                (geometry is ShapeGeometry.Line or ShapeGeometry.LineAscending || LaysOutInCell(anchor)),
+            printable: !IsHiddenDrawing(anchor))
         {
             IsCustomShape = context.InDiagram,
             TextFlow = ReadShapeTextFlow(wsp.Element(DocxNamespaces.WordShape + "bodyPr")),
@@ -2270,6 +2271,16 @@ internal static class DocxReader
         });
         return true;
     }
+
+    /// <summary>
+    /// Whether the drawing's <c>wp:docPr</c> hides it (<c>hidden</c>, ECMA-376
+    /// §20.4.2.5). LibreOffice imports such a shape invisible
+    /// (writerfilter's <c>GraphicImport</c>, tdf#156484): laid out and wrapped
+    /// around, but not drawn, which <see cref="DocumentShape.Printable"/> says.
+    /// </summary>
+    private static bool IsHiddenDrawing(XElement anchor) =>
+        anchor.Element(DocxNamespaces.WordDrawing + "docPr")?.Attribute("hidden") is XAttribute hidden &&
+        (string)hidden is "1" or "true" or "on";
 
     /// <summary>
     /// Whether an anchored object outside a table is placed across from the left
@@ -2986,6 +2997,8 @@ internal static class DocxReader
                 "bottomMargin" => offset + running.Height - running.MarginBottom,
                 _ when context.Band == RunningBand.Footer && from is null or "paragraph" or "line" =>
                     offset + running.Height - running.MarginBottom,
+                _ when context.Band == RunningBand.Header && !context.Builder.InTableCell && from is null or "paragraph" or "line" =>
+                    offset + running.HeaderDistance,
                 // "page" and "topMargin" both measure from the page's top edge,
                 // and a header's own band starts there too.
                 _ => offset,
