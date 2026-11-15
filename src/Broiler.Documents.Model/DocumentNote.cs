@@ -86,7 +86,7 @@ public sealed class DocumentNote
     /// </summary>
     public IReadOnlyList<DocumentTable> Tables { get; init; } = [];
 
-    /// <summary>The section collecting this footnote, or null for ordinary placement.</summary>
+    /// <summary>The section collecting this note at its end, or null for ordinary placement.</summary>
     public SectionFootnotes? Section { get; init; }
 
     /// <summary>The note's paragraphs joined with newlines.</summary>
@@ -226,6 +226,12 @@ public sealed class NoteNumberer
         if (note.CustomMark is string mark)
         {
             label = mark;
+        }
+        else if (note.Kind == NoteKind.Endnote && note.Section is { Start: int endnoteStart } endnoteSection)
+        {
+            int offset = _sectionCounts.GetValueOrDefault(endnoteSection);
+            label = ListNumberer.Format(endnoteStart + offset, endnoteSection.Format ?? _numbering.EndnoteFormat);
+            _sectionCounts[endnoteSection] = offset + 1;
         }
         else if (note.Kind == NoteKind.Endnote)
         {

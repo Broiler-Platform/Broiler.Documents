@@ -1205,10 +1205,30 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
         void PlaceSectionNotes(int paragraphEnd)
         {
+            int separatedEnd = -1;
             while (!truncated && sectionNotes.TryPeek(out var group) && group.End <= paragraphEnd)
             {
                 sectionNotes.Dequeue();
-                y += SeparatorGap;
+                // A section of one column sets the notes it collects under the
+                // page's note separator, as LibreOffice draws its footnote
+                // container in the section (footnote-collect-at-end-of-section.fodt,
+                // tdf146704_EndnoteInSection.odt); its columns' containers draw
+                // none (ooo32780-1.odt). Footnotes and endnotes ending together
+                // share one line.
+                if (columns.Count == 1 && group.End != separatedEnd)
+                {
+                    separatedEnd = group.End;
+                    currentCells.Add(new LayoutCell(
+                        new BRect(setup.ContentLeftPoints + columns.Offset(column), y + SeparatorGap,
+                            (_frame?.Width ?? setup.ContentWidthPoints) * SeparatorWidthRatio, SeparatorThickness),
+                        _settings.DefaultForeground,
+                        default));
+                    y += SeparatorBlock;
+                }
+                else
+                {
+                    y += SeparatorGap;
+                }
                 foreach (DocumentNote note in group.Notes)
                 {
                     for (int i = 0; i < note.Paragraphs.Count && !truncated; i++)
@@ -1987,7 +2007,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         // they are cited; in a continuous render the footnotes go with them.
         List<DocumentNote> trailing = [.. DocumentNote.CitedIn(document.Paragraphs)
             .Distinct<DocumentNote>(ReferenceEqualityComparer.Instance)
-            .Where(note => note.Kind == NoteKind.Endnote || (setup.Continuous && !IsCollected(note)))];
+            .Where(note => !IsCollected(note) && (note.Kind == NoteKind.Endnote || setup.Continuous))];
         if (trailing.Count > 0 && !truncated)
         {
             region = null;

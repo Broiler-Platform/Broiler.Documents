@@ -2724,18 +2724,17 @@ internal static class OdtReader
                 bool hidden = IsSectionHidden(element, context);
                 string? sectionStyle = (string?)element.Attribute(OdtNamespaces.Text + "style-name");
                 XElement? sectionProperties = sectionStyle is null ? null : context.Styles.SectionProperties.GetValueOrDefault(sectionStyle);
-                XElement? noteConfiguration = sectionProperties?.Elements(OdtNamespaces.Text + "notes-configuration")
-                    .FirstOrDefault(configuration => (string?)configuration.Attribute(OdtNamespaces.Text + "note-class") == "footnote");
                 SectionFootnotes? previousFootnotes = context.SectionFootnotes;
-                SectionFootnotes? footnotes = null;
-                if (noteConfiguration is not null)
-                {
-                    int? start = int.TryParse((string?)noteConfiguration.Attribute(OdtNamespaces.Text + "start-value"),
-                        NumberStyles.Integer, CultureInfo.InvariantCulture, out int number) && number is > 0 and < 100000 ? number : null;
-                    string? format = (string?)noteConfiguration.Attribute(OdtNamespaces.Style + "num-format");
-                    footnotes = new SectionFootnotes(start, format is null ? null : OdtStyles.NumberFormat(format));
+                SectionFootnotes? previousEndnotes = context.SectionEndnotes;
+                SectionFootnotes? footnotes = SectionNoteCollection(sectionProperties, "footnote");
+                // A section's endnote configuration collects its endnotes at
+                // its end, as its footnote configuration does its footnotes
+                // (SwFormatEndAtTextEnd; tdf146704_EndnoteInSection.odt).
+                SectionFootnotes? endnotes = SectionNoteCollection(sectionProperties, "endnote");
+                if (footnotes is not null)
                     context.SectionFootnotes = footnotes;
-                }
+                if (endnotes is not null)
+                    context.SectionEndnotes = endnotes;
                 OdtBreak pending = hidden ? context.TakeBreak() : OdtBreak.None;
                 if (hidden) context.HiddenSectionDepth++;
                 try
@@ -2745,6 +2744,7 @@ internal static class OdtReader
                 finally
                 {
                     context.SectionFootnotes = previousFootnotes;
+                    context.SectionEndnotes = previousEndnotes;
                     if (hidden)
                     {
                         context.HiddenSectionDepth--;
@@ -2766,7 +2766,8 @@ internal static class OdtReader
                     double mr = OdtUnits.TryParseLength((string?)sectionProperties.Attribute(OdtNamespaces.Fo + "margin-right"), out double rightVal) ? rightVal : uniformMargin;
                     bool indented = ml > 0 || mr > 0;
 
-                    if (count > 1 || (!background.IsEmpty && background.A > 0) || indented || dontBalance || hidden || footnotes is not null)
+                    if (count > 1 || (!background.IsEmpty && background.A > 0) || indented || dontBalance || hidden || footnotes is not null ||
+                        endnotes is not null)
                     {
                         builder.AddSection(new DocumentSection(
                             sectionStart, builder.CurrentParagraphIndex - sectionStart, count, gap,
@@ -2776,7 +2777,7 @@ internal static class OdtReader
                             leftIndent: Math.Max(0, ml),
                             rightIndent: Math.Max(0, mr))
                         {
-                            FootnotesEnding = footnotes is null ? [] : [footnotes],
+                            FootnotesEnding = [.. new[] { footnotes, endnotes }.OfType<SectionFootnotes>()],
                         });
                     }
                 }
@@ -3722,9 +3723,28 @@ internal static class OdtReader
 
         var documentNote = new DocumentNote(kind, built.Paragraphs, label?.Trim())
         {
-            Section = kind == NoteKind.Footnote ? context.SectionFootnotes : null,
+            Section = kind == NoteKind.Footnote ? context.SectionFootnotes : context.SectionEndnotes,
         };
         context.Builder.AppendLiteral(DocumentNote.PlaceholderText, style with { Note = documentNote, Image = null });
+    }
+
+    /// <summary>
+    /// The notes a section collects at its end for its
+    /// <c>text:notes-configuration</c> of <paramref name="noteClass"/>, with
+    /// their own numbering where it states a <c>text:start-value</c>; null when
+    /// the section states none.
+    /// </summary>
+    private static SectionFootnotes? SectionNoteCollection(XElement? sectionProperties, string noteClass)
+    {
+        XElement? configuration = sectionProperties?.Elements(OdtNamespaces.Text + "notes-configuration")
+            .FirstOrDefault(candidate => (string?)candidate.Attribute(OdtNamespaces.Text + "note-class") == noteClass);
+        if (configuration is null)
+            return null;
+
+        int? start = int.TryParse((string?)configuration.Attribute(OdtNamespaces.Text + "start-value"),
+            NumberStyles.Integer, CultureInfo.InvariantCulture, out int number) && number is > 0 and < 100000 ? number : null;
+        string? format = (string?)configuration.Attribute(OdtNamespaces.Style + "num-format");
+        return new SectionFootnotes(start, format is null ? null : OdtStyles.NumberFormat(format));
     }
 
     /// <summary>

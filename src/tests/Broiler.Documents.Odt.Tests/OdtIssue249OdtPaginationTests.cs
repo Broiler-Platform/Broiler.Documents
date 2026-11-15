@@ -102,4 +102,22 @@ public sealed class OdtIssue249OdtPaginationTests
         Assert.Equal(2 * 72 / 2.54, page.MarginLeft, 1);
         Assert.Equal(2 * 72 / 2.54, page.MarginTop, 1);
     }
+
+    [Fact]
+    public void A_Sections_Endnote_Configuration_Collects_Its_Endnotes_At_Its_End()
+    {
+        // tdf146704_EndnoteInSection.odt and ooo32780-1.odt.
+        string style = OdtTestPackage.Style("Collect",
+            "<style:section-properties><text:notes-configuration text:note-class='endnote' text:start-value='6'/>" +
+            "</style:section-properties>", "section");
+        RichTextDocument document = OdtTestPackage.ReadBody(
+            "<text:section text:style-name='Collect'><text:p>in" + Endnote + "</text:p></text:section>" +
+            "<text:p>out" + Endnote.Replace("ftn1", "ftn2", StringComparison.Ordinal) + "</text:p>", style).Document;
+
+        DocumentSection section = Assert.Single(document.Sections);
+        Assert.Same(document.Notes[0].Section, Assert.Single(section.FootnotesEnding));
+        Assert.Null(document.Notes[1].Section);
+        var numberer = new NoteNumberer();
+        Assert.Equal(["vi", "i"], document.Notes.Select(numberer.Label));
+    }
 }

@@ -42,6 +42,7 @@ internal sealed record OdtReadContext(
     public int TableDepth { get; set; }
     public int HiddenSectionDepth { get; set; }
     public SectionFootnotes? SectionFootnotes { get; set; }
+    public SectionFootnotes? SectionEndnotes { get; set; }
     public IReadOnlySet<string> LinkedFrameTargets { get; init; } = new HashSet<string>(StringComparer.Ordinal);
     public IReadOnlyDictionary<string, string> Variables { get; init; } =
         new Dictionary<string, string>(StringComparer.Ordinal);
