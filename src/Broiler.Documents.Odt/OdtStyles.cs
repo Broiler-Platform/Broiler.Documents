@@ -1064,6 +1064,19 @@ internal sealed class OdtStyles : IOdtImageDiagnostics
         style.Automatic && string.IsNullOrEmpty(style.ParentStyleName);
 
     /// <summary>
+    /// True when <paramref name="styleName"/> is an automatic graphic style
+    /// derived from Writer's "Frame" style. LibreOffice 24.2 gives a custom
+    /// shape so styled a text frame for its words: its text export writes
+    /// them where the shape is the document's first object (soffice:
+    /// fdo82860.odt's "hello"; the same shape styled with no parent, or with
+    /// another, writes nothing).
+    /// </summary>
+    public bool IsFrameStyleChild(string? styleName) =>
+        !string.IsNullOrEmpty(styleName) &&
+        _styles.TryGetValue(new StyleKey("graphic", styleName), out StyleDefinition? style) &&
+        style.Automatic && style.ParentStyleName == "Frame";
+
+    /// <summary>
     /// The named paragraph style a paragraph styled <paramref name="styleName"/>
     /// is in: the style itself, or for an automatic style the named style it
     /// derives from, as Writer holds a paragraph's automatic attributes over its

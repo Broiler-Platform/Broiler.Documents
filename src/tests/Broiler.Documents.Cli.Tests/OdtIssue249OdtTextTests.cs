@@ -208,6 +208,84 @@ public sealed class OdtIssue249OdtTextTests
                 "<draw:frame text:anchor-type=\"paragraph\" svg:width=\"2cm\" svg:height=\"1cm\"><draw:text-box><text:p>frame</text:p></draw:text-box></draw:frame></text:p>"));
     }
 
+    [Fact]
+    public void A_Fixed_Time_Without_A_Data_Style_Shows_Its_Value()
+    {
+        // tdf111969_field.fodt: soffice writes "–12:34:56–" for an empty field.
+        Assert.Equal("–12:34:56–\na15:04:05b",
+            Text("<text:p>–<text:time text:time-value=\"1899-12-30T12:34:56\" text:fixed=\"true\"/>–</text:p>" +
+                "<text:p>a<text:time text:time-value=\"PT15H04M05S\" text:fixed=\"true\">cached</text:time>b</text:p>"));
+    }
+
+    [Fact]
+    public void Sender_Initials_In_LibreOffices_Namespace_Are_A_Field()
+    {
+        // sender-initials.fodt: loext:sender-initials, written 2013-2017.
+        Assert.Equal("I",
+            Text("<text:p><loext:sender-initials>I</loext:sender-initials></text:p>"));
+    }
+
+    [Fact]
+    public void A_Dimension_Lines_Words_Are_Not_Its_Paragraphs()
+    {
+        // fdo56272.odt: the heading reads "a", not "13,09mma".
+        Assert.Equal("a",
+            Text("<text:p><draw:measure text:anchor-type=\"paragraph\" svg:x1=\"0cm\" svg:y1=\"0cm\" svg:x2=\"1cm\" svg:y2=\"0cm\">" +
+                "<text:p><text:measure text:kind=\"value\">13,09</text:measure><text:measure text:kind=\"unit\">mm</text:measure></text:p></draw:measure>a</text:p>"));
+    }
+
+    [Fact]
+    public void A_Custom_Shape_Styled_From_Frame_Holds_A_Text_Frame()
+    {
+        // fdo82860.odt: a custom shape whose automatic style derives from
+        // "Frame" has its words written for an empty body; one with a style of
+        // no parent does not.
+        string Dump(string parent)
+        {
+            string xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?><office:document " + Namespaces +
+                " office:version=\"1.3\" office:mimetype=\"application/vnd.oasis.opendocument.text\">" +
+                "<office:automatic-styles><style:style style:name=\"gr1\" style:family=\"graphic\"" + parent + "/></office:automatic-styles>" +
+                "<office:body><office:text><text:p><draw:custom-shape draw:style-name=\"gr1\" text:anchor-type=\"paragraph\" " +
+                "svg:width=\"2cm\" svg:height=\"2cm\" svg:x=\"0cm\" svg:y=\"0cm\"><text:p>hello</text:p>" +
+                "<draw:enhanced-geometry svg:viewBox=\"0 0 21600 21600\" draw:type=\"rectangle\"/></draw:custom-shape></text:p></office:text></office:body></office:document>";
+            using var stream = new MemoryStream(Encoding.UTF8.GetBytes(xml), writable: false);
+            return DocumentCommands.LabelledText(new OdtDocumentCodec().Read(stream).Document);
+        }
+
+        Assert.Equal("hello", Dump(" style:parent-style-name=\"Frame\""));
+        Assert.Equal("", Dump(""));
+    }
+
+    [Fact]
+    public void A_Space_After_A_Frame_Makes_The_Body_Paragraph_Not_Empty()
+    {
+        // shape-textbox.odt and z-index-header.odt: "<p> <frame/> </p>" keeps
+        // the space after the frame, so LibreOffice writes the paragraph, not
+        // the frame.
+        string frame = "<draw:frame text:anchor-type=\"paragraph\" svg:width=\"1cm\" svg:height=\"1cm\"><draw:text-box><text:p>F</text:p></draw:text-box></draw:frame>";
+        Assert.Equal(" ", Text("<text:p> " + frame + " </text:p>"));
+        Assert.Equal("F", Text("<text:p> " + frame + "</text:p>"));
+    }
+
+    [Fact]
+    public void A_Text_Frame_In_The_Header_Comes_Before_The_Bodys()
+    {
+        // user-field-decl-fly.odt: the header's frame is made first, as the
+        // styles are read before the body, and it is the one written.
+        string xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?><office:document " + Namespaces +
+            " office:version=\"1.3\" office:mimetype=\"application/vnd.oasis.opendocument.text\">" +
+            "<office:automatic-styles><style:page-layout style:name=\"pm1\"><style:page-layout-properties fo:page-width=\"21cm\" fo:page-height=\"29.7cm\"/>" +
+            "<style:header-style/></style:page-layout></office:automatic-styles>" +
+            "<office:master-styles><style:master-page style:name=\"Standard\" style:page-layout-name=\"pm1\"><style:header><text:p>h" +
+            "<draw:frame text:anchor-type=\"char\" svg:width=\"2cm\" svg:height=\"1cm\"><draw:text-box><text:p>header frame</text:p></draw:text-box></draw:frame>" +
+            "</text:p></style:header></style:master-page></office:master-styles>" +
+            "<office:body><office:text><text:p><draw:frame text:anchor-type=\"paragraph\" svg:width=\"2cm\" svg:height=\"1cm\"><draw:text-box>" +
+            "<text:p>body frame</text:p></draw:text-box></draw:frame></text:p></office:text></office:body></office:document>";
+        using var stream = new MemoryStream(Encoding.UTF8.GetBytes(xml), writable: false);
+
+        Assert.Equal("header frame", DocumentCommands.LabelledText(new OdtDocumentCodec().Read(stream).Document));
+    }
+
     private const string Outline =
         "<text:outline-style style:name=\"Outline\">" +
         "<text:outline-level-style text:level=\"1\" style:num-suffix=\".\" style:num-format=\"1\"/></text:outline-style>";

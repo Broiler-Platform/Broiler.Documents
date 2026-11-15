@@ -130,6 +130,7 @@ internal sealed class OdtDocumentBuilder(DocumentLimits limits, List<DocumentDia
         _segments.Clear();
         _length = 0;
         _pendingSpace = false;
+        _afterObject = false;
         _pendingSpaceStyle = InlineStyle.Default;
         _paragraphStyle = style;
         _markStyle = markStyle;
@@ -209,6 +210,25 @@ internal sealed class OdtDocumentBuilder(DocumentLimits limits, List<DocumentDia
         AppendCore(text, style);
     }
 
+    /// <summary>
+    /// Notes a drawing or frame anchored where the paragraph has got to, in a
+    /// paragraph with no text before it. LibreOffice keeps white space after
+    /// such an object even at the end of the paragraph: soffice 24.2 writes
+    /// "&lt;p&gt; &lt;frame/&gt; &lt;/p&gt;" as a space, and so the paragraph is
+    /// not empty (the space before the object, at the start, is nothing).
+    /// Only that case is kept here; elsewhere the space is dropped as before.
+    /// </summary>
+    public void MarkObject()
+    {
+        if (_length == 0)
+        {
+            _pendingSpace = false;
+            _afterObject = true;
+        }
+    }
+
+    private bool _afterObject;
+
     /// <summary>True while every run appended is hidden text: a paragraph a field hides.</summary>
     public bool HidesText { get; set; }
 
@@ -245,8 +265,11 @@ internal sealed class OdtDocumentBuilder(DocumentLimits limits, List<DocumentDia
     public void FinishParagraph()
     {
         // Trailing white space is dropped: the pending space is simply never
-        // flushed.
+        // flushed - unless it follows a drawing, which LibreOffice keeps.
+        if (_pendingSpace && _afterObject && _length == 0)
+            AppendCore(" ", _pendingSpaceStyle);
         _pendingSpace = false;
+        _afterObject = false;
 
         if (_paragraphs.Count >= _limits.MaxParagraphCount)
         {

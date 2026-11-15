@@ -384,9 +384,14 @@ public static class DocumentCommands
             else if (document.RunningContent.HeaderShapes(PageSelection.Default)
                 .Concat(document.RunningContent.FooterShapes(PageSelection.Default))
                 .Concat(document.Shapes)
-                .FirstOrDefault() is { IsCustomShape: true, Tables.Count: 0 })
+                .FirstOrDefault() is DocumentShape firstMade && (firstMade.IsTextFrame || firstMade is { IsCustomShape: true, Tables.Count: 0 }))
             {
-                return "";
+                // A text frame the source names as one is written whether it
+                // stands in the header or the body (tdf118242.odt's header frame).
+                return firstMade.IsTextFrame
+                    ? LabelledText(RichTextDocument.FromParagraphs(firstMade.Paragraphs).WithTables(firstMade.Tables)
+                        .WithNoteNumbering(document.NoteNumbering), joinsTableRows)
+                    : "";
             }
             // A frame set as a character in the header counts as well
             // (table-in-frame-in-table-in-header-base.odt, whose only text is

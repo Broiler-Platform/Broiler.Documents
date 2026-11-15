@@ -163,6 +163,14 @@ public sealed class DocumentShape(
     /// <summary>True when this shape is a custom drawing shape rather than a text frame.</summary>
     public bool IsCustomShape { get; init; }
 
+    /// <summary>
+    /// True when the source states this shape is a word processor's own text
+    /// frame - ODF's <c>draw:frame</c> holding a <c>draw:text-box</c> that is
+    /// not a Draw object - rather than a drawing that holds text. False where
+    /// the source does not say.
+    /// </summary>
+    public bool IsTextFrame { get; init; }
+
     /// <summary>True when this shape's box shrinks/fits to its text content centered in the declared bounds.</summary>
     public bool FitsText { get; init; }
 
@@ -399,6 +407,7 @@ public sealed class DocumentShape(
         {
             IsAsCharacter = IsAsCharacter,
             IsCustomShape = IsCustomShape,
+            IsTextFrame = IsTextFrame,
             FitsText = FitsText,
             ShrinksWidthToText = ShrinksWidthToText,
             RotationRadians = RotationRadians,
