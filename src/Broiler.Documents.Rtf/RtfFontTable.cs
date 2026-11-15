@@ -19,6 +19,21 @@ internal sealed class RtfFontTable
             ? entry.Name
             : null;
 
+    /// <summary>Whether the table names no font, which is also what a document without one has.</summary>
+    public bool IsEmpty => _fonts.Count == 0;
+
+    /// <summary>
+    /// The family text set in <paramref name="index"/> is drawn in. LibreOffice
+    /// gives a run whose <c>\fN</c> the table does not name, or names blank, an
+    /// empty font name, which it draws in its fallback face, a sans serif
+    /// (DejaVu Sans with the reference fonts); the model's name for that is the
+    /// generic <see cref="UnnamedFamily"/>.
+    /// </summary>
+    public string Resolve(int index) => GetName(index) ?? UnnamedFamily;
+
+    /// <summary>The generic family a font the table does not name is drawn in.</summary>
+    public const string UnnamedFamily = "sans-serif";
+
     /// <summary>The <c>\fcharset</c> for <paramref name="index"/>, or -1 if unknown.</summary>
     public int GetCharset(int index) =>
         _fonts.TryGetValue(index, out Entry entry) ? entry.Charset : -1;

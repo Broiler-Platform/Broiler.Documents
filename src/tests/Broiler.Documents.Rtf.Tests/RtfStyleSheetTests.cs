@@ -30,21 +30,47 @@ public sealed class RtfStyleSheetTests
 
         Assert.Equal(2, document.ParagraphCount);
 
+        // writerfilter reads a style's own formatting as what the paragraph
+        // repeats, and gives the paragraph the RTF default for what it does
+        // not (RtfStyleOwnFormatting). soffice 24.2 sets this heading left
+        // aligned and unspaced in 12 point regular Times New Roman: the
+        // paragraph names the style but repeats none of it.
         RichTextParagraph p1 = document.Paragraphs[0];
         Assert.Equal("Centered Heading", p1.Text);
+        Assert.Equal(TextAlignment.Left, p1.Style.Alignment);
+        Assert.Equal(0f, p1.Style.SpacingBefore);
+        Assert.Equal(0f, p1.Style.SpacingAfter);
+        Assert.False(p1.StyleAt(0).Bold);
+        Assert.Equal(12f, p1.StyleAt(0).FontSize ?? document.StyleDefaults.FontSizePoints);
+        Assert.Equal("Times New Roman", document.StyleDefaults.FontFamilyOf(p1.StyleAt(0)));
+
+        RichTextParagraph p2 = document.Paragraphs[1];
+        Assert.Equal("Normal body text", p2.Text);
+        Assert.Equal(TextAlignment.Left, p2.Style.Alignment);
+        Assert.False(p2.StyleAt(0).Bold);
+        Assert.Equal(12f, p2.StyleAt(0).FontSize ?? document.StyleDefaults.FontSizePoints);
+        Assert.Equal("Times New Roman", document.StyleDefaults.FontFamilyOf(p2.StyleAt(0)));
+    }
+
+    [Fact]
+    public void Paragraph_Style_Formatting_The_Paragraph_Repeats_Is_Applied()
+    {
+        // As Word writes RTF: the paragraph repeats its style's formatting.
+        string rtf = @"{\rtf1\ansi
+{\fonttbl{\f0 Arial;}{\f1 Georgia;}}
+{\stylesheet
+{\s0\ql\f0\fs24 Normal;}
+{\s1\qc\sb240\sa120\b\fs36\f1 Heading 1;}
+}
+\pard\plain\s1\qc\sb240\sa120\b\fs36\f1 Centered Heading\par}";
+
+        RichTextParagraph p1 = Read(rtf).Paragraphs[0];
         Assert.Equal(TextAlignment.Center, p1.Style.Alignment);
         Assert.Equal(12f, p1.Style.SpacingBefore);
         Assert.Equal(6f, p1.Style.SpacingAfter);
         Assert.True(p1.StyleAt(0).Bold);
         Assert.Equal(18f, p1.StyleAt(0).FontSize);
         Assert.Equal("Georgia", p1.StyleAt(0).FontFamily);
-
-        RichTextParagraph p2 = document.Paragraphs[1];
-        Assert.Equal("Normal body text", p2.Text);
-        Assert.Equal(TextAlignment.Left, p2.Style.Alignment);
-        Assert.False(p2.StyleAt(0).Bold);
-        Assert.Equal(12f, p2.StyleAt(0).FontSize);
-        Assert.Equal("Arial", p2.StyleAt(0).FontFamily);
     }
 
     [Fact]
@@ -59,12 +85,16 @@ Default styled paragraph\par}";
 
         RichTextDocument document = Read(rtf);
 
+        // Text that names no style is in style 0, and like any style's own
+        // formatting, Normal's is put back to the RTF defaults where the
+        // paragraph does not repeat it (tdf118047.rtf; soffice 24.2 sets this
+        // paragraph left aligned and unspaced in 12 point Times New Roman).
         RichTextParagraph p = document.Paragraphs[0];
         Assert.Equal("Default styled paragraph", p.Text);
-        Assert.Equal(TextAlignment.Right, p.Style.Alignment);
-        Assert.Equal(9f, p.Style.SpacingAfter);
-        Assert.Equal("Helvetica", p.StyleAt(0).FontFamily);
-        Assert.Equal(14f, p.StyleAt(0).FontSize);
+        Assert.Equal(TextAlignment.Left, p.Style.Alignment);
+        Assert.Equal(0f, p.Style.SpacingAfter);
+        Assert.Equal("Times New Roman", document.StyleDefaults.FontFamilyOf(p.StyleAt(0)));
+        Assert.Equal(12f, p.StyleAt(0).FontSize ?? document.StyleDefaults.FontSizePoints);
     }
 
     [Fact]
@@ -77,8 +107,10 @@ Default styled paragraph\par}";
 {\s0\f0\fs24 Normal;}
 {\*\cs10\additive\b\i\cf1 Strong Emphasis;}
 }
-\pard\plain Regular {\cs10 emphasized} text\par}";
+\pard\plain Regular {\cs10\b\i\cf1 emphasized} text\par}";
 
+        // The run repeats its style's formatting, as Word writes it; one that
+        // does not is set without it (RtfIssue249Tests).
         RichTextDocument document = Read(rtf);
         RichTextParagraph p = document.Paragraphs[0];
 
@@ -106,17 +138,19 @@ Default styled paragraph\par}";
 {\s0\ql\li720\sa120\f0\fs24 Normal;}
 {\s1\sbasedon0\qc\b\fs36 Heading 1;}
 }
-\pard\plain\s1 Heading text\par}";
+\pard\plain\s1\qc\b\fs36 Heading text\par}";
 
         RichTextDocument document = Read(rtf);
         RichTextParagraph p = document.Paragraphs[0];
 
-        // Inherited from s0:
+        // Inherited from s0, and not put back to defaults: only what s1
+        // states itself is (soffice 24.2: a style stating nothing of its own
+        // shows its parent's formatting).
         Assert.Equal("Arial", p.StyleAt(0).FontFamily);
         Assert.Equal(6f, p.Style.SpacingAfter);
         Assert.Equal(36f, p.Style.LeftIndentIn());
 
-        // Overridden by s1:
+        // Overridden by s1, and repeated by the paragraph:
         Assert.Equal(TextAlignment.Center, p.Style.Alignment);
         Assert.True(p.StyleAt(0).Bold);
         Assert.Equal(18f, p.StyleAt(0).FontSize);
@@ -132,7 +166,7 @@ Default styled paragraph\par}";
 {\s1\sbasedon0\f1\fs32 SubStyle;}
 {\s2\sbasedon1\qc\b Heading;}
 }
-\pard\plain\s2 Deeply Inherited\par}";
+\pard\plain\s2\qc\b Deeply Inherited\par}";
 
         RichTextDocument document = Read(rtf);
         RichTextParagraph p = document.Paragraphs[0];
@@ -160,8 +194,11 @@ Default styled paragraph\par}";
         RichTextDocument document = Read(rtf);
         RichTextParagraph p = document.Paragraphs[0];
 
+        // A's own \b is not repeated, so it is not applied; B's \i, which A
+        // inherits around the cycle, is.
         Assert.Equal("Safe", p.Text);
-        Assert.True(p.StyleAt(0).Bold);
+        Assert.False(p.StyleAt(0).Bold);
+        Assert.True(p.StyleAt(0).Italic);
     }
 
     [Fact]
@@ -174,11 +211,13 @@ Default styled paragraph\par}";
 {\cs10\b\f1 BaseChar;}
 {\cs11\sbasedon10\i DerivedChar;}
 }
-\pard\plain Text {\cs11 styled} end\par}";
+\pard\plain Text {\cs11\i styled} end\par}";
 
         RichTextDocument document = Read(rtf);
         RichTextParagraph p = document.Paragraphs[0];
 
+        // Bold comes from the base style; the derived style's own italic is
+        // what the run repeats.
         InlineStyle styled = p.Runs[1].Style;
         Assert.Equal("Courier", styled.FontFamily);
         Assert.True(styled.Bold);
@@ -193,7 +232,7 @@ Default styled paragraph\par}";
 {\s0\ql Normal;}
 {\s1\qr\sa200 Heading;}
 }
-\pard\plain\s1 Right\par
+\pard\plain\s1\qr\sa200 Right\par
 \pard\plain Left\par}";
 
         RichTextDocument document = Read(rtf);
@@ -213,7 +252,7 @@ Default styled paragraph\par}";
 {\s0 Normal;}
 {\s1\b\fs32 Heading;}
 }
-\pard\s1\plain BoldText \b0 PlainText \plain BoldAgain\par}";
+\pard\s1\plain\b\fs32 BoldText \b0 PlainText \plain BoldAgain\par}";
 
         RichTextDocument document = Read(rtf);
         RichTextParagraph p = document.Paragraphs[0];
@@ -223,8 +262,11 @@ Default styled paragraph\par}";
 
         Assert.False(p.StyleAt(10).Bold);
 
-        Assert.True(p.StyleAt(22).Bold);
-        Assert.Equal(16f, p.StyleAt(22).FontSize);
+        // \plain puts the run back to its paragraph style's formatting, which
+        // for formatting the style states itself is the RTF default: soffice
+        // 24.2 sets all three words in 12 point regular text.
+        Assert.False(p.StyleAt(22).Bold);
+        Assert.Equal(12f, p.StyleAt(22).FontSize ?? document.StyleDefaults.FontSizePoints);
     }
 
     [Fact]
@@ -278,6 +320,8 @@ Body text\par}";
 \pard\plain\s2 Styled text\par}";
 
         RichTextDocument document = Read(rtf);
-        Assert.Equal(TextAlignment.Right, document.Paragraphs[0].Style.Alignment);
+        Assert.Equal(TextAlignment.Left, document.Paragraphs[0].Style.Alignment);
+        Assert.Equal(TextAlignment.Right, Read(rtf.Replace(@"\s2 Styled", @"\s2\qr Styled", StringComparison.Ordinal))
+            .Paragraphs[0].Style.Alignment);
     }
 }

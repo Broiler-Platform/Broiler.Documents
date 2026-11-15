@@ -375,7 +375,21 @@ public sealed class DocumentShape(
     /// hangs from there, in the same coordinates.
     /// </summary>
     public double TopOnPage(double paragraphTop) =>
-        IsPageAnchored || OffsetFromPage ? OffsetY : paragraphTop + OffsetY;
+        IsPageAnchored || OffsetFromPage ? OffsetY :
+        KeptBelowPageTop ? Math.Max(0, paragraphTop + OffsetY) : paragraphTop + OffsetY;
+
+    /// <summary>
+    /// True when a box its paragraph would put above the page starts at the
+    /// page's top edge instead.
+    /// </summary>
+    /// <remarks>
+    /// Writer keeps an RTF shape anchored to a paragraph on the page so (soffice
+    /// 24.2: a <c>\shp</c> text box or rectangle 50 points above a first
+    /// paragraph 28 points down starts at the top edge; fdo66040.rtf's frames).
+    /// A DOCX drawing is not kept so: tdf78902.docx and tdf106153.docx draw
+    /// theirs above the page's top.
+    /// </remarks>
+    public bool KeptBelowPageTop { get; init; }
 
     /// <summary>Creates a copy of this shape anchored to a different paragraph.</summary>
     public DocumentShape WithParagraphIndex(int paragraphIndex) =>
@@ -412,6 +426,7 @@ public sealed class DocumentShape(
             MinimumWrapRoom = MinimumWrapRoom,
             BoundedByPage = BoundedByPage,
             OffsetXFromColumn = OffsetXFromColumn,
+            KeptBelowPageTop = KeptBelowPageTop,
         };
 
     /// <summary>The shape's own text, empty when it holds none.</summary>

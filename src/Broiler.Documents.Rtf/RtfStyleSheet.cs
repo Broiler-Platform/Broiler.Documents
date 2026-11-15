@@ -19,6 +19,9 @@ internal sealed class RtfStyle
     public int Id { get; set; }
     public RtfStyleKind Kind { get; set; } = RtfStyleKind.Paragraph;
     public string Name { get; set; } = string.Empty;
+
+    /// <summary>The name as written, aliases after a comma included, which is what writerfilter matches against Writer's own.</summary>
+    public string FullName { get; set; } = string.Empty;
     public int? BasedOn { get; set; }
     public int? Next { get; set; }
     public bool Additive { get; set; }
@@ -36,6 +39,9 @@ internal sealed class RtfStyle
     public int? ParagraphBackgroundIndex { get; set; }
     public BColor? ParagraphBackground { get; set; }
     public bool? PageBreakBefore { get; set; }
+    public bool? KeepWithNext { get; set; }
+    public bool? AutoSpaceBefore { get; set; }
+    public bool? AutoSpaceAfter { get; set; }
     public List<ParagraphTabStop>? TabStops { get; set; }
 
     // Character formatting
@@ -53,9 +59,92 @@ internal sealed class RtfStyle
     public int? BackgroundColorIndex { get; set; }
     public BColor? Background { get; set; }
 
+    /// <summary>
+    /// The formatting this style's own entry states, before anything is
+    /// inherited, among the properties a paragraph reset to its default when it
+    /// does not repeat them.
+    /// </summary>
+    public RtfStyleOwnFormatting Own { get; set; }
+
     // Precomputed resolved structures
     public ParagraphStyle ResolvedParagraph { get; set; } = ParagraphStyle.Default;
     public InlineStyle ResolvedInline { get; set; } = InlineStyle.Default;
+}
+
+/// <summary>
+/// Which of the properties writerfilter puts back to their RTF defaults a
+/// style's own entry states.
+/// </summary>
+/// <remarks>
+/// An RTF writer repeats a style's formatting in every paragraph and run that
+/// uses it, and writerfilter reads the style sheet that way: a paragraph or run
+/// that names a style but not one of these properties its entry states gets the
+/// property's default as direct formatting (<c>RTFSprms::cloneAndDeduplicate</c>,
+/// "not found - try to override style with default", tdf#118047). soffice
+/// 24.2 shows it: a paragraph <c>\pard\plain\s1</c> whose style states
+/// <c>\qc\sb\sa\li\ri\fi\cbpat\b\i\ul\cf\f\fs40</c> is set left aligned, unindented,
+/// unspaced and unshaded in 12 point, regular, black text in the default font,
+/// while the style's <c>\sl</c>, <c>\keepn</c>, <c>\strike</c>, <c>\caps</c> and
+/// <c>\highlight</c> stay. What a style inherits through <c>\sbasedon</c> is not
+/// put back: a style stating nothing of its own shows its parent's formatting.
+/// A character style is read the same way.
+/// </remarks>
+internal readonly record struct RtfStyleOwnFormatting(
+    bool Alignment,
+    bool LeftIndent,
+    bool FirstLineIndent,
+    bool RightIndent,
+    bool SpacingBefore,
+    bool SpacingAfter,
+    bool Background,
+    bool Font,
+    bool FontSize,
+    bool Bold,
+    bool Italic,
+    bool Underline,
+    bool Foreground)
+{
+    public static RtfStyleOwnFormatting Of(RtfStyle style) => new(
+        style.Alignment.HasValue,
+        style.LeftIndent.HasValue || style.IndentLevel.HasValue,
+        style.FirstLineIndent.HasValue,
+        style.RightIndent.HasValue,
+        style.SpacingBefore.HasValue,
+        style.SpacingAfter.HasValue,
+        style.ParagraphBackgroundIndex.HasValue,
+        style.FontIndex.HasValue,
+        style.FontSize.HasValue,
+        style.Bold.HasValue,
+        style.Italic.HasValue,
+        style.Underline.HasValue,
+        style.ForegroundColorIndex.HasValue);
+
+    /// <summary>The paragraph formatting a paragraph naming the style is set in.</summary>
+    public ParagraphStyle Reset(ParagraphStyle para)
+    {
+        ParagraphStyle d = ParagraphStyle.Default;
+        if (Alignment) para = para with { Alignment = d.Alignment };
+        if (LeftIndent) para = para with { IndentLevel = d.IndentLevel, LeftIndent = d.LeftIndent };
+        if (FirstLineIndent) para = para with { FirstLineIndent = d.FirstLineIndent };
+        if (RightIndent) para = para with { RightIndent = d.RightIndent };
+        if (SpacingBefore) para = para with { SpacingBefore = d.SpacingBefore };
+        if (SpacingAfter) para = para with { SpacingAfter = d.SpacingAfter };
+        if (Background) para = para with { Background = d.Background };
+        return para;
+    }
+
+    /// <summary>The character formatting a run naming the style is set in.</summary>
+    public InlineStyle Reset(InlineStyle inline)
+    {
+        InlineStyle d = InlineStyle.Default;
+        if (Font) inline = inline with { FontFamily = d.FontFamily };
+        if (FontSize) inline = inline with { FontSize = d.FontSize };
+        if (Bold) inline = inline with { Bold = d.Bold };
+        if (Italic) inline = inline with { Italic = d.Italic };
+        if (Underline) inline = inline with { Underline = d.Underline };
+        if (Foreground) inline = inline with { Foreground = d.Foreground };
+        return inline;
+    }
 }
 
 /// <summary>
@@ -88,9 +177,15 @@ internal sealed class RtfStyleSheet
     {
         // 1. Resolve font names and colors from the document's resource tables
         foreach (RtfStyle style in _paragraphStyles.Values)
+        {
+            style.Own = RtfStyleOwnFormatting.Of(style);
             ResolveResources(style, fonts, colors);
+        }
         foreach (RtfStyle style in _characterStyles.Values)
+        {
+            style.Own = RtfStyleOwnFormatting.Of(style);
             ResolveResources(style, fonts, colors);
+        }
 
         // 2. Resolve inheritance chains for paragraph styles
         var visited = new HashSet<int>();
@@ -117,7 +212,7 @@ internal sealed class RtfStyleSheet
     private static void ResolveResources(RtfStyle style, RtfFontTable fonts, RtfColorTable colors)
     {
         if (style.FontIndex is int fi)
-            style.FontFamily = fonts.GetName(fi);
+            style.FontFamily = fonts.Resolve(fi);
         if (style.ForegroundColorIndex is int ci)
             style.Foreground = colors.Get(ci);
         if (style.BackgroundColorIndex is int bi)
@@ -126,10 +221,58 @@ internal sealed class RtfStyleSheet
             style.ParagraphBackground = colors.Get(pbi);
     }
 
+    /// <summary>
+    /// Writer's "Heading" paragraph style, as LibreOffice 24.2's default
+    /// template has it: Liberation Sans 14 point, 0.423 cm above, 0.212 cm
+    /// below, kept with the next paragraph.
+    /// </summary>
+    /// <remarks>
+    /// writerfilter gives an RTF style named after one of Writer's own its
+    /// Writer name (<c>StyleSheetTable::ConvertStyleName</c>: "heading 1" is
+    /// "Heading 1"), clears that style's own formatting and applies the RTF
+    /// entry's, and keeps the Writer style's parent unless the entry states
+    /// <c>\sbasedon</c>. Heading 1 to 9, Title and Subtitle are based on
+    /// "Heading", so a paragraph in such a style is set in Heading's font,
+    /// size and spacing (soffice 24.2, FODT export of
+    /// <c>{\s3 heading 3;}</c>: "Heading 3", no formatting of its own, parent
+    /// "Heading"; with <c>\sbasedon0</c> the parent is "Standard").
+    /// </remarks>
+    private static readonly RtfStyle WriterHeading = new()
+    {
+        Name = "Heading",
+        FontFamily = "Liberation Sans",
+        FontSize = 14f,
+        SpacingBefore = 0.423f / 2.54f * 72f,
+        SpacingAfter = 0.212f / 2.54f * 72f,
+        KeepWithNext = true,
+    };
+
+    /// <summary>Whether Writer bases the style an RTF entry of this name maps to on "Heading".</summary>
+    internal static bool IsBasedOnWriterHeading(string name)
+    {
+        string trimmed = name.Trim();
+        if (trimmed.Equals("Title", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.Equals("Subtitle", StringComparison.OrdinalIgnoreCase))
+            return true;
+        return trimmed.Length == 9 &&
+            trimmed.StartsWith("heading ", StringComparison.OrdinalIgnoreCase) &&
+            trimmed[8] is >= '1' and <= '9';
+    }
+
     private void ResolveParagraphStyleInheritance(RtfStyle style, HashSet<int> visited)
     {
         if (!visited.Add(style.Id))
             return; // Cycle protection
+
+        if (style.BasedOn is null && IsBasedOnWriterHeading(style.FullName))
+        {
+            style.FontFamily ??= WriterHeading.FontFamily;
+            style.FontSize ??= WriterHeading.FontSize;
+            style.SpacingBefore ??= WriterHeading.SpacingBefore;
+            style.SpacingAfter ??= WriterHeading.SpacingAfter;
+            style.KeepWithNext ??= WriterHeading.KeepWithNext;
+            return;
+        }
 
         if (style.BasedOn is int baseId && baseId != style.Id && _paragraphStyles.TryGetValue(baseId, out RtfStyle? baseStyle))
         {
@@ -147,6 +290,9 @@ internal sealed class RtfStyleSheet
             style.MultipleLineSpacing ??= baseStyle.MultipleLineSpacing;
             style.ParagraphBackground ??= baseStyle.ParagraphBackground;
             style.PageBreakBefore ??= baseStyle.PageBreakBefore;
+            style.KeepWithNext ??= baseStyle.KeepWithNext;
+            style.AutoSpaceBefore ??= baseStyle.AutoSpaceBefore;
+            style.AutoSpaceAfter ??= baseStyle.AutoSpaceAfter;
             style.TabStops ??= baseStyle.TabStops;
 
             // Inherit unset character formatting
@@ -213,10 +359,12 @@ internal sealed class RtfStyleSheet
             para = para with { Background = style.ParagraphBackground.Value };
         if (style.PageBreakBefore.HasValue)
             para = para with { PageBreakBefore = style.PageBreakBefore.Value };
+        if (style.KeepWithNext == true)
+            para = para with { KeepWithNext = true };
         if (style.TabStops is { Count: > 0 })
             para = para with { TabStops = new ParagraphTabStops(style.TabStops) };
 
-        style.ResolvedParagraph = para;
+        style.ResolvedParagraph = style.Own.Reset(para);
 
         InlineStyle inline = InlineStyle.Default;
         if (style.FontFamily is not null) inline = inline with { FontFamily = style.FontFamily };
@@ -231,7 +379,7 @@ internal sealed class RtfStyleSheet
             inline = inline with { Capitalization = style.Capitalization.Value };
         if (style.Hidden == true) inline = inline with { Hidden = true };
 
-        style.ResolvedInline = inline;
+        style.ResolvedInline = style.Own.Reset(inline);
     }
 
     private static void ComputeCharacterStyle(RtfStyle style)

@@ -149,6 +149,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     /// </summary>
     private const double ChangeBarDistance = 567.0 / 4 / 20;
     private bool _raisedNoteLabels;
+    private bool _drawsNoteSeparator = true;
     private readonly Dictionary<DocumentNote, NoteBlock> _noteBlocks = new(ReferenceEqualityComparer.Instance);
 
     /// <summary>A citation's size against its text, and how far it is raised: LibreOffice's superscript.</summary>
@@ -290,6 +291,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         _styleDefaults = document.StyleDefaults;
         _noteLabels = NoteNumberer.For(document.Paragraphs.Where((_, index) => !IsHidden(index)).ToArray(), document.NoteNumbering);
         _raisedNoteLabels = document.NoteNumbering.RaisedLabels;
+        _drawsNoteSeparator = document.NoteNumbering.DrawsSeparatorLine;
         _noteBlocks.Clear();
         _paragraphTops.Clear();
         _paragraphColumns.Clear();
@@ -608,10 +610,13 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             double top = foot - noteArea;
             double left = _frame?.Left ?? setup.ContentLeftPoints;
             double width = _frame?.Width ?? setup.ContentWidthPoints;
-            currentCells.Add(new LayoutCell(
-                new BRect(left, top + SeparatorGap, width * SeparatorWidthRatio, SeparatorThickness),
-                _settings.DefaultForeground,
-                default));
+            if (_drawsNoteSeparator)
+            {
+                currentCells.Add(new LayoutCell(
+                    new BRect(left, top + SeparatorGap, width * SeparatorWidthRatio, SeparatorThickness),
+                    _settings.DefaultForeground,
+                    default));
+            }
 
             double noteTop = top + SeparatorBlock;
             foreach (DocumentNote note in pageNotes)
@@ -1508,7 +1513,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 continue;
             }
 
-            RichTextParagraph paragraph = document.Paragraphs[paragraphIndex];
+            RichTextParagraph paragraph = JoinBodyHiddenMarks(document, paragraphIndex, out int joinedLast);
             ParagraphStyle style = paragraph.Style;
             string? marker = numbering.Advance(style);
 
@@ -1612,7 +1617,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             // LibreOffice hides it; the break it asked for was taken above.
             if (IsWhollyHidden(paragraph) && !_documentShapes.Any(shape => shape.ParagraphIndex == paragraphIndex))
             {
-                paragraphIndex++;
+                paragraphIndex = joinedLast + 1;
                 continue;
             }
 
@@ -1976,7 +1981,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             borderedAbove = border is not null ? style : null;
             spacingAfterPrevious = Math.Max(0, style.SpacingAfter);
             y += spacingAfterPrevious;
-            paragraphIndex++;
+            paragraphIndex = joinedLast + 1;
         }
 
         PlaceSectionNotes(paragraphIndex);
@@ -4485,6 +4490,44 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     /// </summary>
     private static bool IsWhollyHidden(RichTextParagraph paragraph) =>
         paragraph.MarkStyle.Hidden && paragraph.Runs.All(run => run.Style.Hidden);
+
+    /// <summary>
+    /// The body paragraph at <paramref name="index"/> joined with those after it
+    /// while its mark is hidden, and in <paramref name="last"/> the last one joined.
+    /// </summary>
+    private RichTextParagraph JoinBodyHiddenMarks(RichTextDocument document, int index, out int last)
+    {
+        // The body joins paragraphs as a header does (JoinHiddenMarks): soffice
+        // 24.2 sets hidden-para-separator.rtf's "C ", "D", a hidden empty
+        // paragraph and "E", each mark but the last hidden, on one line
+        // (testTdf152872: one portion "C DE"). A paragraph that starts a
+        // table, a section or a page or column, or that has shapes of its own,
+        // ends the join before it, so nothing anchored to it loses its place.
+        // A paragraph with nothing shown starts no join here: it takes no room
+        // and the next keeps its own formatting, as before.
+        RichTextParagraph paragraph = document.Paragraphs[index];
+        last = index;
+        if (!paragraph.MarkStyle.Hidden || paragraph.Length == 0 || IsWhollyHidden(paragraph))
+            return paragraph;
+        int end = index;
+        while (end + 1 < document.ParagraphCount && document.Paragraphs[end].MarkStyle.Hidden)
+        {
+            int next = end + 1;
+            ParagraphStyle nextStyle = document.Paragraphs[next].Style;
+            if (nextStyle.PageBreakBefore || nextStyle.ColumnBreakBefore ||
+                DocumentTable.StartingAt(document.Tables, next) is not null ||
+                DocumentSection.Containing(document.Sections, next) is { } section && section.ParagraphIndex == next ||
+                _documentShapes.Any(shape => shape.ParagraphIndex == next))
+                break;
+            end = next;
+        }
+
+        if (end == index)
+            return paragraph;
+        RichTextParagraph joined = JoinHiddenMarks([.. document.Paragraphs.Skip(index).Take(end - index + 1)], 0, out int joinedLast);
+        last = index + joinedLast;
+        return joined;
+    }
 
     /// <summary>
     /// The paragraph at <paramref name="index"/> joined with those after it

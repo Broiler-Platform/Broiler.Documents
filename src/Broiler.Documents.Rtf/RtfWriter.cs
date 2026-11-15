@@ -81,6 +81,11 @@ public static class RtfWriter
 
         WritePageGeometry(sb, document.PageGeometry);
         WritePageBackground(sb, document.PageBackground);
+        // A reader draws the line above the footnotes only where the document
+        // has a separator (RtfReader: \chftnsep), so one that draws it says so.
+        if (document.NoteNumbering.DrawsSeparatorLine &&
+            System.Linq.Enumerable.Any(document.Notes, note => note.Kind == NoteKind.Footnote))
+            sb.Append("{\\*\\ftnsep\\chftnsep}");
         if (DocumentSection.Containing(document.Sections, 0) is null)
             WriteRunningContent(sb, document.RunningContent, lists, document.StyleDefaults, fonts, colors, resources, diagnostics, reported);
 

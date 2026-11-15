@@ -63,6 +63,24 @@ public sealed class DocumentLayoutNoteTests
     }
 
     [Fact]
+    public void A_Document_Without_A_Separator_Line_Keeps_Its_Room_But_Draws_No_Line()
+    {
+        // writerfilter sets the line's relative width to 0 when the document has
+        // no footnote separator: copypaste-footnote.rtf draws no line, and its
+        // note stands where it stands under a line.
+        RichTextDocument document = RichTextDocument.FromParagraphs([Citing("Body", Footnote("The note."))]);
+        LayoutPage withLine = Assert.Single(Layout(document).Pages);
+
+        LayoutPage page = Assert.Single(Layout(document.WithNoteNumbering(
+            NoteNumbering.Default with { DrawsSeparatorLine = false })).Pages);
+
+        Assert.Empty(page.Cells);
+        LayoutLine note = Assert.Single(page.Lines, line => TextOf(line).Contains("The note.", StringComparison.Ordinal));
+        LayoutLine lined = Assert.Single(withLine.Lines, line => TextOf(line).Contains("The note.", StringComparison.Ordinal));
+        Assert.Equal(lined.Top, note.Top, 3);
+    }
+
+    [Fact]
     public void The_Citation_Is_Raised_And_Smaller_Than_Its_Text()
     {
         RichTextDocument document = RichTextDocument.FromParagraphs([Citing("Body", Footnote("n"))]);

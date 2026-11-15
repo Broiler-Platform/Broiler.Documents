@@ -70,4 +70,31 @@ public sealed class DocumentLayoutHiddenParagraphTests
 
         Assert.Equal(plain.Cells[0].Bounds.Height, page.Cells[0].Bounds.Height, 3);
     }
+    [Fact]
+    public void Paragraphs_Whose_Marks_Are_Hidden_Are_Set_With_The_Next_On_One_Line()
+    {
+        // hidden-para-separator.rtf: "C " and "D" with hidden marks, a hidden
+        // empty paragraph, and "E" make one line "C DE" in LibreOffice 24.2.
+        RichTextParagraph c = Line("C ").WithMarkStyle(Hidden);
+        RichTextParagraph d = Line("D").WithMarkStyle(Hidden);
+        RichTextParagraph empty = RichTextParagraph.Plain("").WithMarkStyle(Hidden);
+
+        LayoutResult result = Layout(RichTextDocument.FromParagraphs([c, d, empty, Line("E"), Line("F")]));
+
+        LayoutLine[] lines = [.. result.Pages.SelectMany(page => page.Lines)];
+        Assert.Equal(2, lines.Length);
+        Assert.Equal("C DE", string.Concat(lines[0].Pieces.Select(piece => piece.Text)));
+        Assert.Equal(4, lines[1].ParagraphIndex);
+    }
+
+    [Fact]
+    public void A_Paragraph_Starting_A_Page_Ends_The_Join_Before_It()
+    {
+        RichTextParagraph c = Line("C").WithMarkStyle(Hidden);
+        RichTextParagraph breaking = Line("D").WithParagraphStyle(ParagraphStyle.Default with { PageBreakBefore = true });
+
+        LayoutResult result = Layout(RichTextDocument.FromParagraphs([c, breaking]));
+
+        Assert.Equal(2, result.Pages.Count);
+    }
 }

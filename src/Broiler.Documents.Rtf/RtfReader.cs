@@ -40,6 +40,15 @@ public static class RtfReader
     {
         public int ListId;
         public int ListLevel;
+
+        /// <summary>
+        /// Which script <c>\af</c> and <c>\afs</c> are read for: after
+        /// <c>\rtlch</c> the complex one and after <c>\dbch</c> the East Asian
+        /// one, which the model does not keep, and otherwise Latin text, whose
+        /// font and size they set (see <see cref="Worker.TakesAssociatedFont"/>).
+        /// </summary>
+        public bool ComplexRun;
+        public bool DoubleByteRun;
         public InlineStyle Char;
         public ParagraphStyle Para;
         public RtfDestination Dest;
@@ -84,6 +93,9 @@ public static class RtfReader
         /// <summary>The currently active paragraph style ID (\sN), or null if none.</summary>
         public int? ActiveParaStyleId;
 
+        /// <summary><c>\contextualspace</c>: no space between this paragraph and a neighbour in its style.</summary>
+        public bool ContextualSpace;
+
         /// <summary>
         /// Whether the paragraph's tab stops are still the ones its style gave it.
         /// The first <c>	x</c> of the paragraph replaces them rather than adding
@@ -122,6 +134,7 @@ public static class RtfReader
         private readonly RtfColorTable _colors = new();
         private readonly RtfFontTable _fonts = new();
         private int? _defaultFont;
+        private bool _hasFootnoteSeparator;
 
         // Whether runs of spaces are laid out wider. LibreOffice assumes so of
         // an RTF document unless it says otherwise, in one of the three ways
@@ -142,6 +155,10 @@ public static class RtfReader
         private int _paperWidth = 12240;
         private int _paperHeight = 15840;
         private int _marginLeft = 1440;
+        private int _gutter;
+        private int? _sectionGutter;
+        private bool _gutterAtTop;
+        private bool _rtlGutter;
         private int _marginRight = 1440;
         private int _marginTop = 1440;
         private int _marginBottom = 1440;
@@ -287,7 +304,16 @@ public static class RtfReader
         private bool _shapeFlipHorizontal;
         private bool _shapeBehindText;
         private double _shapeFillOpacity = 1, _shapeBackOpacity = 1, _shapeLineOpacity = 1;
-        private TableCellPadding _shapePadding;
+        private TableCellPadding _shapePadding = DefaultShapePadding;
+
+        /// <summary>
+        /// The text inset of a shape that states none: 0.1 inch at the sides and
+        /// 0.05 inch above and below, the defaults of <c>dxTextLeft</c>,
+        /// <c>dyTextTop</c>, <c>dxTextRight</c> and <c>dyTextBottom</c> (91440 and
+        /// 45720 EMU). soffice 24.2 sets "Hello" in a text box at (72, 72) pt
+        /// from x 79.2 pt; fdo66040.rtf's and posh-posv.rtf's text stands that far in.
+        /// </summary>
+        private static readonly TableCellPadding DefaultShapePadding = new(7.2, 3.6, 7.2, 3.6);
         private CellVerticalAlignment _shapeAlignment;
         private ShapeWrap _shapeWrap;
         private WrapSide _shapeWrapSide = WrapSide.Largest;
@@ -333,6 +359,8 @@ public static class RtfReader
         private TabAlignment _tabAlignment;
         private string? _tabLeader;
         private readonly StringBuilder _styleName = new();
+        private bool _styleComplexRun;
+        private bool _styleDoubleByteRun;
         private bool _styleSemicolonSeen;
         private int _stylesheetDepth = -1;
 
@@ -388,6 +416,7 @@ public static class RtfReader
                         if (_state.Dest == RtfDestination.StyleSheet && _stack.Count == _stylesheetDepth)
                         {
                             _currentStyle = new RtfStyle();
+                            _styleComplexRun = _styleDoubleByteRun = false;
                             _styleName.Clear();
                             _styleSemicolonSeen = false;
                         }
@@ -484,17 +513,23 @@ public static class RtfReader
             RichTextDocument document = _builder.Build(_state.Para)
                 .WithStyleDefaults(DocumentStyleDefaults.Default with
                 {
-                    FontFamily = _defaultFont is int font ? _fonts.GetName(font) : null,
+                    FontFamily = DefaultFontFamily(),
                     WidensSpaceRuns = WidensSpaceRuns(),
                     // RTF states no Word compatibility mode, which LibreOffice
                     // reads as Word 2010 and earlier: tab stops past the right
                     // indent are honoured (SettingsTable::ApplyProperties).
                     TabsOverMargin = true,
                     UndecoratedLinks = true,
+                    CollapsesParagraphSpacing = _htmlAutoSpacing,
+                    // writerfilter sets AddParaTableSpacingAtStart for RTF as for
+                    // DOCX: char-color.rtf's heading, \sb480 and first on the page,
+                    // starts 24 points down in soffice 24.2.
+                    PreserveOpeningParagraphSpacing = true,
                 })
 
                 .WithPageGeometry(_sections.Count > 0 ? _sections[0].Page : BuildPageGeometry())
-                .WithPageBackground(_viewBackground ? _pageBackground : null);
+                .WithPageBackground(_viewBackground ? _pageBackground : null)
+                .WithNoteNumbering(NoteNumbering.Default with { DrawsSeparatorLine = _hasFootnoteSeparator });
             CaptureSection(document.ParagraphCount);
             document = document.WithRunningContent(_sections.Count > 0
                 ? _sections[0].RunningContent ?? RunningContent.Empty : BuildRunningContent());
@@ -512,6 +547,22 @@ public static class RtfReader
             return new DocumentReadResult(document, _diagnostics, DocumentReadResult.StatusFrom(_diagnostics),
                 _resources.Build());
         }
+
+        /// <summary>
+        /// The family text that names no font is drawn in. LibreOffice applies
+        /// <c>\deff</c> when it reads the font table, so a document with no table
+        /// keeps Writer's default, as one without <c>\deff</c> does: writerfilter
+        /// does not take the RTF specification's implied font 0. That default is
+        /// Times New Roman (soffice: <c>{\rtf1 Hello\par}</c>, <c>\deff0</c> with
+        /// no table, and a table naming <c>\f0</c> Arial with no <c>\deff</c>
+        /// all draw Liberation Serif). A <c>\deff</c> the table does not name, or
+        /// names blank, is drawn in the fallback face, as an unknown <c>\fN</c>
+        /// is; the model's unstated family, null, is that face already.
+        /// </summary>
+        private string? DefaultFontFamily() =>
+            _defaultFont is int font && !_fonts.IsEmpty ? _fonts.GetName(font) : WriterDefaultFontFamily;
+
+        private const string WriterDefaultFontFamily = "Times New Roman";
 
         /// <summary>
         /// Closes the current group, and says whether the group it closed was the
@@ -550,6 +601,20 @@ public static class RtfReader
                     if (!_diagnostics.Any(diagnostic => diagnostic.Code == "rtf.field.ruby"))
                         _diagnostics.Add(DocumentDiagnostic.Warning("rtf.field.ruby", "An empty-result ruby equation field was read as its base text; phonetic annotation layout is not represented."));
                 }
+                else if (field.Page is { } pageField)
+                {
+                    // A page field with no saved result still shows its number:
+                    // soffice 24.2 sets fdo48193.rtf's "foo{\field{\*\fldinst PAGE}}bar"
+                    // as "foo1bar", in the text around it. The layout puts the
+                    // number in place of the text.
+                    _state.Dest = closing.FieldHost;
+                    InlineStyle around = _state.Char;
+                    _state.Char = around with { PageField = pageField };
+                    AppendBody("1");
+                    FlushPending();
+                    _state.Char = around;
+                    _state.Dest = closing.Dest;
+                }
                 else if (ResolveFieldFallback(field.Instruction.ToString()) is string fallback && fallback.Length > 0)
                 {
                     _state.Dest = closing.FieldHost;
@@ -578,6 +643,7 @@ public static class RtfReader
                 string raw = _styleName.ToString().Trim();
                 int comma = raw.IndexOf(',');
                 _currentStyle.Name = (comma >= 0 ? raw[..comma] : raw).Trim();
+                _currentStyle.FullName = raw;
 
                 if (_currentStyle.Kind == RtfStyleKind.Character)
                     _styleSheet.AddCharacterStyle(_currentStyle);
@@ -633,7 +699,7 @@ public static class RtfReader
             if (closing.Dest == RtfDestination.Field && closing.Field is not null && _state.Field is not null && closing.Field != _state.Field)
                 _state.Field.Characters += closing.Field.Characters;
             if (closing.Dest == RtfDestination.Note && _state.Dest != RtfDestination.Note)
-                FinishNote(closing.Para);
+                FinishNote(closing.Para, closing.Char with { LinkHref = null, Image = null, Note = null });
 
             return _stack.Count == 0;
         }
@@ -651,14 +717,20 @@ public static class RtfReader
         /// opens with its label again and the space after it, and both are left
         /// out, as the DOCX reader leaves out <c>w:footnoteRef</c>.
         /// </remarks>
-        private void FinishNote(ParagraphStyle finalStyle)
+        private void FinishNote(ParagraphStyle finalStyle, InlineStyle finalMark)
         {
             Accumulator? text = _noteText;
             _noteText = null;
             if (text is null)
                 return;
 
-            IReadOnlyList<RichTextParagraph> paragraphs = text.Build(finalStyle).Paragraphs;
+            // A note's last \par opens one more, empty paragraph, which
+            // writerfilter keeps: soffice 24.2 sets the text of a note ending
+            // "note\par" one line higher than one ending "note", and one ending
+            // "note\par\par" two (cp1000018.rtf, written by LibreOffice, ends
+            // its note so). The body's last empty paragraph is dropped, a note's
+            // is not.
+            IReadOnlyList<RichTextParagraph> paragraphs = text.Build(finalStyle, finalMark, keepEmptyLast: true).Paragraphs;
             if (_noteLabelSeen && paragraphs.Count > 0)
             {
                 RichTextParagraph first = paragraphs[0];
@@ -748,6 +820,13 @@ public static class RtfReader
                 _pendingUnicodeSkip--;
                 return;
             }
+
+            // writerfilter draws the line above the footnotes only in a document
+            // that has a separator, which \chftnsep is in RTF, wherever it is
+            // read (DomainMapper::lcl_utext's 0x3, m_bHasFtnSep); without one it
+            // sets the line's width to 0 and keeps its room.
+            if (kw == "chftnsep")
+                _hasFootnoteSeparator = true;
 
             // List definitions are opaque, including nested destinations. A
             // field, header or font table inside one must not escape into the
@@ -1116,6 +1195,7 @@ public static class RtfReader
                 case "caps": _state.Char = ApplyCapitalization(_state.Char, TextCapitalization.AllCaps, !(has && p == 0)); _state.HasDirectCharFormatting = true; break;
                 case "scaps": _state.Char = ApplyCapitalization(_state.Char, TextCapitalization.SmallCaps, !(has && p == 0)); _state.HasDirectCharFormatting = true; break;
                 case "plain":
+                    _state.ComplexRun = _state.DoubleByteRun = false;
                     _state.ActiveCharStyleId = null;
                     _state.HasDirectCharFormatting = false;
                     int activeStyleId = _state.ActiveParaStyleId ?? 0;
@@ -1146,11 +1226,24 @@ public static class RtfReader
                     _state.HasDirectCharFormatting = true;
                     break;
                 case "fs": _state.Char = _state.Char with { FontSize = has ? p / 2f : null }; _state.HasDirectCharFormatting = true; break;
+                case "rtlch": _state.ComplexRun = true; break;
+                case "ltrch": _state.ComplexRun = false; break;
+                case "loch":
+                case "hich": _state.ComplexRun = _state.DoubleByteRun = false; break;
+                case "dbch": _state.ComplexRun = false; _state.DoubleByteRun = true; break;
+                case "af" when has && TakesAssociatedFont(_state.ComplexRun, _state.DoubleByteRun):
+                    _state.Char = _state.Char with { FontFamily = _fonts.Resolve(p) };
+                    _state.HasDirectCharFormatting = true;
+                    break;
+                case "afs" when has && TakesAssociatedFont(_state.ComplexRun, _state.DoubleByteRun):
+                    _state.Char = _state.Char with { FontSize = p / 2f };
+                    _state.HasDirectCharFormatting = true;
+                    break;
                 case "f":
                     int charset = _fonts.GetCharset(p);
                     if (charset >= 0)
                         _state.CodePage = RtfCodePage.CharsetToCodePage(charset);
-                    _state.Char = _state.Char with { FontFamily = _fonts.GetName(p) };
+                    _state.Char = _state.Char with { FontFamily = _fonts.Resolve(p) };
                     _state.HasDirectCharFormatting = true;
                     break;
                 case "cf": _state.Char = _state.Char with { Foreground = _colors.Get(p) }; _state.HasDirectCharFormatting = true; break;
@@ -1162,6 +1255,10 @@ public static class RtfReader
                     {
                         _state.ActiveParaStyleId = p;
                         _state.Para = paraStyle.ResolvedParagraph;
+                        if (paraStyle.AutoSpaceBefore == true)
+                            _state.Para = _state.Para with { SpacingBefore = AutoSpaceBefore() };
+                        if (paraStyle.AutoSpaceAfter == true)
+                            _state.Para = _state.Para with { SpacingAfter = AutoSpace };
                         _state.TabsFromStyle = true;
                         if (paraStyle.LineSpacing.HasValue)
                         {
@@ -1201,6 +1298,14 @@ public static class RtfReader
                 case "margr": if (has && !_writerDefaultPage) _marginRight = p; return;
                 case "margt": if (has && !_writerDefaultPage) _marginTop = p; return;
                 case "margb": if (has && !_writerDefaultPage) _marginBottom = p; return;
+                // The binding gutter: Writer widens the left margin by it, or the
+                // top one with \gutterprl and the right one with \rtlgutter
+                // (soffice 24.2: gutter-left.rtf's text starts 36 points right
+                // of its 1 inch margin, gutter-top.rtf's 36 points below).
+                case "gutter": if (has && !_writerDefaultPage) _gutter = Math.Max(0, p); return;
+                case "guttersxn": if (has && !_writerDefaultPage) _sectionGutter = Math.Max(0, p); return;
+                case "gutterprl": _gutterAtTop = true; return;
+                case "rtlgutter": _rtlGutter = true; return;
                 case "headery": if (has) _headerDistance = p; return;
                 case "footery": if (has) _footerDistance = p; return;
 
@@ -1226,6 +1331,7 @@ public static class RtfReader
                         _bodySectionHasProperties = true;
                     }
                     _sectionWidth = _sectionHeight = _sectionLeft = _sectionRight = _sectionTop = _sectionBottom = null;
+                    _sectionGutter = null;
                     if (!_pastFirstSection)
                     {
                         _pageBorders.Reset();
@@ -1348,6 +1454,7 @@ public static class RtfReader
                     if (has) { _state.ListLevel = p; ApplyList(); }
                     break;
                 case "pard":
+                    _state.ContextualSpace = false;
                     _state.ListId = _state.ListLevel = 0;
                     _state.ActiveParaStyleId = 0;
                     _state.TabsFromStyle = true;
@@ -1435,13 +1542,17 @@ public static class RtfReader
                 case "ri": _state.Para = _state.Para with { RightIndent = IndentPoints(p, has) }; break;
                 case "sb": _state.Para = _state.Para with { SpacingBefore = has ? p / 20f : 0f }; break;
                 case "sa": _state.Para = _state.Para with { SpacingAfter = has ? p / 20f : 0f }; break;
+                case "sbauto": if (!has || p != 0) _state.Para = _state.Para with { SpacingBefore = AutoSpaceBefore() }; break;
+                case "saauto": if (!has || p != 0) _state.Para = _state.Para with { SpacingAfter = AutoSpace }; break;
+                case "htmautsp": _htmlAutoSpacing = true; break;
+                case "contextualspace": _state.ContextualSpace = !has || p != 0; break;
 
                 // The property spelling of a page break, and the one LibreOffice
                 // writes: it says this paragraph starts a page. It is a paragraph
                 // property like any other here, so \pard clears it along with the
                 // rest, and the 0 form turns it off the way every other toggle's
                 // does.
-                case "pagebb": _state.Para = _state.Para with { PageBreakBefore = !(has && p == 0) }; break;
+                case "pagebb": _state.Para = _state.Para with { PageBreakBefore = !(has && p == 0), PageBreakKeepsSpaceAbove = !(has && p == 0) }; break;
 
                 // A tab stop: its kind and leader come first, and \tx closes it
                 // at a position measured from the left margin. A bar tab (\tb)
@@ -1995,6 +2106,8 @@ public static class RtfReader
                 case "ri": _currentStyle.RightIndent = IndentPoints(p, has) ?? 0; break;
                 case "sb": _currentStyle.SpacingBefore = has ? p / 20f : 0f; break;
                 case "sa": _currentStyle.SpacingAfter = has ? p / 20f : 0f; break;
+                case "sbauto": _currentStyle.AutoSpaceBefore = !has || p != 0; break;
+                case "saauto": _currentStyle.AutoSpaceAfter = !has || p != 0; break;
                 case "sl": if (has) _currentStyle.LineSpacing = p; break;
                 case "slmult": if (has) _currentStyle.MultipleLineSpacing = p == 1; break;
                 case "pagebb": _currentStyle.PageBreakBefore = !(has && p == 0); break;
@@ -2024,6 +2137,13 @@ public static class RtfReader
                 case "scaps": _currentStyle.Capitalization = !(has && p == 0) ? TextCapitalization.SmallCaps : TextCapitalization.None; break;
                 case "fs": if (has) _currentStyle.FontSize = p / 2f; break;
                 case "f": if (has) _currentStyle.FontIndex = p; break;
+                case "rtlch": _styleComplexRun = true; break;
+                case "ltrch": _styleComplexRun = false; break;
+                case "loch":
+                case "hich": _styleComplexRun = _styleDoubleByteRun = false; break;
+                case "dbch": _styleComplexRun = false; _styleDoubleByteRun = true; break;
+                case "af": if (has && TakesAssociatedFont(_styleComplexRun, _styleDoubleByteRun)) _currentStyle.FontIndex = p; break;
+                case "afs": if (has && TakesAssociatedFont(_styleComplexRun, _styleDoubleByteRun)) _currentStyle.FontSize = p / 2f; break;
                 case "cf": if (has) _currentStyle.ForegroundColorIndex = p; break;
                 case "cb":
                 case "chcbpat":
@@ -2057,6 +2177,20 @@ public static class RtfReader
             }
         }
 
+        /// <summary>
+        /// Whether <c>\af</c> and <c>\afs</c> set the Latin font and size where
+        /// they stand. writerfilter reads them for the complex script after
+        /// <c>\rtlch</c> and for East Asian text after <c>\dbch</c>, and for
+        /// Latin text otherwise, overriding <c>\f</c> and <c>\fs</c> (soffice
+        /// 24.2, FODT export: <c>{\af1 x}</c>, <c>{\loch\af1 x}</c>,
+        /// <c>{\hich\af1 x}</c>, <c>{\ltrch\af1 x}</c> and <c>{\rtlch\loch\af1 x}</c>
+        /// set x in font 1, <c>{\f1\af0 x}</c> in font 0 and <c>{\afs40 x}</c> in
+        /// 20 points; <c>{\rtlch\af1 x}</c>, <c>{\rtlch\fcs1 \af1 \ltrch\fcs0 x}</c>
+        /// and <c>{\dbch\af1 x}</c> leave its Latin font alone). Word writes a
+        /// paragraph mark's font as <c>\loch\af31506</c>, with no <c>\f</c>.
+        /// </summary>
+        private static bool TakesAssociatedFont(bool complexRun, bool doubleByteRun) => !complexRun && !doubleByteRun;
+
         private static InlineStyle ApplyCharacterStyle(InlineStyle current, RtfStyle charStyle)
         {
             InlineStyle result = current;
@@ -2070,7 +2204,9 @@ public static class RtfReader
             if (charStyle.Background.HasValue && !charStyle.Background.Value.IsEmpty) result = result with { Background = charStyle.Background.Value };
             if (charStyle.Capitalization.HasValue && charStyle.Capitalization.Value != TextCapitalization.None) result = result with { Capitalization = charStyle.Capitalization.Value };
             if (charStyle.Hidden.HasValue) result = result with { Hidden = charStyle.Hidden.Value };
-            return result;
+            // What the style's own entry states the run does not get unless it
+            // repeats it (RtfStyleOwnFormatting).
+            return charStyle.Own.Reset(result);
         }
 
         private void CommitFont()
@@ -2195,12 +2331,16 @@ public static class RtfReader
             if (width <= 0 || height <= 0)
                 return null;
 
+            int gutter = _sectionGutter ?? _gutter;
+            int leftGutter = _gutterAtTop || _rtlGutter ? 0 : gutter;
+            int rightGutter = !_gutterAtTop && _rtlGutter ? gutter : 0;
+            int topGutter = _gutterAtTop ? gutter : 0;
             var geometry = new PageGeometry(
                 width / 20d,
                 height / 20d,
-                (_sectionLeft ?? _marginLeft) / 20d,
-                (_sectionRight ?? _marginRight) / 20d,
-                TopMarginTwips / 20d,
+                ((_sectionLeft ?? _marginLeft) + leftGutter) / 20d,
+                ((_sectionRight ?? _marginRight) + rightGutter) / 20d,
+                (TopMarginTwips + topGutter) / 20d,
                 BottomMarginTwips / 20d,
                 _headerDistance / 20d,
                 _footerDistance / 20d)
@@ -2242,7 +2382,7 @@ public static class RtfReader
             _shapeFlipHorizontal = false;
             _shapeBehindText = false;
             _shapeFillOpacity = _shapeBackOpacity = _shapeLineOpacity = 1;
-            _shapePadding = default;
+            _shapePadding = DefaultShapePadding;
             _shapeAlignment = CellVerticalAlignment.Top;
             _shapeWrap = ShapeWrap.None;
             _shapeWrapSide = WrapSide.Largest;
@@ -2696,6 +2836,7 @@ public static class RtfReader
                 // (groupshape.rtf; soffice cut-downs: a long line runs past the
                 // box on both sides, a second paragraph adds a line).
                 FitsText = _shapeGroupDrawShape && _shapeType == 202 && paragraphs.Count > 0,
+                KeptBelowPageTop = !running,
             };
             if (running)
             {
@@ -3077,7 +3218,7 @@ public static class RtfReader
         private void CloseParagraph()
         {
             ApplyCachedListOrdinal();
-            Active.EndParagraph(_state.Para, _state.Char with { LinkHref = null, Image = null });
+            Active.EndParagraph(ContextualSpacing(_state.Para), _state.Char with { LinkHref = null, Image = null });
             if (_state.Para.List is { RestartAt: not null } list)
                 _state.Para = _state.Para with { List = list with { RestartAt = null } };
         }
@@ -3111,6 +3252,53 @@ public static class RtfReader
         /// holds as lists of their own.
         /// </summary>
         private bool InBody => ReferenceEquals(Active, _builder);
+
+        // The style and \contextualspace of the body paragraph closed last, and
+        // its index.
+        private (int StyleId, bool Contextual, int Index)? _previousSpacing;
+
+        /// <summary>
+        /// <paramref name="style"/> with the space between it and the body
+        /// paragraph before it taken away where <c>\contextualspace</c> asks:
+        /// Writer adds no space between two paragraphs of one style when the one
+        /// that would give it says so (<c>ParaContextMargin</c>; tdf113202.rtf's
+        /// list items, each with <c>\sa200\contextualspace</c>, stand a line
+        /// apart). The paragraph before loses its space below if it is
+        /// contextual, this one its space above. DOCX's
+        /// <c>w:contextualSpacing</c> is read the same way.
+        /// </summary>
+        private ParagraphStyle ContextualSpacing(ParagraphStyle style)
+        {
+            if (!InBody || _state.InTable)
+                return style;
+            int index = _builder.ParagraphCount;
+            int styleId = _state.ActiveParaStyleId ?? 0;
+            var previous = _previousSpacing;
+            _previousSpacing = (styleId, _state.ContextualSpace, index);
+            if (previous is not { } before || before.Index != index - 1 || before.StyleId != styleId)
+                return style;
+            if (before.Contextual)
+                _builder.SetLastSpacingAfter(0);
+            return _state.ContextualSpace ? style with { SpacingBefore = 0 } : style;
+        }
+
+        /// <summary>
+        /// The space <c>\sbauto1</c> and <c>\saauto1</c> stand for. With
+        /// <c>\htmautsp</c> (HTML paragraph auto spacing) it is 14 points, none
+        /// above the first paragraph, and the space between two paragraphs is the
+        /// larger of the two; without it, 5 points, and the two add up. soffice
+        /// 24.2: two auto-spaced paragraphs start at the margin and 27.8 points
+        /// apart with <c>\htmautsp</c>, 5 points down and 23.8 apart without; a
+        /// paragraph with <c>\sa400</c> and one with <c>\sb400</c> stand 33.8 points
+        /// apart with it and 53.8 without. writerfilter reads DOCX's auto spacing
+        /// the same way (DocxReader.ApplyAutoSpacing).
+        /// </summary>
+        private float AutoSpace => _htmlAutoSpacing ? 14f : 5f;
+
+        private float AutoSpaceBefore() =>
+            _htmlAutoSpacing && !_state.InTable && Active.ParagraphCount == 0 && !Active.HasPendingText ? 0f : AutoSpace;
+
+        private bool _htmlAutoSpacing;
 
         /// <summary>
         /// Takes a <c>\page</c>, which RTF states in the character stream rather
@@ -3510,6 +3698,13 @@ public static class RtfReader
 
         /// <summary>The paragraph a shape met right now would be anchored to.</summary>
         public int ParagraphCount => _paragraphs.Count;
+
+        /// <summary>Sets the space below the last paragraph written.</summary>
+        public void SetLastSpacingAfter(float spacing)
+        {
+            if (_paragraphs.Count > 0)
+                _paragraphs[^1] = _paragraphs[^1].WithParagraphStyle(_paragraphs[^1].Style with { SpacingAfter = spacing });
+        }
         public bool HasPendingText => _current.Length > 0;
 
         /// <summary>Called whenever text, a paragraph mark or a break is written.</summary>
@@ -3521,6 +3716,8 @@ public static class RtfReader
 
         /// <summary>Whether a <c>\page</c> is still waiting for a paragraph.</summary>
         public bool PageBreakPending { get; private set; }
+
+        private bool _pageBreakKeepsSpaceAbove;
 
         /// <summary>Whether a <c>\column</c> is still waiting for a paragraph.</summary>
         public bool ColumnBreakPending { get; private set; }
@@ -3562,6 +3759,12 @@ public static class RtfReader
         public bool BreakPage(ParagraphStyle style)
         {
             bool displaced = PageBreakPending && _current.Length == 0;
+            // A break before any text of its paragraph is that paragraph's own,
+            // and Writer keeps its space above at the top of the page; the part
+            // of a paragraph a break cut off starts at the page's top (soffice
+            // 24.2: "A\par\pard\sb480\page B" and "A\par\sect\sectd\pard\sb480 B"
+            // set B 24 points down, "\pard\sb480 A\page B" sets B at the top).
+            _pageBreakKeepsSpaceAbove = _current.Length == 0;
             SplitByPageBreak = _current.Length > 0 ? _paragraphs.Count : -1;
             if (_current.Length > 0 || (_paragraphs.Count == 0 && !PageBreakPending))
                 EndParagraph(style);
@@ -3618,9 +3821,19 @@ public static class RtfReader
                 EndParagraph(style);
         }
 
-        public RichTextDocument Build(ParagraphStyle finalStyle)
+        public RichTextDocument Build(ParagraphStyle finalStyle) => Build(finalStyle, default, keepEmptyLast: false);
+
+        /// <summary>
+        /// The paragraphs written, with the one still open if it has text, or if
+        /// <paramref name="keepEmptyLast"/> asks for an empty last one too (set in
+        /// <paramref name="finalMark"/>, its paragraph mark's formatting).
+        /// </summary>
+        public RichTextDocument Build(ParagraphStyle finalStyle, InlineStyle finalMark, bool keepEmptyLast)
         {
-            if (!LimitHit && (_current.Length > 0 || _paragraphs.Count == 0))
+            if (!LimitHit && _current.Length == 0 && _paragraphs.Count > 0 && keepEmptyLast &&
+                _paragraphs.Count < _maxParagraphs)
+                _paragraphs.Add(_current.WithParagraphStyle(Spend(finalStyle)).WithMarkStyle(finalMark));
+            else if (!LimitHit && (_current.Length > 0 || _paragraphs.Count == 0))
                 _paragraphs.Add(_current.WithParagraphStyle(Spend(finalStyle)));
 
             return RichTextDocument.FromParagraphs(_paragraphs);
@@ -3638,11 +3851,21 @@ public static class RtfReader
         /// </remarks>
         private ParagraphStyle Spend(ParagraphStyle style)
         {
+            style = SpendBreak(style);
+            // Keeping the space above means nothing for a paragraph with none,
+            // so a model written back as RTF reads back the same.
+            return style.PageBreakKeepsSpaceAbove && !(style.SpacingBefore > 0)
+                ? style with { PageBreakKeepsSpaceAbove = false }
+                : style;
+        }
+
+        private ParagraphStyle SpendBreak(ParagraphStyle style)
+        {
             if (PageBreakPending)
             {
                 PageBreakPending = false;
                 ColumnBreakPending = false;
-                return style with { PageBreakBefore = true };
+                return style with { PageBreakBefore = true, PageBreakKeepsSpaceAbove = style.PageBreakKeepsSpaceAbove || _pageBreakKeepsSpaceAbove };
             }
 
             if (ColumnBreakPending)
