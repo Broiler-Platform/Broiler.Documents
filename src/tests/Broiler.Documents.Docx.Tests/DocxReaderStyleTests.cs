@@ -90,7 +90,11 @@ public sealed class DocxReaderStyleTests
 
         InlineStyle style = Assert.Single(result.Document.Paragraphs).StyleAt(0);
         Assert.True(style.Bold);
-        Assert.Null(style.FontSize);
+        // Not Normal's 10 points, which are the document's default size: with
+        // no w:rPrDefault, LibreOffice 24.2 sets the style in 11 point Calibri
+        // (measured on tdf108350_noFontdefaults.docx without its w:docDefaults).
+        Assert.Equal(11f, style.FontSize);
+        Assert.Equal("Calibri", style.FontFamily ?? result.Document.StyleDefaults.FontFamily);
     }
 
     [Fact]
