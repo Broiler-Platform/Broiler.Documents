@@ -473,6 +473,26 @@ internal sealed class DocxStyles
             string.Equals(style.Id, _defaultParagraphStyleId, StringComparison.Ordinal) ? -1 : style.Order;
     }
 
+    /// <summary>The run properties of <c>w:docDefaults</c>, or null where it states none.</summary>
+    public XElement? DefaultRunProperties => _defaultRunProperties;
+
+    /// <summary>
+    /// Whether <paramref name="paragraphStyleId"/> names a paragraph style whose
+    /// <c>w:basedOn</c> chain never reaches the default paragraph style. Such a
+    /// style inherits <c>w:docDefaults</c> and nothing the default style states
+    /// (ECMA-376 §17.7.2), as LibreOffice imports it: tdf108350_noFontdefaults.docx's
+    /// "NoParent" is set in 10 point Times New Roman, not in its "Normal"'s 32
+    /// point Calibri.
+    /// </summary>
+    public bool IsDetachedFromDefaultParagraphStyle(string? paragraphStyleId)
+    {
+        if (string.IsNullOrEmpty(paragraphStyleId) || string.IsNullOrEmpty(_defaultParagraphStyleId))
+            return false;
+
+        List<StyleDefinition> chain = ParagraphChain(paragraphStyleId);
+        return chain.Count > 0 && !chain.Exists(style => string.Equals(style.Id, _defaultParagraphStyleId, StringComparison.Ordinal));
+    }
+
     /// <summary>True when a style of <paramref name="paragraphStyleId"/>'s chain states <c>w:contextualSpacing</c>.</summary>
     public bool StatesContextualSpacing(string? paragraphStyleId) =>
         ParagraphChain(paragraphStyleId).Any(style => style.ParagraphProperties?.Element(DocxNamespaces.Wordprocessing + "contextualSpacing") is not null);

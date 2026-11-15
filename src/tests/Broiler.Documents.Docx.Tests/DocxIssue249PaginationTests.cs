@@ -65,6 +65,35 @@ public sealed class DocxIssue249PaginationTests
     }
 
     [Fact]
+    public void A_Style_Based_On_Nothing_Takes_The_Document_Defaults_Not_The_Default_Style()
+    {
+        // tdf108350_noFontdefaults.docx: "Normal" states 32 point Calibri,
+        // w:rPrDefault states nothing, and "NoParent" has no w:basedOn.
+        // LibreOffice sets "NoParent" in 10 point Times New Roman.
+        DocumentReadResult result = DocxTestPackage.ReadStyled(
+            DocxTestPackage.Paragraph("normal") +
+            "<w:p><w:pPr><w:pStyle w:val=\"NoParent\"/></w:pPr><w:r><w:t>detached</w:t></w:r></w:p>" +
+            "<w:p><w:pPr><w:pStyle w:val=\"Child\"/></w:pPr><w:r><w:t>child</w:t></w:r></w:p>",
+            DocxTestPackage.DocumentDefaults(string.Empty) +
+            DocxTestPackage.Style("Normal", "<w:rPr><w:rFonts w:ascii=\"Calibri\"/><w:sz w:val=\"64\"/></w:rPr>", isDefault: true) +
+            DocxTestPackage.Style("NoParent", "<w:rPr/>") +
+            DocxTestPackage.Style("Child", "<w:rPr/>", basedOn: "Normal"));
+
+        RichTextDocument document = result.Document;
+        Assert.Equal(32f, document.StyleDefaults.FontSizePoints);
+        Assert.Equal("Calibri", document.StyleDefaults.FontFamily);
+
+        InlineStyle detached = document.Paragraphs[1].Runs[0].Style;
+        Assert.Equal(10f, detached.FontSize);
+        Assert.Equal("Times New Roman", detached.FontFamily);
+
+        // A style based on the default style inherits it as before.
+        InlineStyle child = document.Paragraphs[2].Runs[0].Style;
+        Assert.Equal(32f, child.FontSize);
+        Assert.Equal("Calibri", child.FontFamily);
+    }
+
+    [Fact]
     public void Without_The_Setting_A_Break_Ending_The_Document_Is_Still_Dropped()
     {
         DocumentReadResult result = Read(

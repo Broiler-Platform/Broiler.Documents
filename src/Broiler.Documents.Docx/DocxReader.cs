@@ -1121,6 +1121,41 @@ internal static class DocxReader
         foreach (XElement rPr in context.Styles.RunPropertiesForParagraph(paragraphStyleId, context.TableStyle, context.TableConditions))
             style = ApplyRunProperties(rPr, style, context.Styles.Theme);
 
+        if ((style.FontSize is null || string.IsNullOrWhiteSpace(style.FontFamily)) &&
+            context.Styles.IsDetachedFromDefaultParagraphStyle(paragraphStyleId))
+            style = WithDetachedStyleDefaults(style, context.Styles);
+
+        return style;
+    }
+
+    /// <summary>
+    /// Gives a run whose paragraph style is not based on the default paragraph
+    /// style the size and family <c>w:docDefaults</c> gives it, where neither
+    /// it nor its chain states one. The document's defaults
+    /// (<see cref="ReadStyleDefaults"/>) include the default paragraph style,
+    /// which such a paragraph does not inherit: LibreOffice sets
+    /// tdf108350_noFontdefaults.docx's "NoParent" paragraph in 10 point Times
+    /// New Roman, its fallback for a document with an empty <c>w:rPrDefault</c>,
+    /// beside "Normal" text in 32 point Calibri.
+    /// </summary>
+    private static InlineStyle WithDetachedStyleDefaults(InlineStyle style, DocxStyles styles)
+    {
+        InlineStyle own = ApplyRunProperties(styles.DefaultRunProperties, InlineStyle.Default, styles.Theme);
+        float size = own.FontSize is float stated && stated > 0
+            ? stated
+            : styles.HasRunDefaults ? StatedDefaultsFontSize : UnstatedDefaultsFontSize;
+        string family = string.IsNullOrWhiteSpace(own.FontFamily)
+            ? styles.HasRunDefaults ? StatedDefaultsFontFamily : UnstatedDefaultsFontFamily
+            : own.FontFamily;
+
+        // Only what differs from the document's defaults is stated, so a
+        // style that happens to agree with them reads as before.
+        DocumentStyleDefaults document = ReadStyleDefaults(styles);
+        if (style.FontSize is null && Math.Abs(size - document.FontSizePoints) > 0.001f)
+            style = style with { FontSize = size };
+        if (string.IsNullOrWhiteSpace(style.FontFamily) &&
+            !string.Equals(family, document.FontFamily, StringComparison.OrdinalIgnoreCase))
+            style = style with { FontFamily = family };
         return style;
     }
 
