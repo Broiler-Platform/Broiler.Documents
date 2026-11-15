@@ -23,22 +23,11 @@ public sealed class DocumentFontService : IOperationFontService
     private readonly List<string> _notes = [];
     private readonly List<FontResolutionRecord> _records = [];
     private string? _hostFallbackFile;
-    private readonly string? _hostFallbackBoldFile;
     private bool _disposed;
 
-    /// <param name="hostFallbackFile">The face the host draws an unmapped family with.</param>
-    /// <param name="hostFallbackBoldFile">
-    /// The face the host draws a bold run in an unmapped family with, or null
-    /// when it draws bold with <paramref name="hostFallbackFile"/> too. The
-    /// renderer's fallback keeps a regular and a bold face (DejaVu Sans and
-    /// DejaVu Sans Bold), and a bold run measured with the regular one is laid
-    /// out narrower than it is drawn: fdo77887.docx's bold Noto Sans heading
-    /// ran its words into each other.
-    /// </param>
-    public DocumentFontService(string? hostFallbackFile = null, string? hostFallbackBoldFile = null)
+    public DocumentFontService(string? hostFallbackFile = null)
     {
         _hostFallbackFile = hostFallbackFile;
-        _hostFallbackBoldFile = hostFallbackBoldFile;
     }
 
     public IReadOnlyList<string> MappedFamilies =>
@@ -185,14 +174,11 @@ public sealed class DocumentFontService : IOperationFontService
         // 4. Try host fallback
         if (!string.IsNullOrEmpty(_hostFallbackFile) && File.Exists(_hostFallbackFile))
         {
-            string fallbackFile = bold && !string.IsNullOrEmpty(_hostFallbackBoldFile) && File.Exists(_hostFallbackBoldFile)
-                ? _hostFallbackBoldFile
-                : _hostFallbackFile;
-            FontProgramSource fallbackSource = FontProgramSource.FromFile(fallbackFile);
+            FontProgramSource fallbackSource = FontProgramSource.FromFile(_hostFallbackFile);
             ResolvedFontFace face = CreateFace(fallbackSource, bold, italic);
             var outcome = FontResolutionOutcome.HostFallback;
             _cache[cacheKey] = (face, outcome);
-            Record(keyFamily, bold, italic, outcome, face, $"Host fallback {fallbackFile}");
+            Record(keyFamily, bold, italic, outcome, face, $"Host fallback {_hostFallbackFile}");
             return (face, outcome);
         }
 
