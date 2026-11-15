@@ -4535,6 +4535,7 @@ internal static class OdtReader
             // style nor Standard names one (bookmark_order.fodt).
             FontFamily = string.IsNullOrWhiteSpace(style.FontFamily) ? WriterDefaultFontFamily : style.FontFamily,
             RunningBandsEndAtLastLine = true,
+            ColumnBreaksNeedColumns = true,
         };
     }
 

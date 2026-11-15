@@ -202,6 +202,21 @@ public sealed record DocumentStyleDefaults
     public bool RunningBandsEndAtLastLine { get; init; }
 
     /// <summary>
+    /// Whether a column break needs columns to break: where the text it is in
+    /// has a single column, it does nothing.
+    /// </summary>
+    /// <remarks>
+    /// Writer takes a column break only inside a column frame
+    /// (<c>SwFlowFrame::IsColBreak</c> looks for one with <c>FindColFrame</c>),
+    /// so an ODT's column break on a page or in a section of one column
+    /// leaves the paragraph where it is (tdf76349_1columnBreak.odt,
+    /// tdf133370_columnBreak.odt). Word breaks the page there, and its import
+    /// keeps the column break for the layout to treat so; this is set by the
+    /// ODT reader only.
+    /// </remarks>
+    public bool ColumnBreaksNeedColumns { get; init; }
+
+    /// <summary>
     /// The space a block that asks for <paramref name="spaceAbove"/> opens
     /// with below one that left <paramref name="spaceBelowPrevious"/> beneath
     /// it, which the caller has already added.

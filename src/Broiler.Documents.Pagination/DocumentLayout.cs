@@ -1085,6 +1085,10 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         // and the last column of a page to the next page. So does a column that
         // holds nothing yet: it starts below a section above it, too low on the
         // page for even one line, and the next column starts just as low.
+        // Whether a column break asked for here breaks: always, unless the
+        // document's column breaks need columns and the text has one.
+        bool BreaksColumn() => !_styleDefaults.ColumnBreaksNeedColumns || columns.Count > 1;
+
         void BreakColumn()
         {
             if (column + 1 >= columns.Count || currentLines.Count == columnStart)
@@ -1377,7 +1381,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                     OwnBreak();
                     BreakPage();
                 }
-                else if (!pageBreak && table.ColumnBreakBefore && ColumnHasContent())
+                else if (!pageBreak && table.ColumnBreakBefore && ColumnHasContent() && BreaksColumn())
                 {
                     regionUnbalanced = true;
                     BreakColumn();
@@ -1642,7 +1646,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 if (truncated)
                     break;
             }
-            else if (style.ColumnBreakBefore && !styleBreaksPage && !setup.Continuous && ColumnHasContent())
+            else if (style.ColumnBreakBefore && !styleBreaksPage && !setup.Continuous && ColumnHasContent() && BreaksColumn())
             {
                 // A column break moves to the top of the next column of the
                 // stretch being filled, and from its last column, or where it has

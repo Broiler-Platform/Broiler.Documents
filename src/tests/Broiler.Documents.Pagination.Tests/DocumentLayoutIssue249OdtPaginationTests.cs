@@ -110,4 +110,34 @@ public sealed class DocumentLayoutIssue249OdtPaginationTests
         Assert.Empty(result.Pages[0].Cells);
         Assert.Equal(3, NoteLines(result.Pages[1]).Count);
     }
+
+    [Theory]
+    [InlineData(true, 1)]
+    [InlineData(false, 2)]
+    public void A_Column_Break_Without_Columns_Breaks_Only_Where_The_Document_Says_It_Breaks_Pages(bool needsColumns, int pages)
+    {
+        // tdf76349_1columnBreak.odt: Writer ignores a column break outside
+        // columns; a Word document breaks the page there.
+        RichTextDocument document = RichTextDocument.FromParagraphs(
+        [
+            RichTextParagraph.Plain("Before"),
+            RichTextParagraph.Plain("After").WithParagraphStyle(ParagraphStyle.Default with { ColumnBreakBefore = true }),
+        ]).WithStyleDefaults(DocumentStyleDefaults.Default with { ColumnBreaksNeedColumns = needsColumns });
+
+        Assert.Equal(pages, Layout(document).Pages.Count);
+    }
+
+    [Fact]
+    public void A_Column_Break_In_Columns_Still_Breaks_The_Column_Where_Breaks_Need_Columns()
+    {
+        RichTextDocument document = RichTextDocument.FromParagraphs(
+        [
+            RichTextParagraph.Plain("Before"),
+            RichTextParagraph.Plain("After").WithParagraphStyle(ParagraphStyle.Default with { ColumnBreakBefore = true }),
+        ]).WithSections([new DocumentSection(0, 2, 2, 12)])
+            .WithStyleDefaults(DocumentStyleDefaults.Default with { ColumnBreaksNeedColumns = true });
+
+        LayoutPage page = Assert.Single(Layout(document).Pages);
+        Assert.True(page.Lines[1].Pieces[0].X > page.Lines[0].Pieces[0].X + 100);
+    }
 }

@@ -164,4 +164,10 @@ public sealed class OdtIssue249OdtPaginationTests
         Assert.Equal([0, 0, 1, 1], table.Rows.Select(row => row.Cells.Sum(cell => cell.ParagraphCount)));
         Assert.Equal(["", "kept"], document.Paragraphs.Select(paragraph => paragraph.Text));
     }
+
+    [Fact]
+    public void An_Odt_Documents_Column_Breaks_Need_Columns()
+    {
+        Assert.True(OdtTestPackage.ReadBody(OdtTestPackage.Paragraph("x")).Document.StyleDefaults.ColumnBreaksNeedColumns);
+    }
 }
