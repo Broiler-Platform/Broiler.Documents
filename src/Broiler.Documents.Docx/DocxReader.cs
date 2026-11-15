@@ -1877,9 +1877,46 @@ internal static class DocxReader
 
         (ShapeWrap Wrap, WrapSide Side, TableCellPadding Margins) = ReadWrap(anchor);
         (double offsetY, bool fromPage) = VerticalOffset(anchor, context, picture: true);
+        double offsetX = HorizontalOffset(anchor, context);
+        IReadOnlyList<(double X, double Y)>? wrapPolygon = Wrap == ShapeWrap.None ? null : ReadWrapPolygon(anchor);
+
+        // A turned picture (pic:spPr/a:xfrm rot): its offsets place the
+        // unturned extent, and LibreOffice draws it turned about that box's
+        // centre in a frame as large as the turned picture's bounding box,
+        // which the text wraps around. position-and-rotation.docx's picture,
+        // turned 110 degrees, was drawn unturned.
+        if (anchor.Descendants(DocxNamespaces.Picture + "spPr").FirstOrDefault()?.Element(DocxNamespaces.Drawing + "xfrm") is XElement turn &&
+            long.TryParse((string?)turn.Attribute("rot"), NumberStyles.Integer, CultureInfo.InvariantCulture, out long sixtieths) &&
+            sixtieths % 21600000 != 0 && boxWidth > 0 && boxHeight > 0)
+        {
+            ImagePresentation turned = (image.Presentation ?? ImagePresentation.Default) with
+            {
+                Rotation = ((sixtieths % 21600000 / 60000.0) + 360) % 360,
+                UnrotatedWidth = boxWidth,
+                UnrotatedHeight = boxHeight,
+            };
+            if (turned.TurnedBounds is (double turnedWidth, double turnedHeight))
+            {
+                double grownX = (turnedWidth - boxWidth) / 2, grownY = (turnedHeight - boxHeight) / 2;
+                // Word states the wrap polygon in the unturned picture's box;
+                // it turns with the picture about the centre.
+                double angle = turned.RotationRadians, cos = Math.Cos(angle), sin = Math.Sin(angle);
+                double width = boxWidth, height = boxHeight;
+                wrapPolygon = wrapPolygon is null ? null : [.. wrapPolygon.Select(point =>
+                {
+                    double across = (point.X - 0.5) * width, down = (point.Y - 0.5) * height;
+                    return ((across * cos - down * sin) / turnedWidth + 0.5, (across * sin + down * cos) / turnedHeight + 0.5);
+                })];
+                offsetX -= grownX;
+                offsetY -= grownY;
+                (boxWidth, boxHeight) = (turnedWidth, turnedHeight);
+                image = image.WithSize(boxWidth, boxHeight).WithPresentation(turned);
+            }
+        }
+
         context.Builder.AddShape(new DocumentShape(
             AnchorParagraph(anchor, context, picture: true),
-            HorizontalOffset(anchor, context),
+            offsetX,
             offsetY,
             boxWidth,
             boxHeight,
@@ -1896,7 +1933,7 @@ internal static class DocxReader
             offsetXFromCell: context.Builder.InTableCell && RelativeFrom(anchor, "positionH") == "column" && LaysOutInCell(anchor))
         {
             WrapMargins = Wrap == ShapeWrap.None ? null : Margins,
-            WrapPolygon = Wrap == ShapeWrap.None ? null : ReadWrapPolygon(anchor),
+            WrapPolygon = wrapPolygon,
             BoundedByPage = !context.Builder.InTableCell,
             OffsetXFromColumn = FromColumn(anchor, context),
             OffsetFromBandParagraph = FromHeaderParagraph(anchor, context),

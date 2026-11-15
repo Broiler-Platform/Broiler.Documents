@@ -254,6 +254,38 @@ public sealed class DocxIssue249ImagesShapesTests
     }
 
     [Fact]
+    public void A_Turned_Floating_Picture_Takes_Its_Turned_Box_About_The_Same_Centre()
+    {
+        // position-and-rotation.docx: a picture turned 110 degrees was drawn
+        // unturned. A quarter turn of a 100 x 50 pt picture at (10, 20) is a
+        // 50 x 100 pt box about the same centre, (35, -5).
+        string run = DocxTestPackage.AnchoredDrawingRun("rId7", 1270000, 635000, offsetXEmus: 127000, offsetYEmus: 254000)
+            .Replace("<pic:spPr>", "<pic:spPr><a:xfrm rot=\"5400000\"><a:off x=\"0\" y=\"0\"/><a:ext cx=\"1270000\" cy=\"635000\"/></a:xfrm>",
+                StringComparison.Ordinal)
+            .Replace("<wp:wrapSquare wrapText=\"bothSides\"/>",
+                "<wp:wrapTight wrapText=\"bothSides\"><wp:wrapPolygon edited=\"0\"><wp:start x=\"0\" y=\"0\"/>" +
+                "<wp:lineTo x=\"21600\" y=\"0\"/><wp:lineTo x=\"21600\" y=\"21600\"/><wp:lineTo x=\"0\" y=\"21600\"/></wp:wrapPolygon></wp:wrapTight>",
+                StringComparison.Ordinal);
+        DocumentReadResult result = DocxTestPackage.ReadWithMedia(
+            "<w:p>" + run + "</w:p>",
+            DocxTestPackage.ImageRelationship("rId7", "media/image1.png"),
+            new Dictionary<string, byte[]>(StringComparer.Ordinal) { ["word/media/image1.png"] = DocxTestPackage.OnePixelPng });
+
+        DocumentShape shape = Assert.Single(result.Document.Shapes);
+        Assert.Equal(50, shape.Width, 3);
+        Assert.Equal(100, shape.Height, 3);
+        Assert.Equal(35, shape.OffsetX, 3);
+        Assert.Equal(-5, shape.OffsetY, 3);
+        Assert.Equal(90, shape.Image!.Presentation.Rotation, 3);
+        Assert.Equal(100, shape.Image.Presentation.UnrotatedWidth!.Value, 3);
+        // The wrap polygon turns with it: the unturned box's top left corner
+        // is the turned box's top right.
+        (double X, double Y) first = shape.WrapPolygon![0];
+        Assert.Equal(1, first.X, 3);
+        Assert.Equal(0, first.Y, 3);
+    }
+
+    [Fact]
     public void A_Hidden_Picture_Is_Still_Printed()
     {
         // tdf162527_hidden_image.docx: LibreOffice 24.2 draws the hidden picture.
