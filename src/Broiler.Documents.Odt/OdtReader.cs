@@ -1574,6 +1574,15 @@ internal static class OdtReader
     /// objects with it, so the paragraph is left out whole. Fields in a frame
     /// anchored here belong to the frame's own paragraphs and are not counted.
     /// </summary>
+    /// <summary>
+    /// Whether <paramref name="blocks"/> are paragraphs, at least one, that
+    /// their own fields hide, which the block reader leaves out.
+    /// </summary>
+    internal static bool HidesEveryParagraph(IReadOnlyList<XElement> blocks, OdtReadContext context) =>
+        blocks.Count > 0 && blocks.All(block =>
+            (block.Name == OdtNamespaces.Text + "p" || block.Name == OdtNamespaces.Text + "h") &&
+            (HiddenByEmptyDatabaseField(block, context.Styles) || HiddenByParagraphField(block, context)));
+
     private static bool HiddenByParagraphField(XElement paragraph, OdtReadContext context)
     {
         bool any = false;

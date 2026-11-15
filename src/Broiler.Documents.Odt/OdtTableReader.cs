@@ -79,9 +79,10 @@ internal static class OdtTableReader
                     var nested = new List<DocumentTable>();
                     context.Builder.PushTableSink(nested);
                     context.TableDepth++;
+                    List<XElement> content = [.. WithoutClosingParagraphAfterTable(DisplayCellContent(cell, context.Styles))];
                     try
                     {
-                        readBlocks(WithoutClosingParagraphAfterTable(DisplayCellContent(cell, context.Styles)), depth + 1);
+                        readBlocks(content, depth + 1);
                     }
                     finally
                     {
@@ -90,7 +91,12 @@ internal static class OdtTableReader
                     // An empty ODF cell still has an editable paragraph and a
                     // line box in Writer. Leaving its range empty collapses
                     // spacer rows and loses their contribution to pagination.
-                    if (context.Builder.CurrentParagraphIndex == cellStart && nested.Count == 0)
+                    // A cell whose paragraphs are all hidden by their fields has
+                    // no line box: Writer's hidden paragraphs take no height, so
+                    // a row of such cells keeps only the height its row states
+                    // (table-0-height-rows.fodt fits on one page).
+                    if (context.Builder.CurrentParagraphIndex == cellStart && nested.Count == 0 &&
+                        !OdtReader.HidesEveryParagraph(content, context))
                         readBlocks([new XElement(OdtNamespaces.Text + "p")], depth + 1);
                     context.Builder.PopTableSink();
 

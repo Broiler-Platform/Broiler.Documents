@@ -149,4 +149,19 @@ public sealed class OdtIssue249OdtPaginationTests
         Assert.Equal(9, note.Runs[0].Style.FontSize!.Value, 2);
         Assert.Equal(6 * 72 / 25.4, note.Style.LeftIndent!.Value, 1);
     }
+
+    [Fact]
+    public void A_Cell_Whose_Paragraphs_Are_All_Hidden_By_Their_Fields_Has_No_Line()
+    {
+        // table-0-height-rows.fodt: every paragraph of most rows holds a
+        // text:hidden-paragraph whose condition is true; Writer gives those
+        // rows no height, and an empty cell still gets its one empty line.
+        const string hidden = "<text:p>gone<text:hidden-paragraph text:condition=\"ooow:1\" text:is-hidden=\"true\"/></text:p>";
+        RichTextDocument document = OdtTestPackage.ReadBody(
+            OdtTestPackage.Table([hidden], [hidden + hidden], [string.Empty], ["<text:p>kept</text:p>"])).Document;
+
+        DocumentTable table = Assert.Single(document.Tables);
+        Assert.Equal([0, 0, 1, 1], table.Rows.Select(row => row.Cells.Sum(cell => cell.ParagraphCount)));
+        Assert.Equal(["", "kept"], document.Paragraphs.Select(paragraph => paragraph.Text));
+    }
 }
