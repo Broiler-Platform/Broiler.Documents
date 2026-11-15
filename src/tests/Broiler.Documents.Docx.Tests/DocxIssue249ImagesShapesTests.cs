@@ -128,6 +128,29 @@ public sealed class DocxIssue249ImagesShapesTests
         Assert.NotNull(PresetShape("rightArrow").OutlinePaths);
     }
 
+    [Theory]
+    [InlineData(@"file:///F:\ISUW\ole9.gif", false)]
+    [InlineData(@"C:\pictures\logo.png", false)]
+    [InlineData("linked-picture.png", true)]
+    [InlineData("http://example.com/flag.jpg", true)]
+    public void A_Linked_Picture_On_The_Authors_Disk_Leaves_No_Mark(string target, bool marked)
+    {
+        // FileWithInvalidImageLink.docx: LibreOffice prints nothing for a link
+        // to file:///F:\...; a relative link it looks up beside the document,
+        // and draws what it finds (linked-picture.docx).
+        string run = DocxTestPackage.AnchoredDrawingRun("rId7", 914400, 914400)
+            .Replace("r:embed=\"rId7\"", "r:link=\"rId9\"", StringComparison.Ordinal);
+        DocumentReadResult result = DocxTestPackage.ReadWithMedia(
+            "<w:p>" + run + "</w:p>",
+            "<Relationship Id=\"rId9\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/image\" " +
+            "Target=\"" + target + "\" TargetMode=\"External\"/>",
+            new Dictionary<string, byte[]>(StringComparer.Ordinal));
+
+        InlineImage image = Assert.Single(result.Document.Shapes).Image!;
+        Assert.True(image.IsMissingPayload);
+        Assert.Equal(marked, image.MarksMissingPayload);
+    }
+
     [Fact]
     public void A_Hidden_Picture_Is_Still_Printed()
     {
