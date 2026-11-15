@@ -107,6 +107,21 @@ public sealed class DocxOfficeIssue249TextTests
         Assert.Equal(["Correct value", "JUNK VALUE"], document.Paragraphs.Select(paragraph => paragraph.Text));
     }
 
+    [Fact]
+    public void A_Drop_Down_Form_Fields_Entry_Is_A_Form_Control()
+    {
+        // tdf126114.docx: LibreOffice draws the shown entry "gehuwd" as its
+        // drop-down control and leaves it out of its text export.
+        DocumentReadResult result = DocxTestPackage.ReadBody(
+            "<w:p><w:r><w:t xml:space='preserve'>status: </w:t></w:r><w:r><w:fldChar w:fldCharType='begin'/></w:r>" +
+            "<w:r><w:instrText>FORMDROPDOWN</w:instrText></w:r><w:r><w:fldChar w:fldCharType='separate'/></w:r>" +
+            "<w:r><w:t>gehuwd</w:t></w:r><w:r><w:fldChar w:fldCharType='end'/></w:r></w:p>");
+
+        RichTextParagraph paragraph = Assert.Single(result.Document.Paragraphs);
+        Assert.Equal("status: gehuwd", paragraph.Text);
+        Assert.Equal([false, true], paragraph.Runs.Select(run => run.Style.IsFormControl));
+    }
+
     private const string Wps = "http://schemas.microsoft.com/office/word/2010/wordprocessingShape";
 
     private static string ShapeXml(bool textBox) =>

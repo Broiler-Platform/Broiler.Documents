@@ -61,6 +61,11 @@ internal sealed class DocxFields
             style = style with { StyleReference = field };
         if (_open.Exists(static open => open.Separated && open.Recalculated))
             style = style with { Hidden = true };
+        // A drop-down form field's result is the entry it shows, which
+        // LibreOffice imports as a drop-down control: drawn, but not text
+        // (tdf126114.docx's "gehuwd" is missing from its text export).
+        if (_open.Exists(static open => open.Separated && open.DropDown))
+            style = style with { IsFormControl = true };
         return style;
     }
 
@@ -135,6 +140,8 @@ internal sealed class DocxFields
                     name.Equals("TOC", StringComparison.OrdinalIgnoreCase);
                 _open[^1].Reference = Tokens(_open[^1].Code.ToString()) is [string first, ..] &&
                     first.Equals("REF", StringComparison.OrdinalIgnoreCase);
+                _open[^1].DropDown = Tokens(_open[^1].Code.ToString()) is [string control, ..] &&
+                    control.Equals("FORMDROPDOWN", StringComparison.OrdinalIgnoreCase);
                 if (!_open[^1].HasNestedField && LibreOfficeIfResult(_open[^1].Code.ToString()) is string shown)
                 {
                     _open[^1].Recalculated = true;
@@ -445,6 +452,9 @@ internal sealed class DocxFields
 
         /// <summary>The field is a <c>REF</c>, which LibreOffice imports as a reference text field.</summary>
         public bool Reference { get; set; }
+
+        /// <summary>The field is a <c>FORMDROPDOWN</c> form field.</summary>
+        public bool DropDown { get; set; }
 
         /// <summary>A field begins inside this one's instruction.</summary>
         public bool HasNestedField { get; set; }
