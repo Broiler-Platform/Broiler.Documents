@@ -1665,6 +1665,7 @@ internal static class DocxReader
         context.Builder.AppendText(string.Join((char)0x2028, wordArt.Lines), wordArt.Style with
         {
             Foreground = DocxVml.TryColor((string?)shape.Attribute("fillcolor"), out BColor color) ? color : style.Foreground,
+            IsShapeText = true,
         });
         context.Builder.AddDiagnosticOnce("docx.shape.wordart",
             "A VML WordArt shape was drawn as plain text in its box; its glyphs are not fitted to the text path.");

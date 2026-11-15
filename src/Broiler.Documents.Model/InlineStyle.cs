@@ -122,6 +122,20 @@ public readonly record struct InlineStyle
     /// </remarks>
     public bool IsSymbolCharacter { get; init; }
 
+    /// <summary>
+    /// True for the string of a drawing set in the line as a character rather
+    /// than text of the paragraph: an inline VML WordArt shape
+    /// (<c>v:textpath</c>), which the DOCX reader keeps as styled text so its
+    /// glyphs land where the shape's do.
+    /// </summary>
+    /// <remarks>
+    /// LibreOffice imports the shape as a drawing object anchored as a
+    /// character, and its text export writes only the paragraph's own text
+    /// (<c>SwASCWriter</c>): <c>fdo77727.docx</c>'s "Currents" and
+    /// <c>fdo78300.docx</c>'s "Homer was sleeping" are drawn but not exported.
+    /// </remarks>
+    public bool IsShapeText { get; init; }
+
     /// <summary>The unformatted default style (<c>default(InlineStyle)</c>).</summary>
     public static InlineStyle Default => default;
 

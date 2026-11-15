@@ -152,6 +152,22 @@ public sealed class DocxIssue249ImagesShapesTests
     }
 
     [Fact]
+    public void An_Inline_WordArt_String_Is_Marked_As_Shape_Text()
+    {
+        // fdo77727.docx: the inline WordArt "Currents" is drawn in its line,
+        // but LibreOffice's text export does not write it.
+        DocumentReadResult result = DocxTestPackage.ReadBody(
+            "<w:p><w:r><w:pict><v:shape xmlns:v=\"urn:schemas-microsoft-com:vml\" style=\"width:285.3pt;height:37.35pt\" fillcolor=\"#4e6128\">" +
+            "<v:textpath on=\"t\" style=\"font-family:&quot;Times New Roman&quot;\" string=\"Currents\"/></v:shape></w:pict></w:r>" +
+            "<w:r><w:t>Combat</w:t></w:r></w:p>");
+
+        RichTextParagraph paragraph = Assert.Single(result.Document.Paragraphs);
+        Assert.Equal("CurrentsCombat", paragraph.Text);
+        Assert.True(paragraph.Runs[0].Style.IsShapeText);
+        Assert.False(paragraph.Runs[^1].Style.IsShapeText);
+    }
+
+    [Fact]
     public void A_Hidden_Picture_Is_Still_Printed()
     {
         // tdf162527_hidden_image.docx: LibreOffice 24.2 draws the hidden picture.
