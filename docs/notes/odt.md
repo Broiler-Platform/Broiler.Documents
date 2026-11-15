@@ -295,7 +295,9 @@ toolkit behind it.
   filters, masks, clip paths, dashes or stylesheets; an SVG that states no
   size and no view box is as big as what it draws. One that draws nothing at
   all is an unmarked empty frame. Anything a rasterizer declines is reported
-  as `odt.image.format` rather than kept as a picture that draws nothing. A write
+  as `odt.image.format` rather than kept as a picture that draws nothing.
+  Metafile text is drawn as the document is read, through the render's font
+  mapping, which `broilerdoc render` therefore installs before it reads. A write
   stores each distinct image once under `Pictures`, declares it in the manifest,
   and anchors the frame `as-char`.
 - A frame's alternative `draw:image` representations, including those inside

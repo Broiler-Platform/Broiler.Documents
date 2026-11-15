@@ -83,9 +83,12 @@ public static class RenderCommand
                 _ => defaults,
             };
         }
+        // The pipeline installs the font mapping, which must come before the
+        // read: a reader draws a metafile picture's text (EMF, SVM) as it
+        // reads, and the graphics layer caches the face it resolves per family.
+        RenderPipeline pipeline = RenderPipeline.Create(context.Line);
         LoadedDocument loaded = DocumentIo.LoadOrThrow(source, catalog, readOptions, context.Line.Get("from"), optionsFor);
 
-        RenderPipeline pipeline = RenderPipeline.Create(context.Line);
         using RenderOutcome outcome = pipeline.Render(loaded.Document);
         pipeline.Write(outcome, destination);
 
