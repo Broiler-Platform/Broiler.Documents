@@ -1894,6 +1894,7 @@ internal static class DocxReader
             BoundedByPage = !context.Builder.InTableCell,
             OffsetXFromColumn = FromColumn(anchor, context),
             OffsetFromBandParagraph = FromHeaderParagraph(anchor, context),
+            DrawsInFront = BehindDocButWrapped(anchor),
         });
         return true;
     }
@@ -2112,6 +2113,7 @@ internal static class DocxReader
                     BoundedByPage = !context.Builder.InTableCell,
                     OffsetXFromColumn = FromColumn(anchor, context),
                     OffsetFromBandParagraph = FromHeaderParagraph(anchor, context),
+                    DrawsInFront = BehindDocButWrapped(anchor),
                 });
             }
             else if (child.Name == DocxNamespaces.WordGroup + "grpSp" && depth < MaxGroupDepth)
@@ -2260,6 +2262,7 @@ internal static class DocxReader
             BoundedByPage = !context.Builder.InTableCell,
             OffsetXFromColumn = FromColumn(anchor, context),
             OffsetFromBandParagraph = FromHeaderParagraph(anchor, context),
+            DrawsInFront = BehindDocButWrapped(anchor),
         });
         return true;
     }
@@ -2767,6 +2770,22 @@ internal static class DocxReader
             "0" or "false" => false,
             _ => true,
         };
+
+    /// <summary>
+    /// True for an object <c>behindDoc</c> puts behind the text that is drawn
+    /// in front all the same, because the text wraps around it
+    /// (<see cref="DocumentShape.DrawsInFront"/>).
+    /// </summary>
+    /// <remarks>
+    /// LibreOffice 24.2 sends an anchored object behind the text only when the
+    /// text runs through it (<c>wp:wrapNone</c>, Word's "Behind Text").
+    /// <c>tdf60351.docx</c>'s tightly wrapped picture is drawn over its
+    /// paragraph's white shading, and so is the same picture wrapped square,
+    /// while with <c>wp:wrapNone</c> the shading covers it (measured).
+    /// broilerdoc painted the shading over the wrapped picture.
+    /// </remarks>
+    private static bool BehindDocButWrapped(XElement anchor) =>
+        BehindDoc(anchor) && ReadWrap(anchor).Wrap != ShapeWrap.None;
 
     /// <summary>
     /// The <c>wp:anchor</c> attribute ordering one anchored object against

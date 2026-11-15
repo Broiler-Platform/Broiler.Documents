@@ -2537,7 +2537,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 shape.Outline,
                 text,
                 shape.Image,
-                shape.BehindText,
+                shape.BehindText && !shape.DrawsInFront,
                 shape.ZOrder,
                 cells, shape.Geometry, shape.OutlineWidth)
             {
@@ -2629,7 +2629,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
             (List<LayoutLine> text, List<LayoutCell> cells) = PlaceShapeContent(shape, bounds, setup);
             placed.Add(new LayoutShape(bounds, shape.Fill, shape.Outline, text,
-                shape.Image, shape.BehindText, shape.ZOrder, cells, shape.Geometry, shape.OutlineWidth)
+                shape.Image, shape.BehindText && !shape.DrawsInFront, shape.ZOrder, cells, shape.Geometry, shape.OutlineWidth)
             {
                 RotationRadians = shape.RotationRadians,
                 TextFlow = shape.TextFlow,

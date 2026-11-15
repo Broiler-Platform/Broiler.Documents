@@ -167,6 +167,28 @@ public sealed class DocxIssue249ImagesShapesTests
         Assert.False(paragraph.Runs[^1].Style.IsShapeText);
     }
 
+    [Theory]
+    [InlineData("<wp:wrapNone/>", false)]
+    [InlineData("<wp:wrapSquare wrapText=\"bothSides\"/>", true)]
+    [InlineData("<wp:wrapTight wrapText=\"bothSides\"><wp:wrapPolygon edited=\"0\"><wp:start x=\"0\" y=\"0\"/><wp:lineTo x=\"21600\" y=\"0\"/><wp:lineTo x=\"21600\" y=\"21600\"/><wp:lineTo x=\"0\" y=\"0\"/></wp:wrapPolygon></wp:wrapTight>", true)]
+    [InlineData("<wp:wrapTopAndBottom/>", true)]
+    public void A_Wrapped_Object_Behind_The_Document_Is_Drawn_In_Front(string wrap, bool inFront)
+    {
+        // tdf60351.docx: LibreOffice draws a tightly wrapped behindDoc picture
+        // over its paragraph's shading; with wp:wrapNone the shading covers it.
+        string run = DocxTestPackage.AnchoredDrawingRun("rId7", 914400, 914400, behindDoc: "1")
+            .Replace("<wp:wrapSquare wrapText=\"bothSides\"/>", wrap, StringComparison.Ordinal);
+        DocumentReadResult result = DocxTestPackage.ReadWithMedia(
+            "<w:p>" + run + "</w:p>",
+            DocxTestPackage.ImageRelationship("rId7", "media/image1.png"),
+            new Dictionary<string, byte[]>(StringComparer.Ordinal) { ["word/media/image1.png"] = DocxTestPackage.OnePixelPng });
+
+        DocumentShape shape = Assert.Single(result.Document.Shapes);
+        Assert.Equal(inFront, shape.DrawsInFront);
+        // What the document says is kept, so it is written back as read.
+        Assert.True(shape.BehindText);
+    }
+
     [Fact]
     public void A_Hidden_Picture_Is_Still_Printed()
     {

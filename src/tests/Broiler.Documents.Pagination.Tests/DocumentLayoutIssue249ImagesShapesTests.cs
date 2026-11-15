@@ -79,6 +79,27 @@ public sealed class DocumentLayoutIssue249ImagesShapesTests
     }
 
     [Fact]
+    public void A_Wrapped_Shape_Behind_The_Document_Is_Laid_Out_In_Front()
+    {
+        // tdf60351.docx: drawn over its paragraph's shading, as LibreOffice does.
+        DocumentShape Shape(bool inFront) =>
+            new(0, 0, 0, 40, 10, ShapeFill.Solid(Broiler.Graphics.Color.BColor.Black), behindText: true, wrap: ShapeWrap.Square)
+            {
+                DrawsInFront = inFront,
+            };
+        LayoutPage Page(DocumentShape shape)
+        {
+            using var images = new ImageStore();
+            return Assert.Single(new DocumentLayout(new LayoutSettings(), images).Layout(
+                RichTextDocument.FromParagraphs([RichTextParagraph.Plain("body")]).WithShapes([shape]),
+                new DocumentPageBox(300, 300, 20, 20, 20, 20)).Pages);
+        }
+
+        Assert.True(Assert.Single(Page(Shape(inFront: false)).Shapes).BehindText);
+        Assert.False(Assert.Single(Page(Shape(inFront: true)).Shapes).BehindText);
+    }
+
+    [Fact]
     public void A_Header_Shape_Placed_On_The_Page_Keeps_Its_Offset_From_The_Page_Top()
     {
         LayoutPage page = Layout(Box(0, 4, fromParagraph: false), "header");

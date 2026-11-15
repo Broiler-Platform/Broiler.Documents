@@ -282,6 +282,16 @@ public sealed class DocumentShape(
     public bool OffsetFromBandParagraph { get; init; }
 
     /// <summary>
+    /// True for a shape <see cref="BehindText"/> stacks behind the text that a
+    /// renderer draws in front of it all the same: DOCX's <c>behindDoc</c> on
+    /// an object the text wraps around, which LibreOffice 24.2 keeps in front
+    /// of the paragraphs and their shading (<c>tdf60351.docx</c>, measured).
+    /// <see cref="BehindText"/> keeps what the document says, so it is written
+    /// back as it was read.
+    /// </summary>
+    public bool DrawsInFront { get; init; }
+
+    /// <summary>
     /// Where the shape sits among the other shapes: a higher number draws later,
     /// and therefore on top.
     /// </summary>
@@ -430,6 +440,7 @@ public sealed class DocumentShape(
             BoundedByPage = BoundedByPage,
             OffsetXFromColumn = OffsetXFromColumn,
             OffsetFromBandParagraph = OffsetFromBandParagraph,
+            DrawsInFront = DrawsInFront,
         };
 
     /// <summary>The shape's own text, empty when it holds none.</summary>
