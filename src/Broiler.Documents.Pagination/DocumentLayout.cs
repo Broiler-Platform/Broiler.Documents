@@ -1180,6 +1180,14 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             _documentShapes.Any(shape => shape.ParagraphIndex == index && !shape.IsPageAnchored && !shape.OffsetFromPage) &&
             !_documentShapes.Any(shape => shape.ParagraphIndex == index && (shape.Wraps || shape.IsAsCharacter));
 
+        // True when the paragraph's own shapes include one text wraps around
+        // and none sits in its line: moved to a new page, such a paragraph
+        // leaves those shapes on the page they were drawn on.
+        bool LeavesWrappingShapesBehind(int index) =>
+            _documentShapes.Any(shape => shape.ParagraphIndex == index && shape.Wraps &&
+                !shape.IsPageAnchored && !shape.OffsetFromPage) &&
+            !_documentShapes.Any(shape => shape.ParagraphIndex == index && shape.IsAsCharacter);
+
         void ReanchorParagraph(int index)
         {
             _paragraphTops[index] = y;
@@ -1830,6 +1838,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                         regionUnbalanced = true;
                         if (first && CarriesFreeShapes(paragraphIndex))
                             _paragraphTops.Remove(paragraphIndex);
+                        int pagesBeforeBreak = pages.Count;
                         BreakColumn();
                         if (truncated)
                             break;
@@ -1841,7 +1850,14 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                         if (first)
                         {
                             y += borderTopAtColumnTop;
-                            ReanchorParagraph(paragraphIndex);
+                            // A frame the text wraps around was drawn on the page
+                            // the paragraph left and stays there, as on the
+                            // overflow path below. Anchored again here it was
+                            // drawn a second time and pushed the line on once
+                            // more (tdf138039.odt: a page-tall picture on two
+                            // pages, then the empty line on a fourth).
+                            if (pages.Count == pagesBeforeBreak || !LeavesWrappingShapesBehind(paragraphIndex))
+                                ReanchorParagraph(paragraphIndex);
                             composed = ComposeParagraph(paragraph, marker, setup, paragraphIndex,
                                 columnWidthOverride: columns.Width, wrapTop: y,
                                 wrapColumnLeft: columns.Offset(column));

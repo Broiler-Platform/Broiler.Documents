@@ -123,10 +123,17 @@ internal static class OdsReader
         return TryParseLength(length, out double points) && double.IsFinite(points) && points > 0 ? points : null;
     }
 
-    private static bool HasCellContent(SpreadsheetCell cell) =>
+    /// <summary>
+    /// Whether a cell widens the sheet's used range: a value, a formula, a span,
+    /// or a visible attribute (fill or border). A number format, font or
+    /// alignment alone does not, wherever it comes from: Calc writes every grid
+    /// column with the <c>Default</c> cell style, and LibreOffice prints and
+    /// exports only the range holding content or visible attributes
+    /// (<c>ScTable::GetPrintArea</c>, <c>ScPatternAttr::IsVisible</c>).
+    /// </summary>
+    private static bool MarksUsedRange(SpreadsheetCell cell) =>
         !cell.Value.IsEmpty || !string.IsNullOrEmpty(cell.Formula) || cell.Shading.A != 0 ||
-        cell.NumberFormat is not null || cell.Borders.IsVisible || cell.Font != InlineStyle.Default ||
-        cell.Alignment != TextAlignment.Left || cell.VerticalAlignment != CellVerticalAlignment.Top || cell.ColumnSpan > 1 || cell.RowSpan > 1;
+        cell.Borders.IsVisible || cell.ColumnSpan > 1 || cell.RowSpan > 1;
 
     /// <summary>An ODF length (in, cm, mm, pt, pc, px) in points.</summary>
     internal static bool TryParseLength(string? value, out double points)
@@ -292,7 +299,8 @@ internal static class OdsReader
                     {
                         int cIdx = currentColIndex++;
                         CellValue projectedValue = cellVal;
-                        string cellStyleName = (string?)cElem.Attribute(OdsNamespaces.Table + "style-name") ??
+                        string? ownStyleName = (string?)cElem.Attribute(OdsNamespaces.Table + "style-name");
+                        string cellStyleName = ownStyleName ??
                         (string?)rowElem.Attribute(OdsNamespaces.Table + "default-cell-style-name") ??
                         (cIdx < columnCellStyles.Count ? columnCellStyles[cIdx] : null) ?? string.Empty;
                         XElement? cellStyle = styles.GetValueOrDefault(("table-cell", cellStyleName));
@@ -314,12 +322,8 @@ internal static class OdsReader
                         }
 
                         OdsCellAppearance appearance = OdsCellAppearance.Read(cellStyle);
-                        if (rep > 0 && cellVal.IsEmpty && string.IsNullOrEmpty(formula) &&
-                            appearance == default && numberFormat is null)
-                            continue; // Avoid storing thousands of repeated trailing empty cells
-
                         var addr = new CellAddress(rIdx, cIdx);
-                        cells.Add(new SpreadsheetCell(
+                        var cell = new SpreadsheetCell(
                             addr,
                             projectedValue,
                             formula: formula,
@@ -331,12 +335,18 @@ internal static class OdsReader
                             VerticalAlignment = appearance.Vertical,
                             Alignment = appearance.Alignment,
                             Font = appearance.Font,
-                        });
+                        };
+                        // Avoid storing thousands of repeated empty cells; a
+                        // style of the cell's own is kept between other cells.
+                        if (rep > 0 && ownStyleName is null && !MarksUsedRange(cell))
+                            continue;
+
+                        cells.Add(cell);
                     }
                 }
 
                 int minCells = hasNonEmptyCell ? 0 : 1;
-                while (cells.Count > minCells && !HasCellContent(cells[^1]))
+                while (cells.Count > minCells && !MarksUsedRange(cells[^1]))
                     cells.RemoveAt(cells.Count - 1);
 
                 if (cells.Count > 0 || hasNonEmptyCell || height.HasValue)
@@ -344,7 +354,9 @@ internal static class OdsReader
             }
         }
 
-        while (rows.Count > 0 && rows[^1].Height is null && !rows[^1].Cells.Any(HasCellContent))
+        // A row height alone does not extend the used range either: Calc saves
+        // a row style for the rows past the data, and LibreOffice prints none.
+        while (rows.Count > 0 && !rows[^1].Cells.Any(MarksUsedRange))
             rows.RemoveAt(rows.Count - 1);
 
         var sheet = new SpreadsheetWorksheet(sheetName, rows, columnWidths);
