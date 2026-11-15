@@ -67,7 +67,22 @@ public sealed class DocxOfficeIssue249TextTests
         Assert.Equal("AB", Assert.Single(result.Document.Paragraphs).Text);
     }
 
-    private const string Wps ="http://schemas.microsoft.com/office/word/2010/wordprocessingShape";
+    [Fact]
+    public void A_Macro_Button_Shows_The_Text_After_Its_Macros_Name()
+    {
+        // tdf148494.docx: Word saves no result; LibreOffice 24.2 shows
+        // "Hello World", and nothing for a button with no text.
+        DocumentReadResult result = DocxTestPackage.ReadBody(
+            "<w:p><w:r><w:t xml:space='preserve'>button: </w:t></w:r><w:r><w:fldChar w:fldCharType='begin'/></w:r>" +
+            "<w:r><w:instrText xml:space='preserve'> MACROBUTTON AllCaps</w:instrText></w:r>" +
+            "<w:r><w:instrText xml:space='preserve'> Hello World</w:instrText></w:r><w:r><w:instrText xml:space='preserve'> </w:instrText></w:r>" +
+            "<w:r><w:fldChar w:fldCharType='end'/></w:r><w:r><w:fldChar w:fldCharType='begin'/></w:r>" +
+            "<w:r><w:instrText xml:space='preserve'> MACROBUTTON AllCaps </w:instrText></w:r><w:r><w:fldChar w:fldCharType='end'/></w:r></w:p>");
+
+        Assert.Equal("button: Hello World", Assert.Single(result.Document.Paragraphs).Text);
+    }
+
+    private const string Wps = "http://schemas.microsoft.com/office/word/2010/wordprocessingShape";
 
     private static string ShapeXml(bool textBox) =>
         "<wps:wsp xmlns:wps=\"" + Wps + "\"><wps:spPr><a:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"914400\" cy=\"457200\"/></a:xfrm><a:solidFill><a:srgbClr val=\"AECF00\"/></a:solidFill></wps:spPr>" +

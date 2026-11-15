@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using Broiler.Documents.Model;
 
@@ -152,11 +153,27 @@ internal sealed class DocxFields
                         return (null, ruby, true);
                     if (Symbol(ended.Code.ToString()) is string symbol)
                         return (null, symbol, false);
+                    if (MacroButtonText(ended.Code.ToString()) is string button)
+                        return (null, button, false);
                 }
                 break;
         }
 
         return (null, null, false);
+    }
+
+    /// <summary>
+    /// The text a <c>MACROBUTTON MacroName DisplayText</c> field shows, which
+    /// is its instruction after the macro's name, or null for any other field
+    /// or a button with no text. Word saves no result for it; LibreOffice 24.2
+    /// shows the text (tdf148494.docx: "This is a macro button field: Hello
+    /// World").
+    /// </summary>
+    internal static string? MacroButtonText(string instruction)
+    {
+        Match match = Regex.Match(instruction, @"\A\s*MACROBUTTON\s+\S+\s+(.*\S)\s*\z",
+            RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.NonBacktracking);
+        return match.Success ? match.Groups[1].Value : null;
     }
 
     internal static string? Symbol(string instruction)
