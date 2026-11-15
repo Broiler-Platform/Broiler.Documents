@@ -225,8 +225,83 @@ public sealed class ListNumberer
         ListNumberFormat.TianGan => TianGan(value),
         ListNumberFormat.DiZi => DiZi(value),
         ListNumberFormat.KoreanDigital2 => KoreanDigital2(value),
+        ListNumberFormat.AiueoHalfWidth => Cycle(value, AiueoHalf),
+        ListNumberFormat.AiueoFullWidth => Cycle(value, AiueoFull),
+        ListNumberFormat.IrohaHalfWidth => Cycle(value, IrohaHalf),
+        ListNumberFormat.IrohaFullWidth => Cycle(value, IrohaFull),
+        ListNumberFormat.JapaneseLegal => Digits(value, "零壱弐参四伍六七八九"),
+        ListNumberFormat.ChineseLegalSimplified => Financial(value, "零壹贰叁肆伍陆柒捌玖", "拾佰仟万"),
+        ListNumberFormat.HangulSyllable => Cycle(value, "가나다라마바사아자차카타파하"),
+        ListNumberFormat.HangulJamo => Cycle(value, "ㄱㄴㄷㄹㅁㅂㅅㅇㅈㅊㅋㅌㅍㅎ"),
+        ListNumberFormat.EnclosedCircle => value switch
+        {
+            >= 1 and <= 20 => ((char)(0x2460 + value - 1)).ToString(),
+            >= 21 and <= 35 => ((char)(0x3251 + value - 21)).ToString(),
+            >= 36 and <= 50 => ((char)(0x32B1 + value - 36)).ToString(),
+            _ => value.ToString(CultureInfo.InvariantCulture),
+        },
         _ => value.ToString(CultureInfo.InvariantCulture),
     };
+
+    // LibreOffice's tables (i18npool defaultnumberingprovider): the gojūon and
+    // iroha orders of the katakana, in their full- and half-width forms. Iroha's
+    // ヰ and ヱ have no half-width form and stay full width.
+    private const string AiueoFull = "アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン";
+    private const string AiueoHalf = "ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓﾔﾕﾖﾗﾘﾙﾚﾛﾜｦﾝ";
+    private const string IrohaFull = "イロハニホヘトチリヌルヲワカヨタレソツネナラムウヰノオクヤマケフコエテアサキユメミシヱヒモセスン";
+    private const string IrohaHalf = "ｲﾛﾊﾆﾎﾍﾄﾁﾘﾇﾙｦﾜｶﾖﾀﾚｿﾂﾈﾅﾗﾑｳヰﾉｵｸﾔﾏｹﾌｺｴﾃｱｻｷﾕﾒﾐｼヱﾋﾓｾｽﾝ";
+
+    /// <summary>The table's characters one after another, starting over past its last.</summary>
+    private static string Cycle(int value, string table) =>
+        value <= 0 ? value.ToString(CultureInfo.InvariantCulture) : table[(value - 1) % table.Length].ToString();
+
+    /// <summary>Each decimal digit written with the given ten digits.</summary>
+    private static string Digits(int value, string digits)
+    {
+        if (value <= 0)
+            return value.ToString(CultureInfo.InvariantCulture);
+
+        var builder = new StringBuilder();
+        foreach (char c in value.ToString(CultureInfo.InvariantCulture))
+            builder.Append(digits[c - '0']);
+        return builder.ToString();
+    }
+
+    /// <summary>
+    /// Chinese financial numerals with the given digits and the units for ten,
+    /// a hundred, a thousand and ten thousand.
+    /// </summary>
+    private static string Financial(int value, string digits, string units)
+    {
+        if (value is < 0 or > 99999999)
+            return value.ToString(CultureInfo.InvariantCulture);
+        if (value < 10)
+            return digits[value].ToString();
+
+        if (value >= 10000)
+        {
+            int remainder = value % 10000;
+            return Financial(value / 10000, digits, units) + units[3] + (remainder switch
+            {
+                0 => string.Empty,
+                < 1000 => digits[0] + Financial(remainder, digits, units),
+                _ => Financial(remainder, digits, units),
+            });
+        }
+
+        (int place, char unit) = value switch
+        {
+            >= 1000 => (1000, units[2]),
+            >= 100 => (100, units[1]),
+            _ => (10, units[0]),
+        };
+        int tail = value % place;
+        string head = digits[value / place].ToString() + unit;
+        if (tail == 0)
+            return head;
+
+        return head + (tail < place / 10 ? digits[0].ToString() : string.Empty) + Financial(tail, digits, units);
+    }
 
     /// <summary>a ... z, then aa, bb ... zz, then aaa: ECMA-376's <c>lowerLetter</c>, and LibreOffice's.</summary>
     private static string Letters(int value, char first)

@@ -352,8 +352,8 @@
         "sw/qa/extras/rtfimport/rtfimport2.cxx testTdf167710"
       ],
       "axes": ["pixel", "text"],
-      "samples": ["rtfimport/data/tdf167710.rtf"],
-      "evidence": "The pinned 24.2 reference exports Unknown; into the body. The upstream test asserts an empty paragraph because revision-table entries are metadata.",
+      "samples": ["rtfimport/data/tdf167710.rtf", "rtfexport/data/FWDP90_min.rtf"],
+      "evidence": "The pinned 24.2 reference exports Unknown; into the body. The upstream test asserts an empty paragraph because revision-table entries are metadata. FWDP90_min.rtf has the same ungrouped {\\*\\revtbl Unknown;} entry, and its 24.2 text export starts with the same Unknown; line (docs/notes/office-issue-249-rtf-text.md).",
       "reference": "docs/notes/office-issue-224.md"
     },
     {
