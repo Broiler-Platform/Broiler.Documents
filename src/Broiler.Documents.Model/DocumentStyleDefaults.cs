@@ -167,6 +167,25 @@ public sealed record DocumentStyleDefaults
     /// </remarks>
     public bool LaysOutBodyParagraphBorders { get; init; }
 
+    /// <summary>
+    /// Whether a table's horizontal border lines take room in its rows, as
+    /// Writer lays out a table with collapsing borders: a row's text starts
+    /// below the wider of its cells' top lines (or of the row above's bottom
+    /// lines) and their distance, and the table ends below its last row's
+    /// bottom line.
+    /// </summary>
+    /// <remarks>
+    /// Set by the DOCX reader, from what soffice 24.2 does with a DOCX table:
+    /// a 3 pt rule between two rows of 12 pt Liberation Serif puts them
+    /// 16.8 pt apart, not 13.8 pt; 0.5 pt rules, 14.3 pt; 3 pt outer rules and
+    /// no inside rule, 13.8 pt, with 3 pt above the first row and below the
+    /// last. A rule between two rows takes its width once, which is the row
+    /// model of Writer's collapsing borders (<c>SwRowFrame::Format</c>:
+    /// <c>lcl_GetTopSpace</c>, or the row above's <c>lcl_GetBottomLineSize</c>
+    /// plus <c>lcl_GetTopLineDist</c>, above each row's text).
+    /// </remarks>
+    public bool CollapsingTableBorders { get; init; }
+
     /// <summary>Keep a heading with the opening lines of its splittable successor.</summary>
     public bool KeepWithNextOpeningLines { get; init; }
 
@@ -224,7 +243,7 @@ public sealed record DocumentStyleDefaults
     public bool IsDefault =>
         FontSizePoints == FallbackFontSizePoints && FontFamily is null && !WidensSpaceRuns && !ShrinksJustifiedLines &&
         !TabsOverMargin && !UndecoratedLinks && WidowOrphanLines == 0 && !PreserveOpeningParagraphSpacing &&
-        !KeepWithNextOpeningLines && !CollapsesParagraphSpacing && !LaysOutBodyParagraphBorders;
+        !KeepWithNextOpeningLines && !CollapsesParagraphSpacing && !LaysOutBodyParagraphBorders && !CollapsingTableBorders;
 
     /// <summary>
     /// What <see cref="WidensSpaceRuns"/> adds to the width of

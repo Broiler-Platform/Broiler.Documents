@@ -84,6 +84,18 @@ internal sealed class DocxDocumentBuilder(
     /// </summary>
     public bool SplitPgBreakAndParaMark { get; init; }
 
+    /// <summary>
+    /// The index of the body section's first paragraph, which the reader
+    /// moves on as each section ends.
+    /// </summary>
+    public int SectionStartIndex { get; set; }
+
+    /// <summary>
+    /// True while the paragraph being finished holds its section's
+    /// <c>w:sectPr</c>.
+    /// </summary>
+    public bool ParagraphEndsSection { get; set; }
+
     /// <summary>Counts a table for the read summary.</summary>
     public void NoteTable() => _tableCount++;
 
@@ -661,6 +673,41 @@ internal sealed class DocxDocumentBuilder(
         // one before the paragraph that follows.
         if (_pageBreakSeen && _breakIsColumn && _pageBreakLeadsParagraph && _segments.Count == 0 && !InTableCell)
             StartParagraphOnNewPage();
+
+        // With w:splitPgBreakAndParaMark (Word 2003's layout) the paragraph
+        // mark after a page break goes to the new page (writerfilter's
+        // DomainMapper::lcl_utext): a paragraph with text before the break is
+        // split there, its mark becoming an empty paragraph that opens the
+        // page with the same properties but no number (tdf#123636), as is a
+        // section's first paragraph holding nothing but the break; any other
+        // paragraph holding nothing but the break moves to the new page
+        // itself, its space above dropped in mode 15.
+        bool splitsMark = false;
+        if (_pageBreakSeen && !_breakIsColumn && SplitPgBreakAndParaMark && !InTableCell)
+        {
+            if (_pageBreakLeadsParagraph && _segments.Count == 0 && ParagraphEndsSection)
+            {
+                // A section's mark holding nothing but the break is no
+                // paragraph to writerfilter (DomainMapper::lcl_utext's bRemove),
+                // and the break goes on to the next one.
+            }
+            else if (_pageBreakLeadsParagraph && _segments.Count == 0 && _paragraphs.Count != SectionStartIndex)
+            {
+                _pageBreakSeen = false;
+                _paragraphStyle = _paragraphStyle with
+                {
+                    PageBreakBefore = true,
+                    PageBreakKeepsSpaceAbove = false,
+                    SpacingBefore = WordCompatibilityMode > 14 ? 0 : _paragraphStyle.SpacingBefore,
+                };
+            }
+            else
+            {
+                _pageBreakSeen = false;
+                splitsMark = true;
+            }
+        }
+
         if (_pageBreakSeen)
         {
             _pageBreakSeen = false;
@@ -690,6 +737,19 @@ internal sealed class DocxDocumentBuilder(
         }
 
         _paragraphs.Add(paragraph);
+        if (splitsMark && _paragraphs.Count < limits.MaxParagraphCount)
+        {
+            _paragraphs.Add(RichTextParagraph.Empty
+                .WithParagraphStyle(_paragraphStyle with
+                {
+                    PageBreakBefore = true,
+                    PageBreakKeepsSpaceAbove = false,
+                    List = null,
+                    ListKind = ListKind.None,
+                })
+                .WithMarkStyle(_markStyle));
+        }
+
         _segments.Clear();
         _paragraphStyle = ParagraphStyle.Default;
         _markStyle = InlineStyle.Default;
