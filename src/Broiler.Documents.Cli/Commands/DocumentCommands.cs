@@ -339,7 +339,16 @@ public static class DocumentCommands
     /// word.
     /// </para>
     /// </remarks>
-    internal static string LabelledText(RichTextDocument document, bool joinsTableRows = true)
+    internal static string LabelledText(RichTextDocument document, bool joinsTableRows = true) =>
+        LabelledText(document, joinsTableRows, pageNumber: null);
+
+    /// <param name="document">The document.</param>
+    /// <param name="joinsTableRows">Whether a table row is one line, its cells separated by tabs.</param>
+    /// <param name="pageNumber">
+    /// The number a page number field is written as, where it is known to
+    /// differ from the result the source saved; null to write the saved result.
+    /// </param>
+    private static string LabelledText(RichTextDocument document, bool joinsTableRows, int? pageNumber)
     {
         var numberer = new ListNumberer();
         var notes = new NoteNumberer(document.NoteNumbering);
@@ -381,10 +390,30 @@ public static class DocumentCommands
             // one in the header's table). A floating header shape does not: a
             // text watermark is a drawing, not a frame, to LibreOffice's export.
             else if (FirstFrame(document.Shapes.Where(shape => !shape.IsPageAnchored)
-                .Concat(RunningShapes(document.RunningContent).Where(shape => shape.HasText && !shape.IsCustomShape && !shape.StretchesTextToBox))) is DocumentShape only)
+                .Concat(RunningShapes(document.RunningContent).Select(running => running.Shape)
+                    .Where(shape => shape.HasText && !shape.IsCustomShape && !shape.StretchesTextToBox))) is DocumentShape only)
             {
+                // A page number in a header or footer frame is the number its
+                // page gave it when LibreOffice laid the first page out: that
+                // page's number where the first page shows the header or
+                // footer, nought where it does not (tdf112446_frameStyle.docx
+                // writes 1, tdf112443.docx, whose first page has a footer of its
+                // own, 0; each the other way round with w:titlePg toggled).
+                int? framePageNumber = null;
+                foreach ((DocumentShape shape, PageSelection selection) in RunningShapes(document.RunningContent))
+                {
+                    if (ReferenceEquals(shape, only))
+                    {
+                        bool onFirstPage = document.RunningContent.DifferentFirstPage
+                            ? selection == PageSelection.First
+                            : selection == PageSelection.Default;
+                        framePageNumber = onFirstPage ? document.Sections.FirstOrDefault()?.PageNumberStart ?? 1 : 0;
+                        break;
+                    }
+                }
+
                 return LabelledText(RichTextDocument.FromParagraphs(only.Paragraphs).WithTables(only.Tables)
-                    .WithNoteNumbering(document.NoteNumbering), joinsTableRows);
+                    .WithNoteNumbering(document.NoteNumbering), joinsTableRows, framePageNumber);
             }
         }
 
@@ -430,6 +459,8 @@ public static class DocumentCommands
                     }
                     builder.Append(citation);
                 }
+                else if (pageNumber is int number && run.Style.PageField is { Kind: PageFieldKind.PageNumber } field)
+                    builder.Append(ListNumberer.Format(number, field.Format));
                 else if (!run.Style.IsImage && !run.Style.IsFormControl)
                     builder.Append(paragraph.Text, offset, length);
                 offset += length;
@@ -453,13 +484,19 @@ public static class DocumentCommands
     /// drawing, so the first of them comes first, even an empty one
     /// (dml-groupshape-sdt.docx); a group with none is a drawing.
     /// </remarks>
-    private static IEnumerable<DocumentShape> RunningShapes(RunningContent running) =>
-        running.HeaderShapes(PageSelection.Even)
-            .Concat(running.HeaderShapes(PageSelection.Default))
-            .Concat(running.FooterShapes(PageSelection.Even))
-            .Concat(running.FooterShapes(PageSelection.Default))
-            .Concat(running.HeaderShapes(PageSelection.First))
-            .Concat(running.FooterShapes(PageSelection.First));
+    /// <summary>
+    /// The headers' and footers' shapes in the order Word writes their
+    /// references, which is the order LibreOffice's import reads them in:
+    /// even header, default header, even footer, default footer, then the
+    /// first page's.
+    /// </summary>
+    private static IEnumerable<(DocumentShape Shape, PageSelection Selection)> RunningShapes(RunningContent running) =>
+        new (bool Header, PageSelection Selection)[]
+        {
+            (true, PageSelection.Even), (true, PageSelection.Default), (false, PageSelection.Even),
+            (false, PageSelection.Default), (true, PageSelection.First), (false, PageSelection.First),
+        }.SelectMany(part => (part.Header ? running.HeaderShapes(part.Selection) : running.FooterShapes(part.Selection))
+            .Select(shape => (shape, part.Selection)));
 
     private static DocumentShape? FirstFrame(IEnumerable<DocumentShape> shapes)
     {

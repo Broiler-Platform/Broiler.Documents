@@ -145,6 +145,24 @@ public sealed class DumpTableTextTests
         Assert.Equal(expected, DocumentCommands.LabelledText(document));
     }
 
+    [Theory]
+    [InlineData(false, "1")]
+    [InlineData(true, "0")]
+    public void A_Page_Number_In_A_Footer_Frame_Is_The_First_Pages_Or_Nought(bool differentFirstPage, string expected)
+    {
+        // tdf112446_frameStyle.docx writes 1 for its footer frame's PAGE field,
+        // tdf112443.docx, whose first page has a footer of its own, 0; the
+        // saved results are 1 and 2.
+        RichTextParagraph number = RichTextParagraph.Plain("").InsertText(0, "2",
+            InlineStyle.Default with { PageField = new PageField(PageFieldKind.PageNumber) });
+        RichTextDocument document = RichTextDocument.FromParagraphs([RichTextParagraph.Plain("")])
+            .WithRunningContent(RunningContent.Empty
+                .WithFooter(PageSelection.Default, null, [new DocumentShape(0, 0, 0, 20, 20, paragraphs: [number])])
+                .WithDifferentFirstPage(differentFirstPage));
+
+        Assert.Equal(expected, DocumentCommands.LabelledText(document));
+    }
+
     [Fact]
     public void A_Header_Text_Box_Is_Exported_When_The_Body_Has_No_Frame()
     {
