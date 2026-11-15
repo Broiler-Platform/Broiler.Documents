@@ -8,10 +8,11 @@ namespace Broiler.Documents.Docx.Tests;
 public sealed class DocxOfficeIssue249TextTests
 {
     [Fact]
-    public void A_Paragraph_Mark_In_A_Reference_Fields_Result_Is_Not_A_Paragraph()
+    public void A_Reference_Fields_Result_Moves_To_Where_The_Field_Ends()
     {
         // line-break-in-ref.docx: the REF's saved result ends with a paragraph
-        // mark, and LibreOffice 24.2 writes "Text1Text2" on one line.
+        // mark. LibreOffice 24.2 keeps the mark and shows the result where the
+        // field ends: an empty paragraph, then "Text1Text2" (its flat ODF export).
         DocumentReadResult result = DocxTestPackage.ReadBody(
             "<w:p><w:r><w:fldChar w:fldCharType='begin'/></w:r>" +
             "<w:r><w:instrText xml:space='preserve'> REF BM1 \\*Mergeformat</w:instrText></w:r>" +
@@ -19,13 +20,14 @@ public sealed class DocxOfficeIssue249TextTests
             "<w:p><w:r><w:fldChar w:fldCharType='end'/></w:r><w:r><w:t>Text2</w:t></w:r></w:p>" +
             "<w:bookmarkStart w:id='1' w:name='BM1'/><w:p><w:r><w:t>Text1</w:t></w:r></w:p><w:bookmarkEnd w:id='1'/>");
 
-        Assert.Equal(["Text1Text2", "Text1"], result.Document.Paragraphs.Select(paragraph => paragraph.Text));
+        Assert.Equal(["", "Text1Text2", "Text1"], result.Document.Paragraphs.Select(paragraph => paragraph.Text));
     }
 
     [Fact]
-    public void A_Reference_Fields_Result_In_A_Cell_Is_One_Paragraph_Of_The_Cell()
+    public void A_Reference_Fields_Result_In_A_Cell_Moves_To_The_Cells_Paragraph_Where_It_Ends()
     {
-        // tdf171383_refFieldInCell.docx: "Issue 1Input text here." in one line.
+        // tdf171383_refFieldInCell.docx: three empty paragraphs, then
+        // "Issue 1Input text here.", in LibreOffice 24.2.
         DocumentReadResult result = DocxTestPackage.ReadBody(
             "<w:tbl><w:tr><w:tc>" +
             "<w:p><w:r><w:fldChar w:fldCharType='begin'/></w:r><w:r><w:instrText> REF  Issue1 </w:instrText></w:r>" +
@@ -34,9 +36,9 @@ public sealed class DocxOfficeIssue249TextTests
             "<w:p><w:r><w:fldChar w:fldCharType='end'/></w:r></w:p>" +
             "</w:tc><w:tc><w:p><w:r><w:t>next</w:t></w:r></w:p></w:tc></w:tr></w:tbl><w:p/>");
 
-        Assert.Equal(["Issue 1Input text here.", "next", ""], result.Document.Paragraphs.Select(paragraph => paragraph.Text));
+        Assert.Equal(["", "", "", "Issue 1Input text here.", "next", ""], result.Document.Paragraphs.Select(paragraph => paragraph.Text));
         TableCell cell = result.Document.Tables[0].Rows[0].Cells[0];
-        Assert.Equal(1, cell.ParagraphCount);
+        Assert.Equal(4, cell.ParagraphCount);
     }
 
     [Fact]

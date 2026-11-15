@@ -83,12 +83,10 @@ internal sealed class DocxFields
     public bool InCode => _open.Exists(static open => !open.Separated);
 
     /// <summary>
-    /// Whether what is being read is the saved result of a <c>REF</c> field.
-    /// LibreOffice imports the field as a reference text field, one character
-    /// of its paragraph, so a paragraph mark in its result is not a paragraph
-    /// break: line-break-in-ref.docx's "Text1" result and the "Text2" after the
-    /// field's end are one line in LibreOffice 24.2's text export, and so are
-    /// tdf171383_refFieldInCell.docx's three result paragraphs in a cell.
+    /// Whether what is being read is the saved result of a <c>REF</c> field,
+    /// which LibreOffice imports as a reference text field: one character,
+    /// where the field ends, showing the whole result
+    /// (<see cref="DocxDocumentBuilder.CarryReferenceResult"/>).
     /// </summary>
     public bool InReferenceResult => _open.Exists(static open => open.Separated && open.Reference);
 

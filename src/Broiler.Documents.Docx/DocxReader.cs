@@ -977,8 +977,10 @@ internal static class DocxReader
         ReadParagraphChildren(paragraph.Elements(), context, inherited);
         if (context.Sections is not null && DocxSections.EndsSection(paragraph))
             context.Builder.TrimSectionParagraphEnd();
-        else if (context.Builder.JoinsFieldCodeParagraph(NextBlockIsParagraph(paragraph)))
+        else if (context.Builder.JoinsFieldCodeParagraph())
             return;
+        else if (NextBlockIsParagraph(paragraph))
+            context.Builder.CarryReferenceResult();
         context.Builder.ApplyContextualSpacing(
             (string.IsNullOrEmpty(paragraphStyleId) ? context.Styles.DefaultParagraphStyleId : paragraphStyleId) ?? string.Empty,
             HasContextualSpacing(pPr, paragraphStyleId, context));
@@ -1292,7 +1294,12 @@ internal static class DocxReader
             if (child.Name == DocxNamespaces.Wordprocessing + "fldChar")
             {
                 // A page field Word saved no result for still shows a number.
+                bool inReference = builder.Fields.InReferenceResult;
                 (PageField? empty, string? fallbackText, bool ruby) = builder.Fields.Read(child, context.Styles, runStyle);
+                if (!builder.Fields.InReferenceResult)
+                    builder.EndReferenceResult();
+                else if (!inReference)
+                    builder.StartReferenceResult();
                 if (builder.Fields.SuppressesResult)
                     continue;
                 if (empty is not null)
