@@ -54,7 +54,20 @@ public sealed class DocxOfficeIssue249TextTests
         Assert.Equal(["", "ID", ""], result.Document.Paragraphs.Select(paragraph => paragraph.Text));
     }
 
-    private const string Wps = "http://schemas.microsoft.com/office/word/2010/wordprocessingShape";
+    [Fact]
+    public void An_Ask_Field_Shows_None_Of_Its_Saved_Result()
+    {
+        // n751017.docx: "AbarBbarC" saved, "ABbarC" in LibreOffice 24.2.
+        DocumentReadResult result = DocxTestPackage.ReadBody(
+            "<w:p><w:r><w:t>A</w:t></w:r><w:r><w:fldChar w:fldCharType='begin'/></w:r>" +
+            "<w:r><w:instrText xml:space='preserve'> ASK foo \"What is foo?\" \\* CHARFORMAT </w:instrText></w:r>" +
+            "<w:r><w:fldChar w:fldCharType='separate'/></w:r><w:r><w:t>bar</w:t></w:r><w:r><w:fldChar w:fldCharType='end'/></w:r>" +
+            "<w:r><w:t>B</w:t></w:r></w:p>");
+
+        Assert.Equal("AB", Assert.Single(result.Document.Paragraphs).Text);
+    }
+
+    private const string Wps ="http://schemas.microsoft.com/office/word/2010/wordprocessingShape";
 
     private static string ShapeXml(bool textBox) =>
         "<wps:wsp xmlns:wps=\"" + Wps + "\"><wps:spPr><a:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"914400\" cy=\"457200\"/></a:xfrm><a:solidFill><a:srgbClr val=\"AECF00\"/></a:solidFill></wps:spPr>" +

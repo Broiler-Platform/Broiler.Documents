@@ -90,8 +90,17 @@ internal sealed class DocxFields
     /// </summary>
     public bool InReferenceResult => _open.Exists(static open => open.Separated && open.Reference);
 
+    /// <summary>
+    /// Whether a field shows none of the result Word saved: <c>SET</c>, and
+    /// <c>ASK</c>, which sets a bookmark from a prompt and displays nothing.
+    /// LibreOffice imports <c>ASK</c> as an input field that shows no text:
+    /// n751017.docx's <c>A{ASK foo}B{REF foo}C</c>, saved as "AbarBbarC", is
+    /// "ABbarC" in LibreOffice 24.2, and sdt-before-field.docx loses its saved
+    /// "Enter Permittee Name".
+    /// </summary>
     public static bool IsHiddenResult(string instruction) =>
-        Tokens(instruction) is [string name, ..] && name.Equals("SET", StringComparison.OrdinalIgnoreCase);
+        Tokens(instruction) is [string name, ..] &&
+        (name.Equals("SET", StringComparison.OrdinalIgnoreCase) || name.Equals("ASK", StringComparison.OrdinalIgnoreCase));
 
     /// <summary>Notes that the innermost field's result has text of its own.</summary>
     public void NoteResultText()
