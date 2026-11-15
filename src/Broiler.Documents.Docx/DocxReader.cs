@@ -975,7 +975,8 @@ internal static class DocxReader
                 context.Builder.SetDropCap(DocxFrameAccumulator.ReadDropCap(dropPPr, dropStyleId, context, length));
         }
         ReadParagraphChildren(paragraph.Elements(), context, inherited);
-        if (context.Sections is not null && DocxSections.EndsSection(paragraph))
+        bool endsSection = context.Sections is not null && DocxSections.EndsSection(paragraph);
+        if (endsSection)
             context.Builder.TrimSectionParagraphEnd();
         else if (context.Builder.JoinsFieldCodeParagraph())
             return;
@@ -984,6 +985,9 @@ internal static class DocxReader
             HasContextualSpacing(pPr, paragraphStyleId, context));
         if (context.Band == RunningBand.Body && context.PlacementPage is PageGeometry placement)
             context.Builder.ApplyIncreasedAnchoredObjectSpacing(placement.ContentWidth);
+        if (context.Sections is not null && !endsSection)
+            context.Builder.SplitPageBreakFromParagraphMark(
+                firstInSection: !context.Sections.CurrentHasParagraphs(context.Builder.CurrentParagraphIndex));
         context.Builder.FinishParagraph();
     }
 

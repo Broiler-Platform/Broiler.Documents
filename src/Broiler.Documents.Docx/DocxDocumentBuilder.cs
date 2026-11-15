@@ -568,6 +568,51 @@ internal sealed class DocxDocumentBuilder(
     }
 
     /// <summary>
+    /// Separates a page break that ends a body paragraph from the paragraph's
+    /// mark, as <c>w:splitPgBreakAndParaMark</c> asks: the mark goes to the
+    /// page the break starts. LibreOffice 24.2's import does this
+    /// (<c>DomainMapper</c>, <c>m_bIsSplitPara</c>, tdf#123636): a paragraph
+    /// with something before the break, or the first of its section, is
+    /// split, and an empty paragraph with its properties, but no space above,
+    /// first-line indent or list, opens the next page; an empty paragraph
+    /// holding nothing but the break moves to that page itself. Either way
+    /// the page exists even when no paragraph follows: LibreOffice draws
+    /// <c>tdf123636_newlinePageBreak.docx</c> and
+    /// <c>tdf99090_pgbrkAfterTable.docx</c> on two pages. Measured with
+    /// LibreOffice 24.2: the next paragraph lands one empty line down the new
+    /// page, and that line is as tall as the split paragraph's mark. Without
+    /// the setting the break passes to the next paragraph, and one ending the
+    /// document is dropped (<see cref="Build"/>). Column breaks, breaks in a
+    /// cell and a paragraph that ends a section keep the way they travel.
+    /// </summary>
+    /// <param name="firstInSection">Whether the paragraph is the first of its section.</param>
+    public void SplitPageBreakFromParagraphMark(bool firstInSection)
+    {
+        if (!SplitPgBreakAndParaMark || !_pageBreakSeen || _breakIsColumn || InTableCell)
+            return;
+
+        if (_pageBreakLeadsParagraph && _segments.Count == 0 && !firstInSection)
+        {
+            StartParagraphOnNewPage();
+            return;
+        }
+
+        _pageBreakSeen = false;
+        ParagraphStyle original = _paragraphStyle;
+        InlineStyle mark = _markStyle;
+        FinishParagraph();
+        StartParagraph(original with
+        {
+            PageBreakBefore = true,
+            PageBreakKeepsSpaceAbove = false,
+            SpacingBefore = 0,
+            FirstLineIndent = 0,
+            ListKind = ListKind.None,
+            List = null,
+        }, mark);
+    }
+
+    /// <summary>
     /// Consumes any pending inline page or column break before content that follows it,
     /// so shapes or images that follow the break are anchored to the correct paragraph.
     /// </summary>

@@ -1,0 +1,78 @@
+namespace Broiler.Documents.Docx.Tests;
+
+/// <summary>
+/// Issue #249, DOCX page counts: how the reader carries a page break that ends
+/// a paragraph when the document asks for <c>w:splitPgBreakAndParaMark</c>.
+/// </summary>
+public sealed class DocxIssue249PaginationTests
+{
+    private const string PageBreak = "<w:r><w:br w:type=\"page\"/></w:r>";
+
+    private static DocumentReadResult Read(string body, string compatXml)
+    {
+        var parts = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["word/settings.xml"] =
+                "<w:settings " + DocxTestPackage.BodyNamespaceDeclarations + "><w:compat>" + compatXml + "</w:compat></w:settings>",
+        };
+        using var stream = new MemoryStream(DocxTestPackage.FromBody(body, parts), writable: false);
+        return new DocxDocumentCodec().Read(stream);
+    }
+
+    [Fact]
+    public void A_Break_Ending_A_Paragraph_Is_Split_From_Its_Mark()
+    {
+        // LibreOffice 24.2 reads "B<break>" as "B" and an empty paragraph that
+        // starts the next page, which then holds the empty line above "C".
+        DocumentReadResult result = Read(
+            DocxTestPackage.Paragraph("A") +
+            "<w:p><w:pPr><w:spacing w:before=\"400\" w:after=\"400\"/></w:pPr><w:r><w:t>B</w:t></w:r>" + PageBreak + "</w:p>" +
+            DocxTestPackage.Paragraph("C"),
+            "<w:splitPgBreakAndParaMark/>");
+
+        RichTextParagraph[] paragraphs = [.. result.Document.Paragraphs];
+        Assert.Equal(new[] { "A", "B", string.Empty, "C" }, paragraphs.Select(p => p.Text));
+        Assert.False(paragraphs[1].Style.PageBreakBefore);
+        Assert.True(paragraphs[2].Style.PageBreakBefore);
+        Assert.Equal(0, paragraphs[2].Style.SpacingBefore);
+        Assert.Equal(20, paragraphs[2].Style.SpacingAfter, 3);
+        Assert.False(paragraphs[3].Style.PageBreakBefore);
+    }
+
+    [Fact]
+    public void An_Empty_Paragraph_Holding_Only_The_Break_Moves_To_The_New_Page()
+    {
+        DocumentReadResult result = Read(
+            DocxTestPackage.Paragraph("A") + "<w:p>" + PageBreak + "</w:p>",
+            "<w:splitPgBreakAndParaMark/>");
+
+        RichTextParagraph[] paragraphs = [.. result.Document.Paragraphs];
+        Assert.Equal(2, paragraphs.Length);
+        Assert.True(paragraphs[1].Style.PageBreakBefore);
+        Assert.DoesNotContain(result.Diagnostics, diagnostic => diagnostic.Code == "docx.pagebreak.trailing");
+    }
+
+    [Fact]
+    public void A_Lone_Break_In_The_First_Paragraph_Leaves_It_And_Opens_A_Page()
+    {
+        // tdf123636_newlinePageBreak.docx: two paragraphs, two pages.
+        DocumentReadResult result = Read("<w:p>" + PageBreak + "</w:p>", "<w:splitPgBreakAndParaMark/>");
+
+        RichTextParagraph[] paragraphs = [.. result.Document.Paragraphs];
+        Assert.Equal(2, paragraphs.Length);
+        Assert.False(paragraphs[0].Style.PageBreakBefore);
+        Assert.True(paragraphs[1].Style.PageBreakBefore);
+    }
+
+    [Fact]
+    public void Without_The_Setting_A_Break_Ending_The_Document_Is_Still_Dropped()
+    {
+        DocumentReadResult result = Read(
+            DocxTestPackage.Paragraph("A") + "<w:p><w:r><w:t>B</w:t></w:r>" + PageBreak + "</w:p>",
+            string.Empty);
+
+        Assert.Equal(2, result.Document.ParagraphCount);
+        Assert.All(result.Document.Paragraphs, paragraph => Assert.False(paragraph.Style.PageBreakBefore));
+        Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "docx.pagebreak.trailing");
+    }
+}
