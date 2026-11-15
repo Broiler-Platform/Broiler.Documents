@@ -1293,6 +1293,19 @@ internal static class HtmlReader
 
         TryParseImageDimensions(element, styleSheet, out double? width, out double? height);
 
+        // A size given as a share of the page leaves the other side at the
+        // picture's own size rather than in proportion: LibreOffice draws
+        // <img width="70%"> on a 200 x 400 pixel picture 70% of the text width
+        // wide and 400 pixels (300 pt) tall (tdf122789.html), where a width in
+        // pixels alone keeps the picture's shape (tdf142781.html).
+        if (((IsPercentage(element, styleSheet, "width") && height is null) ||
+             (IsPercentage(element, styleSheet, "height") && width is null)) &&
+            HtmlImagePixels.Read(data.Span) is (int pixelsWide, int pixelsHigh))
+        {
+            width ??= pixelsWide * 72.0 / 96.0;
+            height ??= pixelsHigh * 72.0 / 96.0;
+        }
+
         BImageResource resource;
         try
         {
@@ -1339,6 +1352,14 @@ internal static class HtmlReader
 
         TryParseDimension(attrWidth, cssWidth, out width, PercentBase(PageGeometry.A4, horizontal: true));
         TryParseDimension(attrHeight, cssHeight, out height, PercentBase(PageGeometry.A4, horizontal: false));
+    }
+
+    /// <summary>Whether the image's <paramref name="property"/> is a percentage, as CSS or as an attribute.</summary>
+    private static bool IsPercentage(DomElement element, HtmlStyleSheet styleSheet, string property)
+    {
+        string? value = styleSheet.DeclarationsFor(element).TryGetValue(property, out string? css) &&
+            !string.IsNullOrWhiteSpace(css) ? css : element.GetAttribute(property);
+        return value?.Trim().EndsWith('%') == true;
     }
 
     /// <summary>

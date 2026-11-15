@@ -62,7 +62,20 @@ public sealed class ImageStore : IDisposable
         }
 
         double scale = DocumentPageBox.PointsPerInch / DocumentPageBox.PixelsPerInch;
-        return (entry.Bitmap.Width * scale, entry.Bitmap.Height * scale);
+        double intrinsicWidth = entry.Bitmap.Width * scale;
+        double intrinsicHeight = entry.Bitmap.Height * scale;
+
+        // A picture that states one side keeps it and takes the other from the
+        // decoded pixels' aspect ratio, as it does where the resource knew its
+        // pixels (InlineImage.TryGetDisplaySize). HTML's <img width="672"> is
+        // drawn 672 px wide and as tall as that makes it, as browsers and
+        // LibreOffice draw it (tdf142781.html), not at its pixel size.
+        return (image.Width, image.Height) switch
+        {
+            (double statedWidth, null) when intrinsicWidth > 0 => (statedWidth, statedWidth * intrinsicHeight / intrinsicWidth),
+            (null, double statedHeight) when intrinsicHeight > 0 => (statedHeight * intrinsicWidth / intrinsicHeight, statedHeight),
+            _ => (intrinsicWidth, intrinsicHeight),
+        };
     }
 
     /// <summary>The decoded bitmap, or null when the image could not be decoded.</summary>
