@@ -67,11 +67,17 @@ public static class OdtWriter
             AddXmlEntry(archive, OdtNamespaces.StylesPart, BuildStyles(
                 document.RunningContent, PageOf(document), document.PageBackground, document.NoteNumbering, context));
             AddXmlEntry(archive, OdtNamespaces.MetaPart, BuildMeta(metadata));
-            if (!document.ShowsRevisions || document.StyleDefaults.ShrinksJustifiedLines || document.StyleDefaults.TabsOverMargin)
+            // Writer sets endnotes on pages of their own unless ContinuousEndnotes
+            // says otherwise, so a document whose endnotes run on under its body
+            // states it.
+            bool continuousEndnotes = !document.NoteNumbering.EndnotesStartOnNewPage &&
+                DocumentNote.CitedIn(document.Paragraphs).Any(note => note.Kind == NoteKind.Endnote);
+            if (!document.ShowsRevisions || document.StyleDefaults.ShrinksJustifiedLines || document.StyleDefaults.TabsOverMargin ||
+                continuousEndnotes)
             {
                 context.HasSettings = true;
                 AddXmlEntry(archive, OdtNamespaces.SettingsPart,
-                    BuildSettings(!document.ShowsRevisions, document.StyleDefaults));
+                    BuildSettings(!document.ShowsRevisions, document.StyleDefaults, continuousEndnotes));
             }
 
             foreach (OdtPicturePart picture in context.Pictures)
@@ -376,7 +382,7 @@ public static class OdtWriter
     /// the view settings) or that its justified lines shrink their spaces
     /// (<c>JustifyLinesWithShrinking</c> in the configuration settings).
     /// </summary>
-    private static XDocument BuildSettings(bool hideRevisions, DocumentStyleDefaults defaults)
+    private static XDocument BuildSettings(bool hideRevisions, DocumentStyleDefaults defaults, bool continuousEndnotes)
     {
         static XElement Set(string name, params XElement[] items) =>
             new(
@@ -400,6 +406,8 @@ public static class OdtWriter
             configuration.Add(Flag("JustifyLinesWithShrinking", true));
         if (defaults.TabsOverMargin)
             configuration.Add(Flag("TabOverMargin", true));
+        if (continuousEndnotes)
+            configuration.Add(Flag("ContinuousEndnotes", true));
         if (configuration.Count > 0)
             settings.Add(Set("ooo:configuration-settings", [.. configuration]));
 

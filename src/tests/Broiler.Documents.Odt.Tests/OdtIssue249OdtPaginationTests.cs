@@ -44,4 +44,62 @@ public sealed class OdtIssue249OdtPaginationTests
         Assert.Equal(0, paragraph.Style.SpacingBefore, 2);
         Assert.False(paragraph.Style.KeepWithNext);
     }
+
+    private const string Endnote =
+        "<text:note text:id=\"ftn1\" text:note-class=\"endnote\"><text:note-citation>i</text:note-citation>" +
+        "<text:note-body><text:p>end</text:p></text:note-body></text:note>";
+
+    private static RichTextDocument ReadWithSettings(string body, string? settingName = null, string stylesXml = "<office:styles/>")
+    {
+        var parts = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (settingName is not null)
+        {
+            parts["settings.xml"] =
+                "<office:document-settings xmlns:office=\"urn:oasis:names:tc:opendocument:xmlns:office:1.0\" " +
+                "xmlns:config=\"urn:oasis:names:tc:opendocument:xmlns:config:1.0\"><office:settings>" +
+                "<config:config-item-set config:name=\"ooo:configuration-settings\">" +
+                "<config:config-item config:name=\"" + settingName + "\" config:type=\"boolean\">true</config:config-item>" +
+                "</config:config-item-set></office:settings></office:document-settings>";
+        }
+
+        using var stream = new MemoryStream(
+            OdtTestPackage.FromBody(body, stylesPartInnerXml: stylesXml, extraParts: parts), writable: false);
+        return new OdtDocumentCodec().Read(stream).Document;
+    }
+
+    [Fact]
+    public void Endnotes_Start_On_A_Page_Of_Their_Own_When_The_Configuration_Names_No_Page_Style()
+    {
+        // tdf160253_ordinary_numbering.fodt states no notes configuration;
+        // LibreOffice sets its endnote on page 2, in the Endnote page style.
+        Assert.True(ReadWithSettings("<text:p>x" + Endnote + "</text:p>").NoteNumbering.EndnotesStartOnNewPage);
+        Assert.True(ReadWithSettings(
+            "<text:p>x" + Endnote + "</text:p>",
+            stylesXml: "<office:styles><text:notes-configuration text:note-class=\"endnote\" style:num-format=\"i\"/></office:styles>")
+            .NoteNumbering.EndnotesStartOnNewPage);
+    }
+
+    [Fact]
+    public void Continuous_Endnotes_Run_On_Under_The_Body_And_Survive_A_Round_Trip()
+    {
+        RichTextDocument document = ReadWithSettings("<text:p>x" + Endnote + "</text:p>", "ContinuousEndnotes");
+        Assert.False(document.NoteNumbering.EndnotesStartOnNewPage);
+
+        using var stream = new MemoryStream(OdtWriter.WriteToArray(document));
+        Assert.False(new OdtDocumentCodec().Read(stream).Document.NoteNumbering.EndnotesStartOnNewPage);
+    }
+
+    [Fact]
+    public void A_Master_Page_That_Names_No_Page_Layout_Is_On_Writers_Default_Page()
+    {
+        // tdf160253_outline_numbering.fodt: <style:master-page style:name="Standard"/>.
+        PageGeometry page = ReadWithSettings(
+            OdtTestPackage.Paragraph("text"),
+            stylesXml: "<office:master-styles><style:master-page style:name=\"Standard\"/></office:master-styles>").PageGeometry!;
+
+        Assert.Equal(595.3, page.Width, 1);
+        Assert.Equal(841.89, page.Height, 1);
+        Assert.Equal(2 * 72 / 2.54, page.MarginLeft, 1);
+        Assert.Equal(2 * 72 / 2.54, page.MarginTop, 1);
+    }
 }

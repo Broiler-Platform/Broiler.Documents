@@ -208,9 +208,12 @@ internal static class OdtReader
         XElement? master = ResolveMasterPage(content, styles);
         // A document with no master page at all is on Writer's default page
         // style: A4 with 2 cm margins (hiddenSectionsAroundPageBreak.fodt,
-        // bookmark_order.fodt). A master page whose layout says nothing usable
-        // keeps the caller's page fallback.
-        PageGeometry? page = ReadPageGeometry(master, styles, diagnostics) ?? (master is null ? WriterDefaultPage : null);
+        // bookmark_order.fodt), and so is one whose master page names no page
+        // layout the document defines: Writer leaves that page style at its
+        // pool defaults (tdf160253_outline_numbering.fodt). A master page whose
+        // layout says nothing usable keeps the caller's page fallback.
+        PageGeometry? page = ReadPageGeometry(master, styles, diagnostics) ??
+            (master is null || !NamesPageLayout(master, styles) ? WriterDefaultPage : null);
         RichTextDocument document = ReadContent(content, styles, images, page, options.Limits, diagnostics, master);
         document = document.WithRunningContent(
             ReadRunningContent(master, styles, images, options.Limits, diagnostics));
@@ -233,7 +236,7 @@ internal static class OdtReader
         });
         document = document.WithPageBackground(
             ReadPageBackground(master, PageLayoutProperties(master, styles), styles));
-        document = document.WithNoteNumbering(ReadNoteNumbering(styles));
+        document = document.WithNoteNumbering(ReadNoteNumbering(styles, settings));
         document = document.WithShowsRevisions(OdtRevisions.Shown(settings));
         return new DocumentReadResult(
             document,
@@ -785,6 +788,17 @@ internal static class OdtReader
             "A" => ListNumberFormat.UpperLetter,
             _ => null,
         };
+
+    /// <summary>
+    /// Whether <paramref name="master"/> names a <c>style:page-layout</c> the
+    /// document defines.
+    /// </summary>
+    private static bool NamesPageLayout(XElement master, OdtStyles styles)
+    {
+        string? layoutName = (string?)master.Attribute(OdtNamespaces.Style + "page-layout-name");
+        return !string.IsNullOrWhiteSpace(layoutName) && styles.PageLayouts.Any(candidate =>
+            string.Equals((string?)candidate.Attribute(OdtNamespaces.Style + "name"), layoutName, StringComparison.Ordinal));
+    }
 
     private static XElement? PageLayoutProperties(XElement? master, OdtStyles styles)
     {
@@ -3720,10 +3734,21 @@ internal static class OdtReader
     /// <remarks>
     /// LibreOffice writes <c>text:start-value</c> counting from zero - the
     /// default first note is 1 and is written <c>0</c> - and reads it that way.
+    /// <para>
+    /// Writer sets a document's endnotes on pages of their own after its body,
+    /// in the <c>Endnote</c> page style, whether or not the configuration
+    /// names one: <c>SwEndNoteInfo</c> defaults to that pool page style, and
+    /// the import only replaces it with a page style the configuration names.
+    /// Only the <c>ContinuousEndnotes</c> setting (Word's layout, kept for
+    /// documents it opened) runs them on under the body instead.
+    /// </para>
     /// </remarks>
-    private static NoteNumbering ReadNoteNumbering(OdtStyles styles)
+    private static NoteNumbering ReadNoteNumbering(OdtStyles styles, XElement? settings)
     {
-        NoteNumbering numbering = NoteNumbering.Default;
+        NoteNumbering numbering = NoteNumbering.Default with
+        {
+            EndnotesStartOnNewPage = !OdtRevisions.ConfigFlag(settings, "ContinuousEndnotes"),
+        };
         foreach (XElement configuration in styles.NotesConfigurations)
         {
             string? numFormat = (string?)configuration.Attribute(OdtNamespaces.Style + "num-format");
@@ -3741,8 +3766,6 @@ internal static class OdtReader
                 {
                     EndnoteFormat = numFormat is null ? numbering.EndnoteFormat : OdtStyles.NumberFormat(numFormat),
                     EndnoteStart = start ?? numbering.EndnoteStart,
-                    EndnotesStartOnNewPage = !string.IsNullOrEmpty(
-                        (string?)configuration.Attribute(OdtNamespaces.Text + "master-page-name")),
                 };
             }
             else
