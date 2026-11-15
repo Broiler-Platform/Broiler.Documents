@@ -128,7 +128,7 @@ internal sealed class RtfLists
         12 => ListNumberFormat.AiueoHalfWidth,
         13 => ListNumberFormat.IrohaHalfWidth,
         16 => ListNumberFormat.JapaneseLegal,
-        18 or 28 or 29 => ListNumberFormat.EnclosedCircle,
+        18 or 28 or 29 => ListNumberFormat.CircledNumber,
         20 => ListNumberFormat.AiueoFullWidth,
         21 => ListNumberFormat.IrohaFullWidth,
         22 => ListNumberFormat.DecimalZero,

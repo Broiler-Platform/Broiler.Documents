@@ -122,6 +122,20 @@ public readonly record struct InlineStyle
     /// </remarks>
     public bool IsSymbolCharacter { get; init; }
 
+    /// <summary>
+    /// True for text that draws a form control set in the line - a legacy
+    /// check box's box, a drop-down's chosen entry - rather than text the
+    /// author wrote.
+    /// </summary>
+    /// <remarks>
+    /// LibreOffice keeps such a control as one placeholder character
+    /// (<c>CH_TXT_ATR_FORMELEMENT</c>) that it draws as the control, and its
+    /// text export leaves that character out (ascatr.cxx,
+    /// <c>OutASC_SwTextNode</c>), so the text of a document is the same with
+    /// the box ticked or not.
+    /// </remarks>
+    public bool IsFormElement { get; init; }
+
     /// <summary>The unformatted default style (<c>default(InlineStyle)</c>).</summary>
     public static InlineStyle Default => default;
 

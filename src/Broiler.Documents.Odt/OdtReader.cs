@@ -332,6 +332,7 @@ internal static class OdtReader
         OdtReadContext? context = null;
         context = new OdtReadContext(styles, images, builder, page)
         {
+            IsBody = true,
             Variables = ReadVariables(content),
             Regions = OdtRevisions.ReadRegions(body),
             UsesSoftPageBreaks = (string?)body.Attribute(OdtNamespaces.Text + "use-soft-page-breaks") == "true",
@@ -571,6 +572,18 @@ internal static class OdtReader
     {
         XElement? body = content.Root?.Element(OdtNamespaces.Office + "body");
         XElement? text = body?.Element(OdtNamespaces.Office + "text");
+
+        // ODF allows one office:text, but LibreOffice reads every one a body
+        // holds, one after the other (background-image-link.fodt has two), so
+        // the later ones' content is read on after the first's.
+        if (text is not null && text.ElementsAfterSelf(OdtNamespaces.Office + "text").Any())
+        {
+            var joined = new XElement(text.Name, text.Attributes(), text.Nodes());
+            foreach (XElement more in text.ElementsAfterSelf(OdtNamespaces.Office + "text"))
+                joined.Add(more.Nodes());
+            return joined;
+        }
+
         if (text is not null || body is null)
             return text;
 
@@ -1152,6 +1165,11 @@ internal static class OdtReader
         XElement? groupPicture = drawing.Name == OdtNamespaces.Draw + "frame" && drawing.Parent?.Name == OdtNamespaces.Draw + "g"
             ? drawing.Element(OdtNamespaces.Draw + "image")
             : null;
+        // A frame in a group, or one whose automatic style has no parent,
+        // is a Draw object to Writer rather than a frame of its own.
+        bool drawObject = drawing.Name != OdtNamespaces.Draw + "frame" || groupPicture is not null ||
+            drawing.Parent?.Name == OdtNamespaces.Draw + "g" ||
+            context.Styles.IsDrawObjectStyle((string?)drawing.Attribute(OdtNamespaces.Draw + "style-name"));
         XElement textSource = textBox ?? groupPicture ?? drawing;
         TableCellPadding textPadding = ReadShapePadding(graphic);
         var pageRelativeShapes = new HashSet<DocumentShape>(ReferenceEqualityComparer.Instance);
@@ -1236,7 +1254,10 @@ internal static class OdtReader
             printable: Prints(graphic))
         {
             IsAsCharacter = ((string?)drawing.Attribute(OdtNamespaces.Text + "anchor-type") ?? inheritedAnchor) == "as-char",
-            IsCustomShape = drawing.Name != OdtNamespaces.Draw + "frame" || groupPicture is not null,
+            IsCustomShape = drawObject,
+            IsTextFrame = (!drawObject && textBox is not null) ||
+                (drawing.Name == OdtNamespaces.Draw + "custom-shape" &&
+                 context.Styles.IsFrameStyleChild((string?)drawing.Attribute(OdtNamespaces.Draw + "style-name"))),
             RotationRadians = rotation,
             // A text box keeps its width and grows down to its text, where a
             // drawn shape with words in it fits itself about them - unless its
@@ -1695,6 +1716,10 @@ internal static class OdtReader
             printable: (string?)control.Attribute(OdtNamespaces.Form + "printable") != "false")
         {
             IsAsCharacter = (string?)drawing.Attribute(OdtNamespaces.Text + "anchor-type") == "as-char",
+
+            // A control is a drawing object (SdrUnoObj), not a text frame, so
+            // LibreOffice's text export never takes its label for a document's text.
+            IsCustomShape = true,
         });
     }
 
@@ -2656,7 +2681,19 @@ internal static class OdtReader
             if (name == OdtNamespaces.Text + "p" || name == OdtNamespaces.Text + "h")
             {
                 if (!HiddenByEmptyDatabaseField(element, context.Styles) && !HiddenByParagraphField(element, context))
+                {
                     ReadParagraph(element, context, list, depth);
+                }
+                else if (context.IsBody && context.TableDepth == 0 &&
+                    !element.Descendants().Any(child => child.Name.Namespace == OdtNamespaces.Draw))
+                {
+                    // A hidden paragraph takes no room, but its text is the
+                    // document's: LibreOffice's text export writes it
+                    // (SwASCWriter::WriteStream includes hidden nodes). So it is
+                    // read as hidden text with a hidden mark. One that anchors
+                    // a drawing is left out whole, its drawings hidden with it.
+                    ReadHiddenParagraph(element, context, depth);
+                }
                 continue;
             }
 
@@ -3008,6 +3045,34 @@ internal static class OdtReader
     /// <summary>True when a body child could contribute text, used to tell an empty document from a dropped one.</summary>
     private static bool IsContentBlock(XElement element) => !IsIgnorableBlock(element.Name);
 
+    /// <summary>
+    /// Reads a paragraph a field hides as text that is all hidden, mark and
+    /// all, so the layout gives it no room (a wholly hidden paragraph) while the
+    /// text stays the document's. It takes no part in the paragraphs around it:
+    /// no break, no page style, no list item, as when it was left out.
+    /// </summary>
+    private static void ReadHiddenParagraph(XElement paragraph, OdtReadContext context, int depth)
+    {
+        string? styleName = (string?)paragraph.Attribute(OdtNamespaces.Text + "style-name") ?? UnstyledHeadingStyle(paragraph, context.Styles);
+        InlineStyle inherited = InlineStyle.Default;
+        foreach (XElement properties in context.Styles.TextPropertiesForParagraph(styleName))
+            inherited = ApplyTextProperties(properties, inherited, context.Styles, context.Builder);
+        inherited = inherited with { Hidden = true };
+
+        context.Builder.StartParagraph(ParagraphStyle.Default, inherited);
+        context.Builder.HidesText = true;
+        try
+        {
+            ReadInlineContent(paragraph, context, inherited, depth + 1);
+        }
+        finally
+        {
+            context.Builder.HidesText = false;
+        }
+
+        context.Builder.FinishParagraph();
+    }
+
     private static void ReadParagraph(
         XElement paragraph,
         OdtReadContext context,
@@ -3147,7 +3212,8 @@ internal static class OdtReader
     private static ListReference? OutlineReference(XElement heading, OdtReadContext context)
     {
         if (context.Styles.OutlineDefinition is not ListDefinition outline ||
-            string.Equals((string?)heading.Attribute(OdtNamespaces.Text + "is-list-header"), "true", StringComparison.Ordinal))
+            string.Equals((string?)heading.Attribute(OdtNamespaces.Text + "is-list-header"), "true", StringComparison.Ordinal) ||
+            context.Styles.ClearsListStyle((string?)heading.Attribute(OdtNamespaces.Text + "style-name")))
         {
             return null;
         }
@@ -3254,6 +3320,8 @@ internal static class OdtReader
 
             if (name == OdtNamespaces.Draw + "g")
             {
+                if (context.IsBody && context.TableDepth == 0)
+                    builder.MarkObject();
                 ReadDrawGroup(element, context, parentX: 0, parentY: 0, inheritedAnchor: null, inheritedAnchorPage: 0, depth: 0);
                 continue;
             }
@@ -3261,18 +3329,24 @@ internal static class OdtReader
             if (name == OdtNamespaces.Draw + "custom-shape" || name == OdtNamespaces.Draw + "line" || name == OdtNamespaces.Draw + "connector" ||
                 name == OdtNamespaces.Draw + "ellipse" || name == OdtNamespaces.Draw + "rect")
             {
+                if (context.IsBody && context.TableDepth == 0)
+                    builder.MarkObject();
                 ReadShape(element, context, depth: 0);
                 continue;
             }
 
             if (name == OdtNamespaces.Draw + "control")
             {
+                if (context.IsBody && context.TableDepth == 0)
+                    builder.MarkObject();
                 ReadControl(element, context);
                 continue;
             }
 
             if (name == OdtNamespaces.Draw + "frame")
             {
+                if (context.IsBody && context.TableDepth == 0)
+                    builder.MarkObject();
                 if (ReadFloatingTable(element, context, depth: 0))
                     continue;
 
@@ -3301,7 +3375,10 @@ internal static class OdtReader
                 continue;
             }
 
-            if (name == OdtNamespaces.Text + "page-number" || name == OdtNamespaces.Text + "page-count")
+            // loext:page-count-range is LibreOffice's count of the pages its
+            // section spans (tdf71583.odt, "Page count in section: i").
+            if (name == OdtNamespaces.Text + "page-number" || name == OdtNamespaces.Text + "page-count" ||
+                name == OdtNamespaces.LibreOffice + "page-count-range")
             {
                 ReadPageField(element, builder, style, context.Styles.PageNumberFormat);
                 continue;
@@ -3328,7 +3405,16 @@ internal static class OdtReader
                 continue;
             }
 
-            if (name == OdtNamespaces.Text + "script")
+            if (FixedTimeText(element) is string time)
+            {
+                builder.AppendLiteral(time, style);
+                continue;
+            }
+
+            // A page variable's setting shows nothing where it stands
+            // (SwRefPageSetField::ExpandImpl); only its text:page-variable-get
+            // shows a number. A document may still cache one inside it.
+            if (name == OdtNamespaces.Text + "script" || name == OdtNamespaces.Text + "page-variable-set")
                 continue;
 
             if (name == OdtNamespaces.Text + "ruby")
@@ -3400,6 +3486,43 @@ internal static class OdtReader
     }
 
     /// <summary>
+    /// The text of a fixed <c>text:time</c> that names no data style: its
+    /// <c>text:time-value</c> as hours, minutes and seconds, which is how
+    /// LibreOffice 24.2 shows it whatever the field caches (soffice writes
+    /// tdf111969_field.fodt's empty field as "12:34:56", and "15:04:05" for one
+    /// caching "cached"). Null where the cached text stands: a field that is not
+    /// fixed shows the time it is opened, and a data style formats the value
+    /// its own way.
+    /// </summary>
+    private static string? FixedTimeText(XElement field)
+    {
+        if (field.Name != OdtNamespaces.Text + "time" ||
+            (string?)field.Attribute(OdtNamespaces.Text + "fixed") != "true" ||
+            field.Attribute(OdtNamespaces.Style + "data-style-name") is not null ||
+            (string?)field.Attribute(OdtNamespaces.Text + "time-value") is not string value)
+            return null;
+
+        if (!OdtDataStyles.TryParseDateValue(value, out DateTime time) &&
+            !DateTime.TryParseExact(value.Trim(), ["HH:mm:ss", "HH:mm"], CultureInfo.InvariantCulture, DateTimeStyles.None, out time))
+        {
+            // ODF also allows a duration from midnight, PT12H34M56S.
+            try
+            {
+                TimeSpan span = System.Xml.XmlConvert.ToTimeSpan(value.Trim());
+                if (span < TimeSpan.Zero || span >= TimeSpan.FromDays(1))
+                    return null;
+                time = DateTime.MinValue + span;
+            }
+            catch (Exception exception) when (exception is FormatException or OverflowException)
+            {
+                return null;
+            }
+        }
+
+        return time.ToString("HH:mm:ss", CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>
     /// Reads a Word-style legacy form field LibreOffice keeps as a
     /// <c>field:fieldmark</c>: a check box as the ballot box it draws
     /// (<c>Checkbox_Checked</c> crossing it), a drop-down as its selected entry
@@ -3422,14 +3545,14 @@ internal static class OdtReader
             case "vnd.oasis.opendocument.field.FORMCHECKBOX":
                 bool isChecked = parameters.Any(param => param.Name == "Checkbox_Checked" &&
                     string.Equals(param.Value, "true", StringComparison.OrdinalIgnoreCase));
-                builder.AppendLiteral(isChecked ? "☒" : "☐", style with { FontFamily = "DejaVu Sans" });
+                builder.AppendLiteral(isChecked ? "☒" : "☐", style with { FontFamily = "DejaVu Sans", IsFormElement = true });
                 break;
             case "vnd.oasis.opendocument.field.FORMDROPDOWN":
                 string[] entries = [.. parameters.Where(param => param.Name == "Dropdown_ListEntry").Select(param => param.Value)];
                 int selected = parameters.LastOrDefault(param => param.Name == "Dropdown_Selected").Value is string stated &&
                     int.TryParse(stated, NumberStyles.Integer, CultureInfo.InvariantCulture, out int index) ? index : 0;
                 if (selected >= 0 && selected < entries.Length && entries[selected].Length > 0)
-                    builder.AppendLiteral(entries[selected], style);
+                    builder.AppendLiteral(entries[selected], style with { IsFormElement = true });
                 break;
         }
     }
@@ -3848,7 +3971,16 @@ internal static class OdtReader
         // draw:a is not listed: a clickable picture wraps its frame in one, and
         // skipping it would lose the picture rather than the link.
         if (name.Namespace == OdtNamespaces.Draw)
-            return name.LocalName is "g" or "custom-shape" or "rect" or "line" or "connector" or "polyline";
+            // The words a drawing holds are its own, not its paragraph's: a
+            // dimension line's measured value (fdo56272.odt) is drawn on the
+            // line and is no part of the heading it hangs from.
+            return name.LocalName is "g" or "custom-shape" or "rect" or "line" or "connector" or "polyline" or
+                "measure" or "polygon" or "path" or "circle" or "regular-polygon" or "caption";
+
+        // LibreOffice wrote text:sender-initials in its own namespace from 2013
+        // to 2017 and still reads it so (sender-initials.fodt), as the field it is.
+        if (name == OdtNamespaces.LibreOffice + "sender-initials")
+            return false;
 
         if (name.Namespace != OdtNamespaces.Text)
             return true;
@@ -3880,7 +4012,7 @@ internal static class OdtReader
     /// </remarks>
     private static void ReadPageField(XElement element, OdtDocumentBuilder builder, InlineStyle style, ListNumberFormat? pageFormat)
     {
-        bool count = element.Name.LocalName == "page-count";
+        bool count = element.Name.LocalName is "page-count" or "page-count-range";
         int adjust = 0;
         if (!count)
         {
@@ -3898,12 +4030,7 @@ internal static class OdtReader
         ListNumberFormat format = (string?)element.Attribute(OdtNamespaces.Style + "num-format") switch
         {
             null => pageFormat ?? ListNumberFormat.Decimal,
-            "" => ListNumberFormat.None,
-            "i" => ListNumberFormat.LowerRoman,
-            "I" => ListNumberFormat.UpperRoman,
-            "a" => ListNumberFormat.LowerLetter,
-            "A" => ListNumberFormat.UpperLetter,
-            _ => ListNumberFormat.Decimal,
+            string stated => OdtStyles.NumberFormat(stated),
         };
 
         // The run needs a character to exist; a field saved with no value
@@ -3914,7 +4041,9 @@ internal static class OdtReader
 
         builder.AppendLiteral(value, style with
         {
-            PageField = new PageField(count ? PageFieldKind.PageCount : PageFieldKind.PageNumber, format, adjust),
+            PageField = new PageField(
+                element.Name.LocalName == "page-count-range" ? PageFieldKind.SectionPageCount
+                    : count ? PageFieldKind.PageCount : PageFieldKind.PageNumber, format, adjust),
         });
     }
 

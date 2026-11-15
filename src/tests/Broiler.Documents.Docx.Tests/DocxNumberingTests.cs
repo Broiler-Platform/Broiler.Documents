@@ -196,8 +196,10 @@ public sealed class DocxNumberingTests
             Abstract(0, Level(0, "none", "") + Level(1, "decimal", "%1(%2)")) + Num(1, 0));
 
         // The unnumbered level still restarts the one below it, and writes as
-        // nothing where a label names it.
-        Assert.Equal([null, "(1)", null, "(1)"], Labels(document));
+        // nothing where a label names it, together with the text up to the next
+        // number: soffice 24.2 draws and writes "%1(%2)" here as "1)"
+        // (SwNumRule::MakeNumString skips a NONE level to the next "%").
+        Assert.Equal([null, "1)", null, "1)"], Labels(document));
         Assert.Equal(ListKind.None, document.Paragraphs[0].Style.ListKind);
     }
 
