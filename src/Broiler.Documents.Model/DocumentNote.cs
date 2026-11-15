@@ -179,6 +179,19 @@ public sealed record NoteNumbering(
     /// <summary>Lay out the endnote block on a separate page in paginated output.</summary>
     public bool EndnotesStartOnNewPage { get; init; }
 
+    /// <summary>
+    /// The page the endnotes are set on where they start a page of their own
+    /// (<see cref="EndnotesStartOnNewPage"/>), or null for the body's page.
+    /// ODF names it as the endnotes' <c>text:master-page-name</c>, and Writer
+    /// gives the pages it collects its endnotes on that page style
+    /// (<c>SwEndNoteInfo::GetPageDesc</c>): tdf108448_endNote.odt's are
+    /// upright where its body is landscape.
+    /// </summary>
+    public PageGeometry? EndnotePage { get; init; }
+
+    /// <summary>The header and footer of <see cref="EndnotePage"/>.</summary>
+    public RunningContent? EndnoteRunningContent { get; init; }
+
     /// <summary>The numbering a document that states none takes.</summary>
     public static NoteNumbering Default { get; } = new();
 }

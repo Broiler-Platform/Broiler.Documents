@@ -2009,6 +2009,16 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             column = 0;
             columnStart = currentLines.Count;
             bool dedicatedEndnotePage = !setup.Continuous && document.NoteNumbering.EndnotesStartOnNewPage;
+            // The pages of their own the endnotes start are on the endnotes'
+            // page style, its paper, margins, header and footer.
+            if (dedicatedEndnotePage && sectionPages && document.NoteNumbering.EndnotePage is PageGeometry endnotePage &&
+                (currentLines.Count > 0 || currentCells.Count > 0))
+            {
+                pendingOwner = new DocumentSection(document.ParagraphCount, 0, 1, 0, endnotePage,
+                    document.NoteNumbering.EndnoteRunningContent ?? RunningContent.Empty);
+                hasPendingOwner = true;
+                pendingSharesFirst = false;
+            }
             if ((dedicatedEndnotePage || y + SeparatorBlock > contentBottom) &&
                 (currentLines.Count > 0 || currentCells.Count > 0))
             {

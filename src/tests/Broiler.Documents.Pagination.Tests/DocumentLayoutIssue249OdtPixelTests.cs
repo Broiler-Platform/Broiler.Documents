@@ -133,4 +133,29 @@ public sealed class DocumentLayoutIssue249OdtPixelTests
         Assert.Equal(20, placed.Bounds.X, 3);
         Assert.Equal(50 + 100, placed.Bounds.Y, 3);
     }
+
+    [Fact]
+    public void A_Dedicated_Endnote_Page_Is_On_The_Endnotes_Page_Style()
+    {
+        // tdf108448_endNote.odt: a landscape body and an upright Endnote page
+        // style; LibreOffice sets the endnote page upright.
+        var endnote = new DocumentNote(NoteKind.Endnote, [RichTextParagraph.Plain("Endnote")]);
+        var body = RichTextParagraph.Create("Body", InlineStyle.Default).InsertText(4, "*", InlineStyle.Default with { Note = endnote });
+        var upright = new PageGeometry(300, 420, 30, 30, 30, 30);
+        RichTextDocument Document(PageGeometry? endnotePage) =>
+            RichTextDocument.FromParagraphs([body])
+                .WithPageGeometry(new PageGeometry(420, 300, 20, 20, 20, 20))
+                .WithNoteNumbering(NoteNumbering.Default with { EndnotesStartOnNewPage = true, EndnotePage = endnotePage });
+
+        using var images = new ImageStore();
+        var box = new DocumentPageBox(420, 300, 20, 20, 20, 20);
+        LayoutResult own = new DocumentLayout(new LayoutSettings(), images).Layout(Document(upright), box);
+        LayoutResult body2 = new DocumentLayout(new LayoutSettings(), images).Layout(Document(null), box);
+
+        Assert.Equal(2, own.Pages.Count);
+        Assert.Equal(420, own.Pages[0].WidthPoints, 3);
+        Assert.Equal(300, own.Pages[1].WidthPoints, 3);
+        Assert.Equal(30, own.Pages[1].Lines[0].Top, 3);
+        Assert.Equal(420, body2.Pages[1].WidthPoints, 3);
+    }
 }

@@ -239,6 +239,15 @@ internal static class OdtReader
         document = document.WithPageBackground(
             ReadPageBackground(master, PageLayoutProperties(master, styles), styles));
         document = document.WithNoteNumbering(ReadNoteNumbering(styles));
+        if (document.NoteNumbering.EndnotesStartOnNewPage && EndnoteMaster(styles) is XElement endnoteMaster &&
+            ReadPageGeometry(endnoteMaster, styles, diagnostics) is PageGeometry endnotePage)
+        {
+            document = document.WithNoteNumbering(document.NoteNumbering with
+            {
+                EndnotePage = endnotePage,
+                EndnoteRunningContent = ReadRunningContent(endnoteMaster, styles, images, options.Limits, diagnostics),
+            });
+        }
         document = document.WithShowsRevisions(OdtRevisions.Shown(settings));
         return new DocumentReadResult(
             document,
@@ -620,6 +629,19 @@ internal static class OdtReader
     /// <see cref="RunningContent.DifferentFirstPage"/> carries.
     /// </para>
     /// </remarks>
+    /// <summary>The master page the endnotes' configuration names, or null.</summary>
+    private static XElement? EndnoteMaster(OdtStyles styles)
+    {
+        string? name = styles.NotesConfigurations
+            .Where(configuration => (string?)configuration.Attribute(OdtNamespaces.Text + "note-class") == "endnote")
+            .Select(configuration => (string?)configuration.Attribute(OdtNamespaces.Text + "master-page-name"))
+            .LastOrDefault(value => !string.IsNullOrEmpty(value));
+        return name is null
+            ? null
+            : styles.MasterStyles?.Elements(OdtNamespaces.Style + "master-page")
+                .LastOrDefault(master => (string?)master.Attribute(OdtNamespaces.Style + "name") == name);
+    }
+
     private static RunningContent ReadRunningContent(
         XElement? master,
         OdtStyles styles,

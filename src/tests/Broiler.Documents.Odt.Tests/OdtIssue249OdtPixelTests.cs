@@ -178,4 +178,23 @@ public sealed class OdtIssue249OdtPixelTests
         Assert.True(shape.IsAsCharacter);
         Assert.Equal(0, shape.OffsetY, 3);
     }
+
+    [Fact]
+    public void The_Endnotes_Master_Page_Is_Read_As_Their_Page()
+    {
+        string styles =
+            "<office:styles><text:notes-configuration text:note-class=\"endnote\" text:master-page-name=\"Endnote\" style:num-format=\"i\"/></office:styles>" +
+            "<office:automatic-styles>" +
+            "<style:page-layout style:name=\"pm1\"><style:page-layout-properties fo:page-width=\"6in\" fo:page-height=\"4in\" " + Margins + "/></style:page-layout>" +
+            "<style:page-layout style:name=\"pm2\"><style:page-layout-properties fo:page-width=\"4in\" fo:page-height=\"6in\" " + Margins + "/></style:page-layout>" +
+            "</office:automatic-styles><office:master-styles>" +
+            "<style:master-page style:name=\"Standard\" style:page-layout-name=\"pm1\"/>" +
+            "<style:master-page style:name=\"Endnote\" style:page-layout-name=\"pm2\"/></office:master-styles>";
+        RichTextDocument document = OdtTestPackage.ReadStyled(OdtTestPackage.Paragraph("text"), styles).Document;
+
+        Assert.True(document.NoteNumbering.EndnotesStartOnNewPage);
+        Assert.Equal(288, document.NoteNumbering.EndnotePage!.Width, 1);
+        Assert.Equal(432, document.NoteNumbering.EndnotePage.Height, 1);
+        Assert.Equal(432, document.PageGeometry!.Width, 1);
+    }
 }
