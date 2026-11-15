@@ -89,7 +89,13 @@ internal sealed class RtfLegacyDrawing(int ownerDepth)
         else
             geometry = ShapeGeometry.Rectangle;
 
+        // Writer leaves a legacy text box unfilled whatever its fill words say
+        // (soffice 24.2: a \dptxbx with a red \dpfillbgc and \dpfillpat0 or
+        // \dpfillpat1 is white inside, a \dprect with the same words red;
+        // tdf91074.rtf's box, black by its colours, is white).
         bool textBox = _primitive == "dptxbx";
+        if (textBox)
+            hasFill = false;
         double padding = Math.Max(0, _values.GetValueOrDefault("dptxbxmar")) / 20d;
         return new DocumentShape(paragraph, x, y, Math.Abs(width), Math.Abs(height),
             fill: hasFill ? ShapeFill.Solid(Color("dpfillbgc")) : null,

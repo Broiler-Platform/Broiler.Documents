@@ -63,8 +63,10 @@ public sealed class RtfIssue236Tests
             @"{\rtf1{\stylesheet{\s1\li720\fi-360\ri240 hang;}{\s2\sbasedon1\fi0 flat;}}" +
             @"\pard\s1 a\par\pard\s2 b\par}").Document;
 
-        Assert.Equal(-18f, document.Paragraphs[0].Style.FirstLineIndent!.Value, 3);
-        Assert.Equal(12f, document.Paragraphs[0].Style.RightIndent!.Value, 3);
+        // The indents s1 states itself reach the paragraph only if it repeats
+        // them (soffice 24.2: "a" is unindented); s2 inherits them.
+        Assert.Null(document.Paragraphs[0].Style.FirstLineIndent);
+        Assert.Null(document.Paragraphs[0].Style.RightIndent);
         Assert.Null(document.Paragraphs[1].Style.FirstLineIndent);
         Assert.Equal(12f, document.Paragraphs[1].Style.RightIndent!.Value, 3);
     }

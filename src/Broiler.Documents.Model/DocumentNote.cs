@@ -179,6 +179,14 @@ public sealed record NoteNumbering(
     /// <summary>Lay out the endnote block on a separate page in paginated output.</summary>
     public bool EndnotesStartOnNewPage { get; init; }
 
+    /// <summary>
+    /// Whether the line above a page's footnotes is drawn. Its room is kept
+    /// either way. writerfilter hides the line (a relative width of 0) in a
+    /// document that has no footnote separator, which in RTF is a
+    /// <c>\chftnsep</c>.
+    /// </summary>
+    public bool DrawsSeparatorLine { get; init; } = true;
+
     /// <summary>The numbering a document that states none takes.</summary>
     public static NoteNumbering Default { get; } = new();
 }
