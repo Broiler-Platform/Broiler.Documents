@@ -789,6 +789,11 @@ internal sealed class DocxDocumentBuilder(
 
     public void AddShape(DocumentShape shape) => _shapes.Add(shape);
 
+    private int _groupNumbers;
+
+    /// <summary>The next <see cref="DocumentShape.GroupNumber"/> for a drawn group read into this flow.</summary>
+    public int NextGroupNumber() => ++_groupNumbers;
+
     public RichTextDocument Build()
     {
         // A part that ends inside a field's instruction still ends its paragraph.

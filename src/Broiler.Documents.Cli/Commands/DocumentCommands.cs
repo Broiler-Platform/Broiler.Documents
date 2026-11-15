@@ -362,7 +362,11 @@ public static class DocumentCommands
             floating.Any(table => index >= table.ParagraphIndex && index < table.ParagraphEnd);
 
         int[] body = [.. Enumerable.Range(0, document.ParagraphCount).Where(index => !InFloatingTable(index))];
-        if (body.Length == 1 && document.Paragraphs[body[0]].Length == 0 && document.Tables.All(table => table.IsFloating))
+        // A shape the paragraph holds as one of its characters makes it a
+        // paragraph with a character in it, so it is not the empty paragraph
+        // the exception below needs (inline-textbox-position.docx).
+        if (body.Length == 1 && document.Paragraphs[body[0]].Length == 0 && document.Tables.All(table => table.IsFloating) &&
+            !document.Shapes.Any(shape => shape.ParagraphIndex == body[0] && (shape.IsAsCharacter || shape.InlineInSource)))
         {
             // LibreOffice's first frame is the floating table's where there is
             // one, even with a text box in its cells (tdf170516_drawingBeforePlainText.docx).
@@ -374,11 +378,8 @@ public static class DocumentCommands
             // (table-in-frame-in-table-in-header-base.odt, whose only text is
             // one in the header's table). A floating header shape does not: a
             // text watermark is a drawing, not a frame, to LibreOffice's export.
-            else if (document.Shapes.Where(shape => !shape.IsPageAnchored && (!shape.IsCustomShape || shape.Tables.Count > 0))
-                .Concat(document.RunningContent.HeaderShapes(PageSelection.Default)
-                    .Concat(document.RunningContent.FooterShapes(PageSelection.Default))
-                    .Where(shape => shape.IsAsCharacter && !shape.IsCustomShape))
-                .FirstOrDefault(shape => shape.HasText) is DocumentShape only)
+            else if (FirstFrame(document.Shapes.Where(shape => !shape.IsPageAnchored)
+                .Concat(RunningShapes(document.RunningContent).Where(shape => shape.HasText && !shape.IsCustomShape && !shape.StretchesTextToBox))) is DocumentShape only)
             {
                 return LabelledText(RichTextDocument.FromParagraphs(only.Paragraphs).WithTables(only.Tables)
                     .WithNoteNumbering(document.NoteNumbering), joinsTableRows);
@@ -434,6 +435,44 @@ public static class DocumentCommands
         }
 
         return builder.ToString();
+    }
+
+    /// <summary>
+    /// The frame LibreOffice's text export writes for a body of one empty
+    /// paragraph, or null where it writes none.
+    /// </summary>
+    /// <remarks>
+    /// The export takes the document's first frame format, whatever it is
+    /// (wrtasc.cxx, <c>SwASCWriter::WriteStream</c>), and writes its text when
+    /// it is a frame with text of its own. A drawing has no text of its own and
+    /// a picture's frame holds the picture, so either one first means nothing
+    /// is written (tdf117028.docx's rectangle before its text box). A drawn
+    /// group's text boxes are frames the import makes before the group's
+    /// drawing, so the first of them comes first, even an empty one
+    /// (dml-groupshape-sdt.docx); a group with none is a drawing.
+    /// </remarks>
+    private static IEnumerable<DocumentShape> RunningShapes(RunningContent running) =>
+        running.HeaderShapes(PageSelection.Even)
+            .Concat(running.HeaderShapes(PageSelection.Default))
+            .Concat(running.FooterShapes(PageSelection.Even))
+            .Concat(running.FooterShapes(PageSelection.Default))
+            .Concat(running.HeaderShapes(PageSelection.First))
+            .Concat(running.FooterShapes(PageSelection.First));
+
+    private static DocumentShape? FirstFrame(IEnumerable<DocumentShape> shapes)
+    {
+        static bool IsTextFrame(DocumentShape shape) =>
+            (!shape.IsCustomShape || shape.Tables.Count > 0) && !(shape.Image is not null && !shape.HasText);
+
+        List<DocumentShape> list = [.. shapes];
+        if (list.Count == 0)
+            return null;
+
+        DocumentShape first = list[0];
+        DocumentShape? frame = first.GroupNumber > 0
+            ? list.TakeWhile(shape => shape.GroupNumber == first.GroupNumber).FirstOrDefault(IsTextFrame)
+            : IsTextFrame(first) ? first : null;
+        return frame is { HasText: true } ? frame : null;
     }
 
     // Writer's text export separates table cells with tabs and rows with

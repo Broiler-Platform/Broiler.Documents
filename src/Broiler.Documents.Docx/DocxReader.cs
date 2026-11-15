@@ -2070,7 +2070,8 @@ internal static class DocxReader
             childY);
 
         int read = 0;
-        ReadGroupChildren(group, frame, anchor, context, ref read, depth: 0);
+        ReadGroupChildren(group, frame, anchor, context.GroupNumber > 0 ? context : context with { GroupNumber = context.Builder.NextGroupNumber() },
+            ref read, depth: 0);
         return read > 0;
     }
 
@@ -2258,7 +2259,12 @@ internal static class DocxReader
             offsetXFromCell: context.Builder.InTableCell && RelativeFrom(anchor, "positionH") == "column" &&
                 (geometry is ShapeGeometry.Line or ShapeGeometry.LineAscending || LaysOutInCell(anchor)))
         {
-            IsCustomShape = context.InDiagram,
+            // A shape with no text box is a drawing to LibreOffice; one with a
+            // text box, even an empty one, has a text frame attached.
+            IsCustomShape = context.InDiagram ||
+                (wsp.Element(DocxNamespaces.WordShape + "txbx") is null && wsp.Element(DocxNamespaces.WordShape + "linkedTxbx") is null),
+            InlineInSource = anchor.Name == DocxNamespaces.WordDrawing + "inline",
+            GroupNumber = context.GroupNumber,
             TextFlow = ReadShapeTextFlow(wsp.Element(DocxNamespaces.WordShape + "bodyPr")),
             WrapMargins = Wrap == ShapeWrap.None ? null : Margins,
             BoundedByPage = !context.Builder.InTableCell,
@@ -2664,7 +2670,12 @@ internal static class DocxReader
         {
             RotationRadians = rotation,
             TextFlow = ReadVmlTextFlow(shape.Element(DocxNamespaces.Vml + "textbox")),
-            IsCustomShape = shape.Attribute(DocxVmlShapeWalker.Grouped) is not null,
+            // A grouped shape is part of a drawing, and so is one with neither
+            // a text box nor a picture (a WordArt text path included).
+            IsCustomShape = shape.Attribute(DocxVmlShapeWalker.Grouped) is not null ||
+                (shape.Element(DocxNamespaces.Vml + "textbox") is null && image is null),
+            InlineInSource = shape.Attribute(DocxVmlShapeWalker.Grouped) is null &&
+                !string.Equals(style.GetValueOrDefault("position"), "absolute", StringComparison.OrdinalIgnoreCase),
             StretchesTextToBox = wordArtText,
             TextOutline = textOutline,
             TextOutlineWidth = outlineWidth,

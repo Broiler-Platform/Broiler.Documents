@@ -52,7 +52,62 @@ public sealed class DocxOfficeIssue249TextTests
         Assert.Equal(["", "ID", ""], result.Document.Paragraphs.Select(paragraph => paragraph.Text));
     }
 
-    private const string FirstStore = "{4E8A9591-F074-446B-902F-511FF79C122F}";
+    private const string Wps = "http://schemas.microsoft.com/office/word/2010/wordprocessingShape";
+
+    private static string ShapeXml(bool textBox) =>
+        "<wps:wsp xmlns:wps=\"" + Wps + "\"><wps:spPr><a:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"914400\" cy=\"457200\"/></a:xfrm><a:solidFill><a:srgbClr val=\"AECF00\"/></a:solidFill></wps:spPr>" +
+        (textBox ? "<wps:txbx><w:txbxContent><w:p><w:r><w:t>text</w:t></w:r></w:p></w:txbxContent></wps:txbx>" : "") +
+        "<wps:bodyPr/></wps:wsp>";
+
+    private static string Drawing(string wrapper, string graphicData, string uri = Wps) =>
+        "<w:r><w:drawing><wp:" + wrapper + " xmlns:wp=\"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing\">" +
+        (wrapper == "anchor" ? "<wp:positionH relativeFrom=\"column\"><wp:posOffset>0</wp:posOffset></wp:positionH>" +
+            "<wp:positionV relativeFrom=\"paragraph\"><wp:posOffset>0</wp:posOffset></wp:positionV>" : "") +
+        "<wp:extent cx=\"914400\" cy=\"457200\"/>" +
+        "<a:graphic xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\"><a:graphicData uri=\"" + uri + "\">" +
+        graphicData + "</a:graphicData></a:graphic></wp:" + wrapper + "></w:drawing></w:r>";
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public void A_Shape_Without_A_Text_Box_Is_A_Drawing(bool textBox, bool drawing)
+    {
+        // tdf117028.docx: LibreOffice imports a wps shape without wps:txbx as a
+        // drawing, and one with a text box with a text frame attached.
+        DocumentShape shape = Assert.Single(DocxTestPackage.ReadBody(
+            "<w:p xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\">" + Drawing("anchor", ShapeXml(textBox)) + "</w:p>").Document.Shapes);
+
+        Assert.Equal(drawing, shape.IsCustomShape);
+        Assert.False(shape.InlineInSource);
+        Assert.Equal(0, shape.GroupNumber);
+    }
+
+    [Fact]
+    public void An_Inline_Shape_Is_A_Character_Of_Its_Paragraph_In_The_Source()
+    {
+        // inline-textbox-position.docx: a wp:inline text box.
+        DocumentShape shape = Assert.Single(DocxTestPackage.ReadBody(
+            "<w:p xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\">" + Drawing("inline", ShapeXml(true)) + "</w:p>").Document.Shapes);
+
+        Assert.True(shape.InlineInSource);
+        Assert.False(shape.IsAsCharacter);
+    }
+
+    [Fact]
+    public void The_Members_Of_A_Group_Share_Its_Number()
+    {
+        string group = "<wpg:wgp xmlns:wpg=\"http://schemas.microsoft.com/office/word/2010/wordprocessingGroup\"><wpg:grpSpPr><a:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"914400\" cy=\"457200\"/><a:chOff x=\"0\" y=\"0\"/><a:chExt cx=\"914400\" cy=\"457200\"/></a:xfrm></wpg:grpSpPr>" +
+            ShapeXml(false) + ShapeXml(true) + "</wpg:wgp>";
+        RichTextDocument document = DocxTestPackage.ReadBody(
+            "<w:p xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\">" +
+            Drawing("anchor", group, "http://schemas.microsoft.com/office/word/2010/wordprocessingGroup") +
+            Drawing("anchor", ShapeXml(true)) + "</w:p>").Document;
+
+        Assert.Equal([1, 1, 0], document.Shapes.Select(shape => shape.GroupNumber));
+        Assert.Equal([true, false, false], document.Shapes.Select(shape => shape.IsCustomShape));
+    }
+
+    private const string FirstStore ="{4E8A9591-F074-446B-902F-511FF79C122F}";
     private const string SecondStore = "{8E0C1334-910E-4E16-9074-50205539AF1C}";
 
     private static string BoundControl(string? storeItemId, string xpath, string prefixes = "xmlns:f='urn:first'") =>
