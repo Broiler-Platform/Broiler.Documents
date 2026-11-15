@@ -73,6 +73,7 @@ internal static class DocxReader
             int compatibilityMode = WordCompatibilityMode(settings.Root);
             bool splitPgBreakAndParaMark = HasSplitPgBreakAndParaMark(settings.Root);
             styles.HtmlParagraphAutoSpacing = !HasCompatFlag(settings.Root, "doNotUseHTMLParagraphAutoSpacing");
+            styles.UpdatesStylesFromWordDefaults = UpdatesStylesFromWordDefaults(settings.Root);
             DocxNotes notes = DocxNotes.Load(
                 archive,
                 documentRelationships,
@@ -643,6 +644,18 @@ internal static class DocxReader
             displayBackground is not null && ReadOnOff(displayBackground),
             root);
     }
+
+    /// <summary>
+    /// Whether the settings turn <c>w:linkStyles</c> on without naming a
+    /// template in <c>w:attachedTemplate</c>. With no template to update the
+    /// styles from, LibreOffice updates them from Word's defaults
+    /// (tdf166141_linkedStyles2.docx, ten points under every paragraph in
+    /// 24.2.7.2's PDF). With a template it does not have, the fix of tdf#166141
+    /// leaves the styles alone; 24.2 applied the defaults there too.
+    /// </summary>
+    private static bool UpdatesStylesFromWordDefaults(XElement? settings) =>
+        settings?.Element(DocxNamespaces.Wordprocessing + "linkStyles") is XElement link && ReadOnOff(link) &&
+        settings.Element(DocxNamespaces.Wordprocessing + "attachedTemplate") is null;
 
     private static bool HasSplitPgBreakAndParaMark(XElement? settings) =>
         settings?.Element(DocxNamespaces.Wordprocessing + "compat")
