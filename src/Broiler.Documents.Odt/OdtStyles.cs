@@ -154,6 +154,48 @@ internal sealed class OdtStyles : IOdtImageDiagnostics
         _builtInHeadings++;
     }
 
+    /// <summary>
+    /// The paragraph style a note's paragraph that names none is in:
+    /// <c>Footnote</c> or <c>Endnote</c>, which Writer gives the paragraph it
+    /// opens a note with (<c>SwFootnoteInfo::GetFootnoteTextColl</c>), and an
+    /// imported paragraph naming no style keeps. A document that does not
+    /// define it gets Writer's built-in one.
+    /// </summary>
+    public string NoteParagraphStyleName(bool endnote)
+    {
+        string name = endnote ? "Endnote" : "Footnote";
+        AddBuiltInNoteStyle(name);
+        return name;
+    }
+
+    /// <summary>
+    /// Adds Writer's built-in <c>Footnote</c> or <c>Endnote</c> paragraph style
+    /// when the document does not define it (DocumentStylePoolManager,
+    /// <c>RES_POOLCOLL_FOOTNOTE</c> and <c>RES_POOLCOLL_ENDNOTE</c>): a child of
+    /// <c>Standard</c> at 10 pt, its text 6 mm in with the first line hanging
+    /// back to the margin for the label. ergo_sum_footnote.fodt's unstyled
+    /// note lines are 11.5 pt apart, their label at the margin and its text
+    /// 17 pt in.
+    /// </summary>
+    private void AddBuiltInNoteStyle(string name)
+    {
+        var key = new StyleKey(ParagraphFamily, name);
+        if (_styles.ContainsKey(key))
+            return;
+
+        _styles[key] = new StyleDefinition(
+            name,
+            _styles.ContainsKey(new StyleKey(ParagraphFamily, DefaultParagraphStyleName)) ? DefaultParagraphStyleName : null,
+            new XElement(OdtNamespaces.Style + "paragraph-properties",
+                new XAttribute(OdtNamespaces.Fo + "margin-left", "6mm"),
+                new XAttribute(OdtNamespaces.Fo + "text-indent", "-6mm")),
+            new XElement(OdtNamespaces.Style + "text-properties",
+                new XAttribute(OdtNamespaces.Fo + "font-size", "10pt")),
+            null,
+            null);
+        _builtInHeadings++;
+    }
+
     /// <summary>The number of list styles that were loaded.</summary>
     public int ListStyleCount => _listStyles.ContainsKey(OutlineKey) ? _listStyles.Count - 1 : _listStyles.Count;
 
@@ -929,16 +971,18 @@ internal sealed class OdtStyles : IOdtImageDiagnostics
         string? current = styleName;
         while (!string.IsNullOrEmpty(current))
         {
-            // A parent named Writer's Heading that the document does not define
-            // is the built-in one: Writer creates the pool style a parent name
-            // stands for on demand (SwDocStyleSheet::SetParent, lcl_FindParaFormat
-            // with bCreate). tdf160518_*.fodt's Heading 1 is drawn in Liberation
-            // Sans Bold, 12 pt above and 6 pt below.
-            if (chain.Count > 0 &&
-                string.Equals(family, ParagraphFamily, StringComparison.Ordinal) &&
-                string.Equals(current, "Heading", StringComparison.Ordinal))
+            // A parent named Writer's Heading, Footnote or Endnote that the
+            // document does not define is the built-in one: Writer creates the
+            // pool style a parent name stands for on demand
+            // (SwDocStyleSheet::SetParent, lcl_FindParaFormat with bCreate).
+            // tdf160518_*.fodt's Heading 1 is drawn in Liberation Sans Bold,
+            // 12 pt above and 6 pt below.
+            if (chain.Count > 0 && string.Equals(family, ParagraphFamily, StringComparison.Ordinal))
             {
-                AddBuiltInHeading();
+                if (string.Equals(current, "Heading", StringComparison.Ordinal))
+                    AddBuiltInHeading();
+                else if (current is "Footnote" or "Endnote")
+                    AddBuiltInNoteStyle(current);
             }
 
             if (!_styles.TryGetValue(new StyleKey(family, current), out StyleDefinition? style))

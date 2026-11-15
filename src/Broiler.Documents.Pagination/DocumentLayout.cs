@@ -169,6 +169,13 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
     private const double SeparatorBlock = SeparatorGap + SeparatorThickness + SeparatorGap;
 
+    /// <summary>
+    /// The share of a page's text area its footnotes may take: Writer keeps at
+    /// least a fifth of the page for the body (SwFootnoteBossFrame::GetVarSpace)
+    /// and continues the rest of a note on the next page.
+    /// </summary>
+    private const double MaxFootnoteShare = 0.8;
+
     /// <summary>Writer's layout unit, a twentieth of a point.</summary>
     private const double Twip = 0.05;
 
@@ -536,8 +543,13 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         // each is cited, so everything below that measures room against
         // contentBottom leaves room for them. A note is set on the page where
         // it is first cited; in a continuous render, which has no page foot,
-        // footnotes follow the body with the endnotes.
-        var pageNotes = new List<DocumentNote>();
+        // footnotes follow the body with the endnotes. A note too tall for the
+        // room left under the line that cites it is split: what fits stays on
+        // that page and the rest continues at the foot of the next page, above
+        // that page's own notes (LibreOffice's footnote follow frames;
+        // quo_vadis_footnote.fodt, ergo_sum_footnote.fodt).
+        var pageNotes = new List<NotePart>();
+        var noteCarry = new List<NotePart>();
         var placedNotes = new HashSet<DocumentNote>(ReferenceEqualityComparer.Instance);
         var sectionNoteEnds = new Dictionary<SectionFootnotes, (int End, int Order)>();
         foreach (DocumentSection section in document.Sections)
@@ -580,21 +592,83 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             return height;
         }
 
-        // Takes the footnotes cited in lines just placed onto the page.
-        void TakeNotes(IEnumerable<LayoutLine> lines)
+        // Takes the footnotes cited in lines just placed onto the page;
+        // cutShort when they are part of a row that could have been cut
+        // shorter on this page to leave its notes room.
+        void TakeNotes(IEnumerable<LayoutLine> lines, bool cutShort = false)
         {
             if (setup.Continuous)
                 return;
 
+            double citedBottom = double.NegativeInfinity;
+            foreach (LayoutLine line in lines)
+                citedBottom = Math.Max(citedBottom, line.Top + line.Height);
             foreach (DocumentNote note in CitedNotes(lines))
             {
                 if (note.Kind != NoteKind.Footnote || IsCollected(note) || !placedNotes.Add(note))
                     continue;
 
-                double height = NoteBlockFor(note, setup).Height + (pageNotes.Count == 0 ? SeparatorBlock : 0);
-                pageNotes.Add(note);
+                NoteBlock block = NoteBlockFor(note, setup);
+                double separator = pageNotes.Count == 0 ? SeparatorBlock : 0;
+                int end = block.Lines.Count;
+                // A note keeps what fits under the text that cites it and in
+                // the share of the page notes may take, and continues on the
+                // next page; after a note that already continues there, it goes
+                // there whole. A note with no room at all goes on whole: its
+                // citation could not move (Cool16072_rowWithOwnFootnoteKeepsThePage.fodt).
+                // A row that could have been cut shorter to leave the note room
+                // is not cut for it, and its note is set whole under it as before.
+                double room = Math.Min(contentBottom - citedBottom, FootnoteRoom()) - separator;
+                if (end > 0 && block.Height > room)
+                {
+                    int fit = noteCarry.Count > 0 ? 0 : NoteLinesThatFit(block, 0, room, atLeastOne: false);
+                    end = fit == 0 && cutShort && noteCarry.Count == 0 ? block.Lines.Count : fit;
+                }
+                if (end == 0)
+                {
+                    noteCarry.Add(new NotePart(note, 0, block.Lines.Count));
+                    continue;
+                }
+
+                double height = NotePartHeight(block, 0, end) + separator;
+                pageNotes.Add(new NotePart(note, 0, end));
                 noteArea += height;
                 contentBottom -= height;
+                if (end < block.Lines.Count)
+                    noteCarry.Add(new NotePart(note, end, block.Lines.Count));
+            }
+        }
+
+        // How much more of the page the footnotes may take.
+        double FootnoteRoom() => (contentBottom + noteArea - pageTop) * MaxFootnoteShare - noteArea;
+
+        // Sets what was carried over from the page before at the foot of a new
+        // page, before anything cited on it, as much as fits.
+        void TakeCarriedNotes()
+        {
+            if (noteCarry.Count == 0)
+                return;
+
+            NotePart[] carried = [.. noteCarry];
+            noteCarry.Clear();
+            foreach (NotePart part in carried)
+            {
+                NoteBlock block = NoteBlockFor(part.Note, setup);
+                double separator = pageNotes.Count == 0 ? SeparatorBlock : 0;
+                int end = noteCarry.Count > 0 ? part.First
+                    : NoteLinesThatFit(block, part.First, Math.Min(contentBottom - pageTop, FootnoteRoom()) - separator, pageNotes.Count == 0);
+                if (end == part.First)
+                {
+                    noteCarry.Add(part);
+                    continue;
+                }
+
+                double height = NotePartHeight(block, part.First, end) + separator;
+                pageNotes.Add(part with { End = end });
+                noteArea += height;
+                contentBottom -= height;
+                if (end < part.End)
+                    noteCarry.Add(part with { First = end });
             }
         }
 
@@ -614,25 +688,32 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 default));
 
             double noteTop = top + SeparatorBlock;
-            foreach (DocumentNote note in pageNotes)
+            foreach (NotePart part in pageNotes)
             {
-                NoteBlock block = NoteBlockFor(note, setup);
-                foreach ((LayoutLine line, double offset) in block.Lines)
+                NoteBlock block = NoteBlockFor(part.Note, setup);
+                bool whole = part.First == 0 && part.End == block.Lines.Count;
+                double start = whole || part.First >= block.Lines.Count ? 0 : block.Lines[part.First].Offset;
+                double partHeight = NotePartHeight(block, part.First, part.End);
+                for (int i = part.First; i < part.End; i++)
                 {
-                    line.Top = noteTop + offset;
+                    (LayoutLine line, double offset) = block.Lines[i];
+                    line.Top = noteTop + offset - start;
                     line.Shift(left - setup.ContentLeftPoints);
                     currentLines.Add(line);
                 }
 
                 foreach ((LayoutCell cell, double offset) in block.Cells)
                 {
+                    double cellTop = offset + cell.Bounds.Top;
+                    if (!whole && (cellTop < start || cellTop >= start + partHeight))
+                        continue;
                     currentCells.Add(new LayoutCell(
-                        new BRect(cell.Bounds.Left + left - setup.ContentLeftPoints, noteTop + offset + cell.Bounds.Top,
+                        new BRect(cell.Bounds.Left + left - setup.ContentLeftPoints, noteTop + cellTop - start,
                             cell.Bounds.Width, cell.Bounds.Height),
                         cell.Shading, cell.Borders));
                 }
 
-                noteTop += block.Height;
+                noteTop += partHeight;
             }
 
             contentBottom = foot;
@@ -690,6 +771,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             // sequence. Rebuild the text columns after that selection.
             columns = ColumnsOf(region, owner);
             y = pageTop;
+            TakeCarriedNotes();
             paintedSection = region;
             paintTop = y;
             regionTop = y;
@@ -1164,7 +1246,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             int linesFrom = currentLines.Count;
             int cellsFrom = currentCells.Count;
             row.PlaceAt(y, columns.Offset(column), currentLines, currentCells, _paragraphTops);
-            TakeNotes(currentLines.Skip(linesFrom));
+            TakeNotes(currentLines.Skip(linesFrom), row.CanSplit);
             if (region is not null && columns.Count > 1)
             {
                 regionLines.Add(new FlowItem(
@@ -2069,7 +2151,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
         // A floating table that ran past the last page of text still has rows
         // to stand on the pages after it.
-        while (floatCarry.Count > 0 && !truncated)
+        while ((floatCarry.Count > 0 || noteCarry.Count > 0) && !truncated)
             BreakPage();
 
         SetNotes();
@@ -4865,6 +4947,33 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     /// <summary>A note's composed lines, each with its offset from the note's top, and the note's height.</summary>
     private sealed record NoteBlock(List<(LayoutLine Line, double Offset)> Lines, double Height,
         List<(LayoutCell Cell, double Offset)> Cells);
+
+    /// <summary>The lines <see cref="First"/> up to <see cref="End"/> of a footnote's block, set on one page.</summary>
+    private readonly record struct NotePart(DocumentNote Note, int First, int End);
+
+    /// <summary>How tall lines <paramref name="first"/> up to <paramref name="end"/> of a note's block stand.</summary>
+    private static double NotePartHeight(NoteBlock block, int first, int end)
+    {
+        if (first == 0 && end == block.Lines.Count)
+            return block.Height;
+        if (end <= first)
+            return 0;
+        (LayoutLine last, double lastOffset) = block.Lines[end - 1];
+        return lastOffset + last.Height - block.Lines[first].Offset;
+    }
+
+    /// <summary>
+    /// The end of the run of a note's lines from <paramref name="first"/> that
+    /// fits in <paramref name="room"/>; one line at least where
+    /// <paramref name="atLeastOne"/>.
+    /// </summary>
+    private static int NoteLinesThatFit(NoteBlock block, int first, double room, bool atLeastOne)
+    {
+        int end = first;
+        while (end < block.Lines.Count && NotePartHeight(block, first, end + 1) <= room + 0.01)
+            end++;
+        return end == first && atLeastOne && first < block.Lines.Count ? first + 1 : end;
+    }
 
     /// <summary>Wraps one paragraph into lines, without deciding which page they land on.</summary>
     private ParagraphLines ComposeParagraph(RichTextParagraph paragraph, string? marker, DocumentPageBox setup, int paragraphIndex,

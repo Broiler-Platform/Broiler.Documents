@@ -3029,7 +3029,8 @@ internal static class OdtReader
         OdtListContext? list,
         int depth)
     {
-        string? styleName = (string?)paragraph.Attribute(OdtNamespaces.Text + "style-name") ?? UnstyledHeadingStyle(paragraph, context.Styles);
+        string? styleName = (string?)paragraph.Attribute(OdtNamespaces.Text + "style-name") ?? UnstyledHeadingStyle(paragraph, context.Styles) ??
+            context.NoteParagraphStyle;
 
         ParagraphStyle paragraphStyle = ParagraphStyle.Default;
         string? breakAfter = null;
@@ -3642,7 +3643,8 @@ internal static class OdtReader
         OdtListContext? list,
         OdtReadContext context)
     {
-        string? styleName = (string?)paragraph.Attribute(OdtNamespaces.Text + "style-name") ?? UnstyledHeadingStyle(paragraph, context.Styles);
+        string? styleName = (string?)paragraph.Attribute(OdtNamespaces.Text + "style-name") ?? UnstyledHeadingStyle(paragraph, context.Styles) ??
+            context.NoteParagraphStyle;
         ParagraphStyle style = ParagraphStyle.Default;
         foreach (XElement properties in context.Styles.ParagraphProperties(styleName))
             style = ApplyParagraphProperties(properties, style, context.Builder, context.Styles);
@@ -3707,7 +3709,13 @@ internal static class OdtReader
         {
             Revision = context.Builder.Revision,
         };
-        var nested = new OdtReadContext(context.Styles, context.Images, builder) { InNote = true, Regions = context.Regions, Variables = context.Variables };
+        var nested = new OdtReadContext(context.Styles, context.Images, builder)
+        {
+            InNote = true,
+            Regions = context.Regions,
+            Variables = context.Variables,
+            NoteParagraphStyle = context.Styles.NoteParagraphStyleName(kind == NoteKind.Endnote),
+        };
         XElement? body = note.Element(OdtNamespaces.Text + "note-body");
         if (body is not null)
             ReadBlockContent(body.Elements(), nested, list: null, depth + 1);

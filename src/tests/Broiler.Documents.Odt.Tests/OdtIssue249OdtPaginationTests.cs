@@ -120,4 +120,33 @@ public sealed class OdtIssue249OdtPaginationTests
         var numberer = new NoteNumberer();
         Assert.Equal(["vi", "i"], document.Notes.Select(numberer.Label));
     }
+
+    [Fact]
+    public void A_Notes_Unstyled_Paragraph_Is_In_Writers_Built_In_Footnote_Style()
+    {
+        // ergo_sum_footnote.fodt: 10 pt, the text 6 mm in, the label hanging.
+        RichTextDocument document = OdtTestPackage.ReadBody(
+            "<text:p>x<text:note text:id=\"ftn1\" text:note-class=\"footnote\"><text:note-citation>1</text:note-citation>" +
+            "<text:note-body><text:p>note</text:p></text:note-body></text:note></text:p>").Document;
+
+        RichTextParagraph note = Assert.Single(Assert.Single(document.Notes).Paragraphs);
+        Assert.Equal(10, note.Runs[0].Style.FontSize!.Value, 2);
+        Assert.Equal(6 * 72 / 25.4, note.Style.LeftIndent!.Value, 1);
+        Assert.Equal(-6 * 72 / 25.4, note.Style.FirstLineIndent!.Value, 1);
+        Assert.NotEqual(10, document.Paragraphs[0].Runs[0].Style.FontSize);
+    }
+
+    [Fact]
+    public void A_Note_Style_Whose_Parent_Footnote_Is_Undefined_Inherits_The_Built_In_One()
+    {
+        // Cool16071_footnoteTailKeptWhenTruncated.fodt's PFtn names Footnote.
+        RichTextDocument document = OdtTestPackage.ReadBody(
+            "<text:p>x<text:note text:id=\"ftn1\" text:note-class=\"footnote\"><text:note-citation>1</text:note-citation>" +
+            "<text:note-body><text:p text:style-name=\"PFtn\">note</text:p></text:note-body></text:note></text:p>",
+            OdtTestPackage.Style("PFtn", "<style:text-properties fo:font-size=\"9pt\"/>", parent: "Footnote")).Document;
+
+        RichTextParagraph note = Assert.Single(Assert.Single(document.Notes).Paragraphs);
+        Assert.Equal(9, note.Runs[0].Style.FontSize!.Value, 2);
+        Assert.Equal(6 * 72 / 25.4, note.Style.LeftIndent!.Value, 1);
+    }
 }
