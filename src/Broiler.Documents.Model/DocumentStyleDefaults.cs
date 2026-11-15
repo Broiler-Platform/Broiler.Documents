@@ -202,6 +202,24 @@ public sealed record DocumentStyleDefaults
     public bool RunningBandsEndAtLastLine { get; init; }
 
     /// <summary>
+    /// Whether the document's tables are spreadsheet sheets, printed as Calc
+    /// prints a sheet rather than set as a word processor sets a table.
+    /// </summary>
+    /// <remarks>
+    /// Calc pages a sheet by its column widths: the columns that fit across the
+    /// page's text width go on its pages, and the rest continue on the pages
+    /// after, the whole sheet down before the next columns (the default
+    /// top-to-bottom page order; <c>ScPrintFunc::CalcPages</c>). Pages whose
+    /// cells are all empty are left out. Text that does not fit its cell runs
+    /// on over the empty cells beside it instead of wrapping (rightwards from
+    /// a left-aligned cell, leftwards from a right-aligned one), and a cell's
+    /// text keeps one point from its edges (<c>SvxMarginItem</c>'s 20 twips).
+    /// A layout applies this to the document's tables; the model keeps each
+    /// sheet as one table, so its cells and values are unchanged.
+    /// </remarks>
+    public bool PrintsSheets { get; init; }
+
+    /// <summary>
     /// The space a block that asks for <paramref name="spaceAbove"/> opens
     /// with below one that left <paramref name="spaceBelowPrevious"/> beneath
     /// it, which the caller has already added.
@@ -224,7 +242,7 @@ public sealed record DocumentStyleDefaults
     public bool IsDefault =>
         FontSizePoints == FallbackFontSizePoints && FontFamily is null && !WidensSpaceRuns && !ShrinksJustifiedLines &&
         !TabsOverMargin && !UndecoratedLinks && WidowOrphanLines == 0 && !PreserveOpeningParagraphSpacing &&
-        !KeepWithNextOpeningLines && !CollapsesParagraphSpacing && !LaysOutBodyParagraphBorders;
+        !KeepWithNextOpeningLines && !CollapsesParagraphSpacing && !LaysOutBodyParagraphBorders && !PrintsSheets;
 
     /// <summary>
     /// What <see cref="WidensSpaceRuns"/> adds to the width of

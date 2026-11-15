@@ -116,6 +116,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     private bool _verticalWriting;
     private double? _headerDistance;
     private double? _footerDistance;
+    private int[]? _sheetOrigins;
     private (bool Header, bool Footer) _fixedBands;
     private (double Header, double Footer) _bandSpacing;
     private PageFrame? _frame;
@@ -224,6 +225,20 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             result = LayoutOnce(document, setup);
         }
 
+        // A sheet's cells were laid out in the order its pages print them; the
+        // lines name the paragraphs of the document they were given.
+        if (_sheetOrigins is int[] origins)
+        {
+            var lines = new HashSet<LayoutLine>(ReferenceEqualityComparer.Instance);
+            foreach (LayoutPage page in result.Pages)
+                lines.UnionWith(page.Lines.Concat(page.InlineLines));
+            foreach (LayoutLine line in lines)
+            {
+                if (line.ParagraphIndex >= 0 && line.ParagraphIndex < origins.Length)
+                    line.ParagraphIndex = origins[line.ParagraphIndex];
+            }
+        }
+
         return result;
     }
 
@@ -257,6 +272,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         // A document that hides its changes is laid out as it reads with its
         // deletions gone; one that shows them draws each in its author's colour.
         document = RevisionDisplay.HideDeletions(document);
+        // A spreadsheet's sheets are cut into runs of columns that fit the page.
+        document = SheetPrinting.Lay(document, setup.ContentWidthPoints, out _sheetOrigins);
         _revisions = RevisionDisplay.For(document);
         _bodyParagraphs = document.Paragraphs;
         _pageStartsFound.Clear();
