@@ -2694,10 +2694,7 @@ internal static class DocxReader
         {
             RotationRadians = rotation,
             TextFlow = ReadVmlTextFlow(shape.Element(DocxNamespaces.Vml + "textbox")),
-            // A grouped shape is part of a drawing, and so is one with neither
-            // a text box nor a picture (a WordArt text path included).
-            IsCustomShape = shape.Attribute(DocxVmlShapeWalker.Grouped) is not null ||
-                (shape.Element(DocxNamespaces.Vml + "textbox") is null && image is null),
+            IsCustomShape = shape.Attribute(DocxVmlShapeWalker.Grouped) is not null,
             InlineInSource = shape.Attribute(DocxVmlShapeWalker.Grouped) is null &&
                 !string.Equals(style.GetValueOrDefault("position"), "absolute", StringComparison.OrdinalIgnoreCase),
             StretchesTextToBox = wordArtText,
