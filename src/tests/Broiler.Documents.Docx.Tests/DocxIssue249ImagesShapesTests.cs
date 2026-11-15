@@ -80,6 +80,54 @@ public sealed class DocxIssue249ImagesShapesTests
         Assert.True(shown.Printable);
     }
 
+    private static DocumentShape PresetShape(string preset, string transform = "", string adjust = "") =>
+        Assert.Single(DocxTestPackage.ReadBody("<w:p>" + ShapeRun("paragraph", 0)
+            .Replace("<a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom>",
+                "<a:xfrm" + transform + "><a:off x=\"0\" y=\"0\"/><a:ext cx=\"914400\" cy=\"228600\"/></a:xfrm>" +
+                "<a:prstGeom prst=\"" + preset + "\"><a:avLst>" + adjust + "</a:avLst></a:prstGeom>", StringComparison.Ordinal) +
+            "</w:p>").Document.Shapes);
+
+    [Fact]
+    public void A_Five_Point_Star_Is_Drawn_As_Its_Outline()
+    {
+        // tdf159158_zOrder_1and0equalB.docx: LibreOffice draws two stars where
+        // broilerdoc drew two boxes. The default star's top point is at the
+        // box's top centre, its lower points at the foot.
+        DocumentShape star = PresetShape("star5");
+
+        IReadOnlyList<(double X, double Y)> outline = Assert.Single(star.OutlinePaths!);
+        Assert.Equal(10, outline.Count);
+        Assert.Contains(outline, point => Math.Abs(point.X - 0.5) < 1e-9 && Math.Abs(point.Y) < 1e-9);
+        Assert.Equal(1, outline.Max(point => point.Y), 2);
+        Assert.Equal(0, outline.Min(point => point.X), 2);
+        Assert.Equal(1, outline.Max(point => point.X), 2);
+    }
+
+    [Fact]
+    public void A_Triangle_Takes_Its_Apex_From_Its_Adjust_Value_And_Flips()
+    {
+        IReadOnlyList<(double X, double Y)> apexLeft = Assert.Single(PresetShape("triangle",
+            adjust: "<a:gd name=\"adj\" fmla=\"val 0\"/>").OutlinePaths!);
+        Assert.Equal([(0d, 1d), (0d, 0d), (1d, 1d)], apexLeft);
+
+        IReadOnlyList<(double X, double Y)> flipped = Assert.Single(PresetShape("triangle", " flipV=\"1\"").OutlinePaths!);
+        Assert.Equal([(0d, 0d), (0.5, 1d), (1d, 0d)], flipped);
+
+        // A half turn is both flips (rot180-flipv.docx).
+        IReadOnlyList<(double X, double Y)> turned = Assert.Single(PresetShape("rtTriangle", " rot=\"10800000\" flipV=\"1\"").OutlinePaths!);
+        Assert.Equal([(1d, 1d), (1d, 0d), (0d, 1d)], turned);
+    }
+
+    [Fact]
+    public void A_Quarter_Turned_Preset_And_A_Rectangle_Keep_Their_Box()
+    {
+        // The reader does not turn a drawn shape's box, so a quarter-turned
+        // arrow (tdf87924.docx) stays a box rather than an arrow lying wrong.
+        Assert.Null(PresetShape("rightArrow", " rot=\"5400000\"").OutlinePaths);
+        Assert.Null(PresetShape("rect").OutlinePaths);
+        Assert.NotNull(PresetShape("rightArrow").OutlinePaths);
+    }
+
     [Fact]
     public void A_Hidden_Picture_Is_Still_Printed()
     {

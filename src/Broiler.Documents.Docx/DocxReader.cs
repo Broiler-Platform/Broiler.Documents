@@ -2252,6 +2252,9 @@ internal static class DocxReader
         {
             IsCustomShape = context.InDiagram,
             TextFlow = ReadShapeTextFlow(wsp.Element(DocxNamespaces.WordShape + "bodyPr")),
+            OutlinePaths = image is null && geometry == ShapeGeometry.Rectangle
+                ? DocxPresetGeometry.Outline(preset, spPr?.Element(DocxNamespaces.Drawing + "prstGeom"), width, height, transform)
+                : null,
             WrapMargins = Wrap == ShapeWrap.None ? null : Margins,
             BoundedByPage = !context.Builder.InTableCell,
             OffsetXFromColumn = FromColumn(anchor, context),
