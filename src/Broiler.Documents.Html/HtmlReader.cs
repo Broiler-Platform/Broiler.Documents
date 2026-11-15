@@ -129,7 +129,11 @@ internal static class HtmlReader
             document = document.WithPageGeometry(page);
         BColor? canvas = PageBackground(parse.Document.DocumentElement, styleSheet)
             ?? PageBackground(parse.Document.Body, styleSheet);
-        if (canvas is BColor fill)
+        ShapeFill? picture = HtmlPageBackground.Picture(parse.Document.DocumentElement, styleSheet, builder.ResolveImage, options.Limits, resources)
+            ?? HtmlPageBackground.Picture(parse.Document.Body, styleSheet, builder.ResolveImage, options.Limits, resources);
+        if (picture is not null)
+            document = document.WithPageBackground(picture);
+        else if (canvas is BColor fill)
             document = document.WithPageBackground(ShapeFill.Solid(fill));
 
         return new DocumentReadResult(document, diagnostics, DocumentReadResult.StatusFrom(diagnostics), resources.Build());

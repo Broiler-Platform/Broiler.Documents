@@ -47,6 +47,35 @@ public sealed class HtmlPageBackgroundTests
         Assert.Equal(ShapeFill.Solid(Red), document.PageBackground);
     }
 
+    [Theory]
+    [InlineData("<body background=\"{0}\">")]
+    [InlineData("<body style=\"background: url('{0}') repeat scroll\">")]
+    public void The_Body_Picture_Tiles_The_Page_From_Its_Corner(string body)
+    {
+        // PageAndParagraphFilled.html: LibreOffice tiles a body's background
+        // picture over the whole page from its top-left corner, at the
+        // picture's own size in CSS pixels.
+        byte[] png =
+        [
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+            0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4,
+            0x89, 0x00, 0x00, 0x00, 0x0A, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0x00, 0x01, 0x00, 0x00,
+            0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE,
+            0x42, 0x60, 0x82,
+        ];
+        string uri = "data:image/png;base64," + Convert.ToBase64String(png);
+
+        RichTextDocument document = Read("<html>" + string.Format(body, uri) + "<p>text</p></body></html>");
+
+        ImageFill picture = Assert.IsType<ImageFill>(document.PageBackground?.Image);
+        Assert.Equal(ImageFillRepeat.Tile, picture.Repeat);
+        Assert.Equal(0.75, picture.Width);
+        Assert.Equal(0.75, picture.Height);
+        Assert.Equal(0, picture.AlignX);
+        Assert.Equal(0, picture.AlignY);
+        Assert.Equal(png, picture.Picture.Data.ToArray());
+    }
+
     [Fact]
     public void The_Page_Colour_Does_Not_Highlight_The_Text()
     {
