@@ -87,6 +87,35 @@ public sealed class DumpTableTextTests
         Assert.Equal("A\tB", DocumentCommands.LabelledText(document));
     }
 
+    [Fact]
+    public void A_Drawing_With_No_Text_Before_The_Text_Box_Leaves_The_Export_Empty()
+    {
+        // LibreOffice exports only the first of the document's frames and
+        // drawings; a rectangle or a line before the text frame has no text to
+        // give (n825305.rtf, tdf88811.rtf, tdf104936.rtf).
+        RichTextDocument document = RichTextDocument.FromParagraphs([RichTextParagraph.Plain("")])
+            .WithShapes(
+            [
+                new DocumentShape(0, 0, 0, 100, 80),
+                new DocumentShape(0, 0, 100, 100, 80, paragraphs: [RichTextParagraph.Plain("Frame1")]),
+            ]);
+        Assert.Equal(string.Empty, DocumentCommands.LabelledText(document));
+    }
+
+    [Fact]
+    public void A_Groups_Text_Box_Is_Exported_With_The_Group()
+    {
+        // The shapes of a DOCX group share its stacking order and are one drawing
+        // to LibreOffice, whose text boxes it exports (dml-groupshape-runfonts.docx).
+        RichTextDocument document = RichTextDocument.FromParagraphs([RichTextParagraph.Plain("")])
+            .WithShapes(
+            [
+                new DocumentShape(0, 0, 0, 100, 80, zOrder: 251660288),
+                new DocumentShape(0, 10, 10, 80, 60, paragraphs: [RichTextParagraph.Plain("grouped")], zOrder: 251660288),
+            ]);
+        Assert.Equal("grouped", DocumentCommands.LabelledText(document));
+    }
+
     private static readonly TablePosition Floating = new(TableAnchor.Page, 0, TableAnchor.Page, 100, TableAlignment.Center);
 
     [Fact]

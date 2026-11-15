@@ -337,6 +337,26 @@ public static class DocumentCommands
     /// word.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// Whether the document's first drawing - its first shape together with the
+    /// shapes after it that share a stated stacking order, as a group's do - has
+    /// no text of its own.
+    /// </summary>
+    private static bool FirstDrawingHasNoText(IReadOnlyList<DocumentShape> shapes)
+    {
+        if (shapes.Count == 0)
+            return false;
+        DocumentShape first = shapes[0];
+        int end = 1;
+        if (first.ZOrder > 0)
+            while (end < shapes.Count && shapes[end].ZOrder == first.ZOrder)
+                end++;
+        for (int i = 0; i < end; i++)
+            if (shapes[i].HasText || shapes[i].Tables.Count > 0)
+                return false;
+        return true;
+    }
+
     internal static string LabelledText(RichTextDocument document, bool joinsTableRows = true)
     {
         var numberer = new ListNumberer();
@@ -369,6 +389,17 @@ public static class DocumentCommands
             if (floating.Length > 0)
             {
                 body = [.. Enumerable.Range(floating[0].ParagraphIndex, floating[0].ParagraphCount)];
+            }
+            // LibreOffice exports the content of the first of the document's
+            // frames and drawings and nothing else (SpzFrameFormats()[0]): a
+            // drawing with no text there, such as a line or a rectangle before
+            // the text frame, leaves the export empty (n825305.rtf, tdf88811.rtf,
+            // fdo66688.docx). The shapes of one DOCX group share the group's
+            // stacking order and count as one drawing, whose text boxes LibreOffice
+            // does export (dml-groupshape-runfonts.docx, wpg-nested.docx).
+            else if (FirstDrawingHasNoText(document.Shapes.Where(shape => !shape.IsPageAnchored).ToList()))
+            {
+                return string.Empty;
             }
             // A frame set as a character in the header counts as well
             // (table-in-frame-in-table-in-header-base.odt, whose only text is
