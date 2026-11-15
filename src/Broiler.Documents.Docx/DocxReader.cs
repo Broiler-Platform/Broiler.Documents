@@ -68,6 +68,7 @@ internal static class DocxReader
             // model anchors against needs the margins first. The sections come
             // first of all, because a section's properties follow its content.
             DocxSettings settings = ReadSettings(archive, documentRelationships, baseDirectory, options.Limits, diagnostics);
+            DocxDocumentVariables.Apply(documentXml, settings.Root, options.Limits);
             DocxSections sections = DocxSections.Read(documentXml.Root?.Element(DocxNamespaces.Wordprocessing + "body"));
             PageGeometry? page = ReadPageGeometry(documentXml, sections, diagnostics);
             int compatibilityMode = WordCompatibilityMode(settings.Root);

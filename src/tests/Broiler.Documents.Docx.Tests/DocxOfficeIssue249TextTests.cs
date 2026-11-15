@@ -82,6 +82,31 @@ public sealed class DocxOfficeIssue249TextTests
         Assert.Equal("button: Hello World", Assert.Single(result.Document.Paragraphs).Text);
     }
 
+    [Theory]
+    [InlineData("<w:fldSimple w:instr=' DOCVARIABLE  Local  \\* MERGEFORMAT '><w:r><w:t>JUNK VALUE</w:t></w:r></w:fldSimple>", "Correct_x0020_value")]
+    [InlineData("<w:r><w:fldChar w:fldCharType='begin'/></w:r><w:r><w:instrText> DOCVARIABLE Local </w:instrText></w:r>" +
+        "<w:r><w:fldChar w:fldCharType='separate'/></w:r><w:r><w:t>JUNK</w:t></w:r><w:r><w:t xml:space='preserve'> VALUE</w:t></w:r>" +
+        "<w:r><w:fldChar w:fldCharType='end'/></w:r>", "Correct value")]
+    public void A_Document_Variable_Field_Shows_The_Variables_Value(string field, string value)
+    {
+        // tdf150542.docx: saved as "JUNK VALUE", shown by LibreOffice 24.2 as
+        // the w:docVar's value. ST_Xstring escapes are decoded.
+        var parts = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["word/_rels/document.xml.rels"] =
+                "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">" +
+                "<Relationship Id=\"rIdS\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings\" Target=\"settings.xml\"/>" +
+                "</Relationships>",
+            ["word/settings.xml"] = "<w:settings " + DocxTestPackage.BodyNamespaceDeclarations + "><w:docVars>" +
+                "<w:docVar w:name=\"Local\" w:val=\"" + value + "\"/></w:docVars></w:settings>",
+        };
+        using var stream = new MemoryStream(DocxTestPackage.FromBody("<w:p>" + field + "</w:p><w:p>" +
+            field.Replace("Local", "Missing", StringComparison.Ordinal) + "</w:p>", parts), writable: false);
+        RichTextDocument document = new DocxDocumentCodec().Read(stream).Document;
+
+        Assert.Equal(["Correct value", "JUNK VALUE"], document.Paragraphs.Select(paragraph => paragraph.Text));
+    }
+
     private const string Wps = "http://schemas.microsoft.com/office/word/2010/wordprocessingShape";
 
     private static string ShapeXml(bool textBox) =>
