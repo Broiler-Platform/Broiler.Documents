@@ -1448,6 +1448,22 @@ internal static class DocxReader
                     !char.IsSurrogate((char)symbol) && !char.IsControl((char)symbol))
                 {
                     string? font = (string?)child.Attribute(DocxNamespaces.Wordprocessing + "font");
+                    if (awaitingMark is not null)
+                    {
+                        // w:customMarkFollows with a symbol: the symbol is the
+                        // note's label, as LibreOffice 24.2 reads it
+                        // (tdf121441.docx's Wingdings mark, written once).
+                        var marked = new DocumentNote(awaitingMark.Kind, awaitingMark.Paragraphs, ((char)symbol).ToString())
+                        {
+                            Tables = awaitingMark.Tables,
+                        };
+                        builder.AppendText(DocumentNote.PlaceholderText, (string.IsNullOrWhiteSpace(font)
+                            ? awaitingStyle with { IsSymbolCharacter = true }
+                            : awaitingStyle with { FontFamily = font, IsSymbolCharacter = true }) with { Note = marked });
+                        awaitingMark = null;
+                        continue;
+                    }
+
                     builder.AppendText(((char)symbol).ToString(),
                         string.IsNullOrWhiteSpace(font)
                             ? style with { IsSymbolCharacter = true }
@@ -1508,9 +1524,9 @@ internal static class DocxReader
                     context.Images.ReadControl(control, context.Relationships) is { } activeX)
                 {
                     // The glyph is drawn in the face LibreOffice falls back to for it.
-                    builder.AppendText(activeX.Glyph, style with { FontFamily = "DejaVu Sans" });
+                    builder.AppendText(activeX.Glyph, style with { FontFamily = "DejaVu Sans", IsFormControl = true });
                     if (activeX.Caption.Length > 0)
-                        builder.AppendText(" " + activeX.Caption, style);
+                        builder.AppendText(" " + activeX.Caption, style with { IsFormControl = true });
                 }
                 else if (child.Element(DocxNamespaces.Wordprocessing + "drawing") is { } drawing)
                     ReadPicture(drawing, context, style);

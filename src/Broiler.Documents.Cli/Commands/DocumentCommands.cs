@@ -311,7 +311,9 @@ public static class DocumentCommands
     /// <remarks>
     /// Lists known only by their kind use the same fallback labels as the
     /// renderer. A note's citation is its label too, as LibreOffice
-    /// writes it, and the note's own text is not part of the body's.
+    /// writes it, and the note's own text is not part of the body's. Nor are
+    /// the characters that draw a form control, which LibreOffice imports as
+    /// a drawn control (<see cref="InlineStyle.IsFormControl"/>).
     /// <para>
     /// The text in a shape is not the body's either. LibreOffice's export walks
     /// the body's paragraphs and nothing anchored to them (wrtasc.cxx,
@@ -428,7 +430,7 @@ public static class DocumentCommands
                     }
                     builder.Append(citation);
                 }
-                else if (!run.Style.IsImage)
+                else if (!run.Style.IsImage && !run.Style.IsFormControl)
                     builder.Append(paragraph.Text, offset, length);
                 offset += length;
             }

@@ -98,6 +98,22 @@ public sealed class DocxNoteTests
     }
 
     [Fact]
+    public void A_Custom_Mark_Written_As_A_Symbol_Is_The_Notes_Label()
+    {
+        // tdf121441.docx: the mark is a Wingdings w:sym, which LibreOffice 24.2
+        // writes once, as the label, with no number.
+        DocumentReadResult result = Read(
+            "<w:p><w:r><w:footnoteReference w:customMarkFollows=\"1\" w:id=\"1\"/><w:sym w:font=\"Wingdings\" w:char=\"F0A7\"/></w:r></w:p>",
+            Note("footnote", 1, "Marked."));
+
+        Assert.Equal(DocumentNote.PlaceholderText, result.Document.Paragraphs[0].Text);
+        Assert.Equal("", Assert.Single(result.Document.Notes).CustomMark);
+        InlineStyle citation = result.Document.Paragraphs[0].Runs[0].Style;
+        Assert.Equal("Wingdings", citation.FontFamily);
+        Assert.True(citation.IsSymbolCharacter);
+    }
+
+    [Fact]
     public void A_Reference_To_A_Note_The_Part_Lacks_Is_Reported_And_Dropped()
     {
         DocumentReadResult result = Read("<w:p><w:r><w:t>x</w:t></w:r>" + Reference("footnote", 9) + "</w:p>");

@@ -43,6 +43,9 @@ public sealed class DocxActiveXTests
         DocumentReadResult result = new DocxDocumentCodec().Read(new MemoryStream(package));
 
         Assert.Equal(glyph + " Yes", Assert.Single(result.Document.Paragraphs).Text);
+        // The control's characters are a control, not text: LibreOffice's text
+        // export leaves them out (tdf118169.docx).
+        Assert.All(Assert.Single(result.Document.Paragraphs).Runs, run => Assert.True(run.Style.IsFormControl));
     }
 
     [Fact]

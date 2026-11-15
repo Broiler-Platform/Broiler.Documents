@@ -122,6 +122,14 @@ public readonly record struct InlineStyle
     /// </remarks>
     public bool IsSymbolCharacter { get; init; }
 
+    /// <summary>
+    /// True for the characters that draw a form control in the line, such as
+    /// an ActiveX check box's box and caption: a control rather than text,
+    /// which LibreOffice imports as a drawn control and its text export leaves
+    /// out (tdf118169.docx, tdf126626.docx).
+    /// </summary>
+    public bool IsFormControl { get; init; }
+
     /// <summary>The unformatted default style (<c>default(InlineStyle)</c>).</summary>
     public static InlineStyle Default => default;
 

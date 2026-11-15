@@ -98,6 +98,16 @@ public sealed class DumpTableTextTests
         };
 
     [Fact]
+    public void A_Form_Controls_Characters_Are_Not_Text()
+    {
+        // tdf126626.docx: an ActiveX check box drawn as its box and caption.
+        RichTextParagraph paragraph = RichTextParagraph.Plain("before after")
+            .InsertText(7, "☐ Check Box ", InlineStyle.Default with { IsFormControl = true });
+
+        Assert.Equal("before after", DocumentCommands.LabelledText(RichTextDocument.FromParagraphs([paragraph])));
+    }
+
+    [Fact]
     public void A_Paragraph_Holding_A_Shape_As_A_Character_Is_Not_Empty()
     {
         // inline-textbox-position.docx, tdf117188.docx: LibreOffice anchors the
