@@ -203,6 +203,8 @@ internal sealed class DocxNumbering
         "taiwaneseCountingThousand" or "taiwaneseCounting" or "chineseCounting" or
             "chineseCountingThousand" or "ideographDigital" or "japaneseCounting" => ListNumberFormat.IdeographCounting,
         "koreanDigital2" => ListNumberFormat.KoreanDigital2,
+        "decimalEnclosedCircle" => ListNumberFormat.EnclosedCircle,
+        "hebrew1" => ListNumberFormat.HebrewNumeral,
         "ideographTraditional" => ListNumberFormat.TianGan,
         "ideographZodiac" => ListNumberFormat.DiZi,
         "upperLetter" => ListNumberFormat.UpperLetter,
@@ -216,10 +218,13 @@ internal sealed class DocxNumbering
     private static ListLevel ReadLevel(XElement lvl, int ilvl, ref bool reportedFormat, List<DocumentDiagnostic>? diagnostics)
     {
         XNamespace w = DocxNamespaces.Wordprocessing;
-        string? numFmt = DocxValueReader.WordValue(lvl.Element(w + "numFmt"));
-        ListNumberFormat format = NumberFormat(numFmt);
+        XElement? numFmtElement = lvl.Element(w + "numFmt") ?? AlternateNumFmt(lvl);
+        string? numFmt = DocxValueReader.WordValue(numFmtElement);
+        ListNumberFormat format = numFmt == "custom"
+            ? CustomNumberFormat((string?)numFmtElement?.Attribute(w + "format"))
+            : NumberFormat(numFmt);
 
-        if (numFmt is not null && format == ListNumberFormat.Decimal && numFmt != "decimal" && !reportedFormat)
+        if (numFmt is not null && format == ListNumberFormat.Decimal && numFmt is not ("decimal" or "custom") && !reportedFormat)
         {
             diagnostics?.Add(DocumentDiagnostic.Info(
                 "docx.numbering.format",
@@ -227,9 +232,11 @@ internal sealed class DocxNumbering
             reportedFormat = true;
         }
 
-        // ECMA-376 §17.9.25 makes an absent w:start nought, but LibreOffice
-        // starts such a level at one, as Word's own lists always state.
-        int start = DocxValueReader.TryReadInt(lvl.Element(w + "start")?.Attribute(w + "val"), out int value) ? value : 1;
+        // ECMA-376 §17.9.25 makes an absent w:start nought, and LibreOffice
+        // starts such a level at nought too: FDO74105.docx's list, whose
+        // level states no start, is numbered "0. Zero", "1. One" in 24.2
+        // (ooxmlexport4.cxx testFDO74105 keeps the start unwritten on export).
+        int start = DocxValueReader.TryReadInt(lvl.Element(w + "start")?.Attribute(w + "val"), out int value) ? value : 0;
 
         XElement? lvlText = lvl.Element(w + "lvlText");
         string template = (string?)lvlText?.Attribute(w + "val") ?? (format == ListNumberFormat.Bullet ? string.Empty : "%" + (ilvl + 1) + ".");
@@ -252,6 +259,36 @@ internal sealed class DocxNumbering
             RestartAfter = restartAfter,
         };
     }
+
+    /// <summary>
+    /// The <c>w:numFmt</c> a level states inside an <c>mc:AlternateContent</c>
+    /// block, which is how Word 2010 writes a custom format beside a plain
+    /// fallback for older readers: the branch this reader reads.
+    /// </summary>
+    private static XElement? AlternateNumFmt(XElement lvl)
+    {
+        foreach (XElement alternate in lvl.Elements(DocxNamespaces.MarkupCompatibility + "AlternateContent"))
+        {
+            if (DocxAlternateContent.Branch(alternate)?.Element(DocxNamespaces.Wordprocessing + "numFmt") is XElement numFmt)
+                return numFmt;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// A <c>w:numFmt w:val="custom"</c> level's <c>w:format</c>: the zero-padded
+    /// decimals Word offers, which LibreOffice imports as ARABIC_ZERO3 to
+    /// ARABIC_ZERO5 (odfexport/data/arabic-zero*-numbering.docx), and decimal
+    /// for any other sample format.
+    /// </summary>
+    private static ListNumberFormat CustomNumberFormat(string? sample) => sample switch
+    {
+        "001, 002, 003, ..." => ListNumberFormat.DecimalZero3,
+        "0001, 0002, 0003, ..." => ListNumberFormat.DecimalZero4,
+        "00001, 00002, 00003, ..." => ListNumberFormat.DecimalZero5,
+        _ => ListNumberFormat.Decimal,
+    };
 
     private static LevelIndent? ReadIndent(XElement? ind)
     {

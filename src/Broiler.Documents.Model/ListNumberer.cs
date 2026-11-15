@@ -142,7 +142,9 @@ public sealed class ListNumberer
                 int referenced = template[i + 1] - '1';
                 ListLevel levelStyle = definition.LevelAt(referenced);
                 int number = counters[referenced] ?? starts.LevelAt(referenced).Start;
-                ListNumberFormat format = style.Legal && levelStyle.Format != ListNumberFormat.None
+                ListNumberFormat format = style.Legal && levelStyle.Format is not (ListNumberFormat.None or
+                    ListNumberFormat.DecimalZero or ListNumberFormat.DecimalZero3 or ListNumberFormat.DecimalZero4 or
+                    ListNumberFormat.DecimalZero5)
                     ? ListNumberFormat.Decimal
                     : levelStyle.Format;
                 label.Append(Format(number, format));
@@ -225,8 +227,77 @@ public sealed class ListNumberer
         ListNumberFormat.TianGan => TianGan(value),
         ListNumberFormat.DiZi => DiZi(value),
         ListNumberFormat.KoreanDigital2 => KoreanDigital2(value),
+        ListNumberFormat.DecimalZero3 => ZeroPadded(value, 3),
+        ListNumberFormat.DecimalZero4 => ZeroPadded(value, 4),
+        ListNumberFormat.DecimalZero5 => ZeroPadded(value, 5),
+        ListNumberFormat.EnclosedCircle => EnclosedCircle(value),
+        ListNumberFormat.HebrewNumeral => HebrewNumeral(value),
         _ => value.ToString(CultureInfo.InvariantCulture),
     };
+
+    /// <summary>
+    /// <paramref name="value"/> in decimal, padded with zeros to
+    /// <paramref name="width"/> digits; a longer number is written whole
+    /// (LibreOffice 24.2 writes 1234 for ARABIC_ZERO3).
+    /// </summary>
+    private static string ZeroPadded(int value, int width) =>
+        value >= 0
+            ? value.ToString(CultureInfo.InvariantCulture).PadLeft(width, '0')
+            : value.ToString(CultureInfo.InvariantCulture);
+
+    /// <summary>
+    /// ① to ⑳, ㉑ to ㉟ and ㊱ to ㊿, the circled numbers Unicode has; nought
+    /// and anything past fifty in decimal, as LibreOffice 24.2 writes them.
+    /// </summary>
+    private static string EnclosedCircle(int value) => value switch
+    {
+        >= 1 and <= 20 => ((char)(0x2460 + value - 1)).ToString(),
+        >= 21 and <= 35 => ((char)(0x3251 + value - 21)).ToString(),
+        >= 36 and <= 50 => ((char)(0x32B1 + value - 36)).ToString(),
+        _ => value.ToString(CultureInfo.InvariantCulture),
+    };
+
+    /// <summary>
+    /// A Hebrew numeral from 1 to 999: hundreds, tens and units by letter value,
+    /// with 15 and 16 written טו and טז, and no geresh, as LibreOffice 24.2
+    /// writes them (יא, טו, קכ, תצט, תק). Anything else in decimal.
+    /// </summary>
+    private static string HebrewNumeral(int value)
+    {
+        if (value is < 1 or > 999)
+            return value.ToString(CultureInfo.InvariantCulture);
+
+        const string units = "אבגדהוזחט";
+        const string tens = "יכלמנסעפצ";
+        const string hundreds = "קרשת";
+        var builder = new StringBuilder();
+        int rest = value;
+        while (rest >= 400)
+        {
+            builder.Append('ת');
+            rest -= 400;
+        }
+
+        if (rest >= 100)
+        {
+            builder.Append(hundreds[(rest / 100) - 1]);
+            rest %= 100;
+        }
+
+        if (rest is 15 or 16)
+            return builder.Append('ט').Append(units[rest - 10]).ToString();
+
+        if (rest >= 10)
+        {
+            builder.Append(tens[(rest / 10) - 1]);
+            rest %= 10;
+        }
+
+        if (rest > 0)
+            builder.Append(units[rest - 1]);
+
+        return builder.ToString();
+    }
 
     /// <summary>a ... z, then aa, bb ... zz, then aaa: ECMA-376's <c>lowerLetter</c>, and LibreOffice's.</summary>
     private static string Letters(int value, char first)
@@ -319,7 +390,9 @@ public sealed class ListNumberer
         if (value <= 0)
             return value.ToString(CultureInfo.InvariantCulture);
 
-        const string digits = "〇一二三四五六七八九";
+        // Nought is 零, not 〇: LibreOffice 24.2 numbers the tenth item of a
+        // koreanDigital2 list 一零 (ooxmlexport/data/cjklist44.docx).
+        const string digits = "零一二三四五六七八九";
         string s = value.ToString(CultureInfo.InvariantCulture);
         var sb = new StringBuilder(s.Length);
         foreach (char c in s)
