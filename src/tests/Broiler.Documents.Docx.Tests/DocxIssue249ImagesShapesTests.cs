@@ -204,6 +204,24 @@ public sealed class DocxIssue249ImagesShapesTests
         Assert.Equal(drawn, png is not null);
     }
 
+    [Theory]
+    [InlineData("tile", ImageFillRepeat.Tile)]
+    [InlineData("frame", ImageFillRepeat.Stretch)]
+    public void A_Vml_Picture_Fill_Paints_Its_Picture(string type, ImageFillRepeat repeat)
+    {
+        // tdf78749.docx: a text box tiled with water drops, drawn in one colour.
+        DocumentReadResult result = DocxTestPackage.ReadWithMedia(
+            "<w:p><w:r><w:pict><v:rect xmlns:v=\"urn:schemas-microsoft-com:vml\" " +
+            "style=\"position:absolute;margin-left:66pt;margin-top:74.2pt;width:228pt;height:99pt\">" +
+            "<v:fill r:id=\"rId7\" type=\"" + type + "\"/></v:rect></w:pict></w:r></w:p>",
+            DocxTestPackage.ImageRelationship("rId7", "media/image1.png"),
+            new Dictionary<string, byte[]>(StringComparer.Ordinal) { ["word/media/image1.png"] = DocxTestPackage.OnePixelPng });
+
+        ImageFill picture = Assert.Single(result.Document.Shapes).Fill!.Image!;
+        Assert.Equal(repeat, picture.Repeat);
+        Assert.False(picture.Picture.IsMissingPayload);
+    }
+
     [Fact]
     public void A_Hidden_Picture_Is_Still_Printed()
     {

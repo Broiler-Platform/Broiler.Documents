@@ -2479,6 +2479,23 @@ internal static class DocxReader
             (code, message) => context.Builder.AddDiagnosticOnce(code, message),
             "docx.shape.fill",
             "shape");
+        // A picture fill (v:fill type="tile" or "frame" with r:id): the
+        // picture tiled at its own size or stretched over the box, as the page
+        // background's (DocxVml.ReadBackground). tdf78749.docx's text box is
+        // tiled with water drops in LibreOffice; it was drawn in one colour.
+        if (fill is not null && shape.Element(DocxNamespaces.Vml + "fill") is XElement pictureFill &&
+            ((string?)pictureFill.Attribute("type"))?.Trim() is "tile" or "frame" &&
+            pictureFill.Attribute(DocxNamespaces.Relationships + "id") is not null &&
+            !pictureFill.Attributes().Any(attribute => attribute.Name.LocalName is
+                "size" or "origin" or "position" or "aspect" or "angle" or "alignshape" or "rotate" or
+                "opacity" or "opacity2" or "recolortarget") &&
+            context.Images.ReadFillPicture(pictureFill, context.Relationships, context.Builder.AddDiagnosticOnce) is InlineImage tiled)
+        {
+            fill = fill with
+            {
+                Image = new ImageFill(tiled, (string?)pictureFill.Attribute("type") == "frame" ? ImageFillRepeat.Stretch : ImageFillRepeat.Tile),
+            };
+        }
         RichTextDocument shapeContent = ReadShapeText(shape, context);
         IReadOnlyList<RichTextParagraph> paragraphs = ShapeParagraphs(shapeContent);
         BColor outline = ReadVmlOutline(shape);
