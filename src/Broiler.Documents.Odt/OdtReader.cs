@@ -3375,7 +3375,10 @@ internal static class OdtReader
                 continue;
             }
 
-            if (name == OdtNamespaces.Text + "page-number" || name == OdtNamespaces.Text + "page-count")
+            // loext:page-count-range is LibreOffice's count of the pages its
+            // section spans (tdf71583.odt, "Page count in section: i").
+            if (name == OdtNamespaces.Text + "page-number" || name == OdtNamespaces.Text + "page-count" ||
+                name == OdtNamespaces.LibreOffice + "page-count-range")
             {
                 ReadPageField(element, builder, style, context.Styles.PageNumberFormat);
                 continue;
@@ -4009,7 +4012,7 @@ internal static class OdtReader
     /// </remarks>
     private static void ReadPageField(XElement element, OdtDocumentBuilder builder, InlineStyle style, ListNumberFormat? pageFormat)
     {
-        bool count = element.Name.LocalName == "page-count";
+        bool count = element.Name.LocalName is "page-count" or "page-count-range";
         int adjust = 0;
         if (!count)
         {
@@ -4038,7 +4041,9 @@ internal static class OdtReader
 
         builder.AppendLiteral(value, style with
         {
-            PageField = new PageField(count ? PageFieldKind.PageCount : PageFieldKind.PageNumber, format, adjust),
+            PageField = new PageField(
+                element.Name.LocalName == "page-count-range" ? PageFieldKind.SectionPageCount
+                    : count ? PageFieldKind.PageCount : PageFieldKind.PageNumber, format, adjust),
         });
     }
 

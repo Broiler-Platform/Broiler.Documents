@@ -286,6 +286,18 @@ public sealed class OdtIssue249OdtTextTests
         Assert.Equal("header frame", DocumentCommands.LabelledText(new OdtDocumentCodec().Read(stream).Document));
     }
 
+    [Fact]
+    public void A_Section_Page_Count_Is_Read_As_One()
+    {
+        // tdf71583.odt: loext:page-count-range counts the section's pages.
+        RichTextDocument document = Read(
+            "<text:p>Page count in section: <loext:page-count-range style:num-format=\"i\">i</loext:page-count-range></text:p>");
+
+        Assert.Equal("Page count in section: i", document.Paragraphs[0].Text);
+        Assert.Contains(document.Paragraphs[0].Runs,
+            run => run.Style.PageField is { Kind: PageFieldKind.SectionPageCount, Format: ListNumberFormat.LowerRoman });
+    }
+
     private const string Outline =
         "<text:outline-style style:name=\"Outline\">" +
         "<text:outline-level-style text:level=\"1\" style:num-suffix=\".\" style:num-format=\"1\"/></text:outline-style>";
