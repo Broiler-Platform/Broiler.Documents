@@ -1905,6 +1905,7 @@ internal static class DocxReader
             WrapPolygon = Wrap == ShapeWrap.None ? null : ReadWrapPolygon(anchor),
             BoundedByPage = !context.Builder.InTableCell,
             OffsetXFromColumn = FromColumn(anchor, context),
+            OffsetFromBandParagraph = BandParagraphOffset(anchor, context),
         });
         return true;
     }
@@ -2124,6 +2125,7 @@ internal static class DocxReader
                     WrapMargins = Wrap == ShapeWrap.None ? null : Margins,
                     BoundedByPage = !context.Builder.InTableCell,
                     OffsetXFromColumn = FromColumn(anchor, context),
+                    OffsetFromBandParagraph = BandParagraphOffset(anchor, context) + y,
                 });
             }
             else if (child.Name == DocxNamespaces.WordGroup + "grpSp" && depth < MaxGroupDepth)
@@ -2268,6 +2270,7 @@ internal static class DocxReader
             WrapMargins = Wrap == ShapeWrap.None ? null : Margins,
             BoundedByPage = !context.Builder.InTableCell,
             OffsetXFromColumn = FromColumn(anchor, context),
+            OffsetFromBandParagraph = BandParagraphOffset(anchor, context) + top,
         });
         return true;
     }
@@ -3031,6 +3034,38 @@ internal static class DocxReader
             "A floating DOCX object stated its vertical position against a margin this reader could not place " +
             "on the page; the offset was kept as stated and is measured from its paragraph instead.");
         return (offset, false);
+    }
+
+    /// <summary>
+    /// The offset in points a header or footer object states from the top of
+    /// its paragraph or line (<c>wp:positionV relativeFrom</c> <c>paragraph</c>,
+    /// <c>line</c> or none), for the layout to measure from where the band puts
+    /// that paragraph (<see cref="DocumentShape.OffsetFromBandParagraph"/>);
+    /// null in the body and for any other frame.
+    /// </summary>
+    /// <remarks>
+    /// The reader can only estimate where the paragraph is. LibreOffice stacks a
+    /// footer's paragraphs up from its distance above the page's foot, so a
+    /// one-line footer's paragraph starts a line above that, not at the bottom
+    /// margin: fdo80895.docx's oval, 8.55 points above its footer paragraph,
+    /// is drawn 784 points down an A4 page, not 761.
+    /// </remarks>
+    private static double? BandParagraphOffset(XElement anchor, DocxReadContext context)
+    {
+        // An inline drawing has no offset of its own; one in a table cell is
+        // measured from a cell the band lays out in its flow, where a
+        // floating table is not (tdf105688.docx).
+        if (context.Band == RunningBand.Body || anchor.Name != DocxNamespaces.WordDrawing + "anchor" ||
+            context.Builder.InTableCell || SimplePosition(anchor) is not null)
+            return null;
+
+        string? from = RelativeFrom(anchor, "positionV");
+        if (from is not (null or "paragraph" or "line"))
+            return null;
+        if (context.Page is PageGeometry page && AlignedOrRelativeV(anchor, from, page) is not null)
+            return null;
+
+        return EmuToPoints(PositionOffset(anchor, "positionV"));
     }
 
     /// <summary>

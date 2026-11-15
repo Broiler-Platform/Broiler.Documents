@@ -265,6 +265,16 @@ public sealed class DocumentShape(
     public bool OffsetXFromColumn { get; init; }
 
     /// <summary>
+    /// For a header or footer shape placed against its paragraph, the offset
+    /// the document states from the top of that paragraph, which the layout
+    /// measures from where it lays the paragraph out in the band; null for any
+    /// other shape. <see cref="OffsetY"/> still holds the reader's estimate of
+    /// the offset from the page's top, for whatever needs it before the band
+    /// is laid out.
+    /// </summary>
+    public double? OffsetFromBandParagraph { get; init; }
+
+    /// <summary>
     /// Nonzero for a box read from a drawing group, the same number for every
     /// box of one group; zero for a shape of its own. A reader splits a group
     /// into a shape per box, and this keeps the boxes known as one object:
@@ -429,6 +439,7 @@ public sealed class DocumentShape(
             MinimumWrapRoom = MinimumWrapRoom,
             BoundedByPage = BoundedByPage,
             OffsetXFromColumn = OffsetXFromColumn,
+            OffsetFromBandParagraph = OffsetFromBandParagraph,
             DrawingGroup = DrawingGroup,
         };
 

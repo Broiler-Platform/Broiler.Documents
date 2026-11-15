@@ -73,6 +73,21 @@ public sealed class DocxHeaderShapePlacementTests
         Assert.Equal(8.1, shape.OffsetY, 1);
     }
 
+    [Fact]
+    public void A_Shape_Placed_From_Its_Header_Paragraph_Keeps_That_Offset_For_The_Layout()
+    {
+        DocumentShape shape = ReadHeaderShape("<w:p>" + Box("paragraph", 922020) + "</w:p>");
+
+        Assert.Equal(72.6, shape.OffsetFromBandParagraph!.Value, 1);
+    }
+
+    [Fact]
+    public void A_Shape_Placed_From_The_Page_Or_In_A_Cell_Has_No_Paragraph_Offset()
+    {
+        Assert.Null(ReadHeaderShape("<w:p>" + Box("page", 922020) + "</w:p>").OffsetFromBandParagraph);
+        Assert.Null(ReadHeaderShape(DocxTestPackage.Table(["<w:p>" + Box("paragraph", 102870) + "</w:p>"])).OffsetFromBandParagraph);
+    }
+
     [Theory]
     [InlineData(" hidden=\"1\"", false)]
     [InlineData(" hidden=\"0\"", true)]

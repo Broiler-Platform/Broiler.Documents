@@ -2202,8 +2202,10 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         List<LayoutShape> shapes = PlaceShapes(setup, number, lines);
         if (sectionPaint is not null)
             shapes.AddRange(sectionPaint);
-        shapes.AddRange(PlaceRunningShapes(_running.EffectiveHeaderShapes(selection), setup));
-        shapes.AddRange(PlaceRunningShapes(_running.EffectiveFooterShapes(selection), setup));
+        shapes.AddRange(PlaceRunningShapes(_running.EffectiveHeaderShapes(selection), setup,
+            headerLines, _running.EffectiveHeader(selection)));
+        shapes.AddRange(PlaceRunningShapes(_running.EffectiveFooterShapes(selection), setup,
+            footerLines, _running.EffectiveFooter(selection)));
         shapes = [.. shapes.OrderBy(shape => shape.ZOrder)];
 
         List<LayoutCell> grid = setup.Continuous ? [] : GridLines(frame);
@@ -2508,7 +2510,15 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     /// paragraph to hang one from - a header repeats - so the offset is measured
     /// from the top of the page.
     /// </summary>
-    private List<LayoutShape> PlaceRunningShapes(IReadOnlyList<DocumentShape> shapes, DocumentPageBox setup)
+    /// <remarks>
+    /// A shape placed against its paragraph in the band
+    /// (<see cref="DocumentShape.OffsetFromBandParagraph"/>) hangs from where
+    /// <paramref name="bandLines"/> put that paragraph: the top of its first
+    /// line less the space above it. Running lines carry their paragraph as
+    /// <c>-1 - index</c>.
+    /// </remarks>
+    private List<LayoutShape> PlaceRunningShapes(IReadOnlyList<DocumentShape> shapes, DocumentPageBox setup,
+        IReadOnlyList<LayoutLine>? bandLines = null, IReadOnlyList<RichTextParagraph>? bandParagraphs = null)
     {
         var placed = new List<LayoutShape>();
         foreach (DocumentShape shape in shapes)
@@ -2516,11 +2526,18 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             NoteGrownHeight(shape, setup);
             if (!Draws(shape))
                 continue;
+            double top = shape.OffsetY;
+            if (shape.OffsetFromBandParagraph is double fromParagraph && bandLines is not null && bandParagraphs is not null &&
+                shape.ParagraphIndex >= 0 && shape.ParagraphIndex < bandParagraphs.Count &&
+                bandLines.FirstOrDefault(candidate => candidate.ParagraphIndex == -1 - shape.ParagraphIndex) is LayoutLine anchorLine)
+            {
+                top = anchorLine.Top - Math.Max(0, bandParagraphs[shape.ParagraphIndex].Style.SpacingBefore) + fromParagraph;
+            }
             var bounds = _asCharLines.TryGetValue(shape, out LayoutLine? line)
                 ? new BRect(line.TextAreaLeft, line.Top, BoxWidth(shape), BoxHeight(shape))
                 : new BRect(
                 setup.ContentLeftPoints + (shape.FitsText ? shape.OffsetX + (shape.Width - BoxWidth(shape)) / 2 : shape.OffsetX),
-                shape.OffsetY,
+                top,
                 BoxWidth(shape),
                 BoxHeight(shape));
             if ((bounds.Width <= 0 || bounds.Height <= 0) && !shape.IsRule)
