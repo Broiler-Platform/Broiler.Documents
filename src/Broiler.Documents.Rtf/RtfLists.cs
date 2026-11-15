@@ -166,6 +166,7 @@ internal sealed class RtfLists
         2 => ListNumberFormat.LowerRoman,
         3 => ListNumberFormat.UpperLetter,
         4 => ListNumberFormat.LowerLetter,
+        22 => ListNumberFormat.DecimalZero,
         23 => ListNumberFormat.Bullet,
         255 => ListNumberFormat.None,
         _ => null,

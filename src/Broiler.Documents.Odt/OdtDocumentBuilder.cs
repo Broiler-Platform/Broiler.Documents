@@ -209,10 +209,15 @@ internal sealed class OdtDocumentBuilder(DocumentLimits limits, List<DocumentDia
         AppendCore(text, style);
     }
 
+    /// <summary>True while every run appended is hidden text: a paragraph a field hides.</summary>
+    public bool HidesText { get; set; }
+
     private void AppendCore(string text, InlineStyle style)
     {
         if (style.Revision is null && Revision is not null)
             style = style with { Revision = Revision };
+        if (HidesText)
+            style = style with { Hidden = true };
 
         if (_length >= _limits.MaxRunLength)
         {

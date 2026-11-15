@@ -76,6 +76,87 @@ public enum ListNumberFormat
 
     /// <summary>〇, 一, 二 ... 一〇, 一一 ... 二〇 (Korean Hanja digital).</summary>
     KoreanDigital2,
+
+    /// <summary>001, 002 ... 999, 1000: decimal padded to three digits.</summary>
+    DecimalZero3,
+
+    /// <summary>0001, 0002: decimal padded to four digits.</summary>
+    DecimalZero4,
+
+    /// <summary>00001, 00002: decimal padded to five digits.</summary>
+    DecimalZero5,
+
+    /// <summary>①, ② ... ㊿, then 51: LibreOffice's <c>CIRCLE_NUMBER</c>.</summary>
+    CircledNumber,
+
+    /// <summary>Α, Β, Γ: Greek numerals in capitals (LibreOffice's <c>CHARS_GREEK_UPPER_LETTER</c>).</summary>
+    GreekUpper,
+
+    /// <summary>α, β, γ: Greek numerals in small letters (<c>CHARS_GREEK_LOWER_LETTER</c>).</summary>
+    GreekLower,
+
+    /// <summary>Thai consonants: ก, ข, ค (<c>CHARS_THAI</c>).</summary>
+    Thai,
+
+    /// <summary>Persian letters: آ, ب, پ (<c>CHARS_PERSIAN</c>).</summary>
+    Persian,
+
+    /// <summary>Hebrew numerals: א, ב ... י, יא ... טו (<c>NUMBER_HEBREW</c>).</summary>
+    HebrewNumber,
+
+    /// <summary>㉠, ㉡, ㉢ ... ㉭, then round again (<c>HANGUL_CIRCLED_JAMO_KO</c>).</summary>
+    HangulCircledJamo,
+
+    /// <summary>㉮, ㉯, ㉰ ... ㉻, then round again (<c>HANGUL_CIRCLED_SYLLABLE_KO</c>).</summary>
+    HangulCircledSyllable,
+
+    /// <summary>А, Б ... Я, Аа, Аб: Bulgarian capitals (<c>CHARS_CYRILLIC_UPPER_LETTER_BG</c>).</summary>
+    CyrillicUpperBulgarian,
+
+    /// <summary>а, б ... я, аа, аб: Bulgarian small letters.</summary>
+    CyrillicLowerBulgarian,
+
+    /// <summary>А, Б ... Я, Аа, Бб: Bulgarian capitals repeated past the alphabet.</summary>
+    CyrillicUpperBulgarianRepeated,
+
+    /// <summary>а, б ... я, аа, бб: Bulgarian small letters repeated past the alphabet.</summary>
+    CyrillicLowerBulgarianRepeated,
+
+    /// <summary>А, Б ... Я, Аа, Аб: Russian capitals.</summary>
+    CyrillicUpperRussian,
+
+    /// <summary>а, б ... я, аа, аб: Russian small letters.</summary>
+    CyrillicLowerRussian,
+
+    /// <summary>А, Б ... Я, Аа, Бб: Russian capitals repeated past the alphabet.</summary>
+    CyrillicUpperRussianRepeated,
+
+    /// <summary>а, б ... я, аа, бб: Russian small letters repeated past the alphabet.</summary>
+    CyrillicLowerRussianRepeated,
+
+    /// <summary>А, Б ... Ш, Аа, Аб: Serbian capitals.</summary>
+    CyrillicUpperSerbian,
+
+    /// <summary>а, б ... ш, аа, аб: Serbian small letters.</summary>
+    CyrillicLowerSerbian,
+
+    /// <summary>А, Б ... Ш, Аа, Бб: Serbian capitals repeated past the alphabet.</summary>
+    CyrillicUpperSerbianRepeated,
+
+    /// <summary>а, б ... ш, аа, бб: Serbian small letters repeated past the alphabet.</summary>
+    CyrillicLowerSerbianRepeated,
+
+    /// <summary>А, Б ... Я, Аа, Аб: Ukrainian capitals.</summary>
+    CyrillicUpperUkrainian,
+
+    /// <summary>а, б ... я, аа, аб: Ukrainian small letters.</summary>
+    CyrillicLowerUkrainian,
+
+    /// <summary>А, Б ... Я, Аа, Бб: Ukrainian capitals repeated past the alphabet.</summary>
+    CyrillicUpperUkrainianRepeated,
+
+    /// <summary>а, б ... я, аа, бб: Ukrainian small letters repeated past the alphabet.</summary>
+    CyrillicLowerUkrainianRepeated,
 }
 
 /// <summary>One level of a <see cref="ListDefinition"/>.</summary>

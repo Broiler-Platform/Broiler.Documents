@@ -41,6 +41,9 @@ internal sealed record OdtReadContext(
     public int SoftPageNumber { get; set; } = 1;
     public int TableDepth { get; set; }
     public int HiddenSectionDepth { get; set; }
+
+    /// <summary>True for the document body's own flow: not a header, footer, note or shape's text.</summary>
+    public bool IsBody { get; init; }
     public SectionFootnotes? SectionFootnotes { get; set; }
     public IReadOnlySet<string> LinkedFrameTargets { get; init; } = new HashSet<string>(StringComparer.Ordinal);
     public IReadOnlyDictionary<string, string> Variables { get; init; } =
