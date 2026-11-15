@@ -117,6 +117,14 @@ public sealed class DocxIssue249PaginationTests
     }
 
     [Fact]
+    public void A_Docx_Lets_Proportional_Line_Spacing_Run_Past_The_Bottom_Of_A_Page()
+    {
+        // LibreOffice 24.2 needs room only for the text of the last line on a
+        // DOCX page (calendar3.docx); see DocumentLayoutIssue249PaginationTests.
+        Assert.True(DocxTestPackage.ReadBody(DocxTestPackage.Paragraph("a")).Document.StyleDefaults.ProportionalSpacingRunsPastBottom);
+    }
+
+    [Fact]
     public void Without_The_Setting_A_Break_Ending_The_Document_Is_Still_Dropped()
     {
         DocumentReadResult result = Read(

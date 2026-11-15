@@ -144,6 +144,14 @@ public sealed class LayoutLine : IPaginatedLineArtifact
 
     public double Height { get; internal set; }
 
+    /// <summary>
+    /// The part of <see cref="Height"/> below the text that proportional line
+    /// spacing adds. The last line on a page or in a column may run it past
+    /// the bottom, as the space below a paragraph may, where
+    /// <see cref="DocumentStyleDefaults.ProportionalSpacingRunsPastBottom"/> says so.
+    /// </summary>
+    internal double ProportionalExtra { get; init; }
+
     /// <summary>Visible height within a fixed table row, relative to Top; null leaves the line unclipped.</summary>
     public double? ClipHeight { get; internal set; }
 

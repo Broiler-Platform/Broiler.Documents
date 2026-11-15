@@ -1832,7 +1832,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                         }
                     }
                     int fit = ParagraphPagination.LinesThatFit(lineHeights, lineIndex,
-                        contentBottom - y, style.OrphanLines ?? 0, style.WidowLines ?? 0);
+                        contentBottom - y, style.OrphanLines ?? 0, style.WidowLines ?? 0, BelowText(composed.Lines));
                     if (fit == 0 && (ColumnHasContent() || y > pageTop + 0.01))
                     {
                         regionUnbalanced = true;
@@ -1869,12 +1869,12 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                             line = composed.Lines[lineIndex];
                         }
                         fit = ParagraphPagination.LinesThatFit(lineHeights, lineIndex,
-                            contentBottom - y, style.OrphanLines ?? 0, style.WidowLines ?? 0);
+                            contentBottom - y, style.OrphanLines ?? 0, style.WidowLines ?? 0, BelowText(composed.Lines));
                     }
                     // Impossible constraints on an empty column must never
                     // produce an endless series of blank pages.
                     if (fit == 0)
-                        fit = ParagraphPagination.LinesThatFit(lineHeights, lineIndex, contentBottom - y, 0, 0);
+                        fit = ParagraphPagination.LinesThatFit(lineHeights, lineIndex, contentBottom - y, 0, 0, BelowText(composed.Lines));
                     segmentEnd = lineIndex + Math.Max(1, fit);
                 }
                 y += line.LeadingSkip;
@@ -1901,7 +1901,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
                 // A line that cites a footnote needs room for the note at the
                 // foot of the page as well as for itself.
-                if (y + line.Height > contentBottom - NotesHeight([line]) && (ColumnHasContent() || y > pageTop + 0.01) && !heldByOwnShapes)
+                double room = line.Height - (_styleDefaults.ProportionalSpacingRunsPastBottom ? line.ProportionalExtra : 0);
+                if (y + room > contentBottom - NotesHeight([line]) && (ColumnHasContent() || y > pageTop + 0.01) && !heldByOwnShapes)
                 {
                     // A paragraph that moves on whole takes the shapes anchored
                     // to it along: they are not drawn on the page it left, and
@@ -4448,6 +4449,25 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     }
 
     /// <summary>
+    /// How far each line may run past the bottom of its page or column when it
+    /// is the last there, where the document lets it
+    /// (<see cref="DocumentStyleDefaults.ProportionalSpacingRunsPastBottom"/>):
+    /// the space proportional line spacing adds below its text. Writer only
+    /// needs the text itself to fit, as it lets the space below a paragraph
+    /// run past. Measured with LibreOffice 24.2: a page
+    /// 197.65 points tall holds three lines set double in 32 point type, 78.1
+    /// points apart with the last text ending at 245 points, whether they are
+    /// three paragraphs, the three lines of one, or in columns;
+    /// fdo43573-2-min.docx's first column ends on a line set 1.5
+    /// whose text ends 4.5 points above the bottom margin and whose spacing
+    /// runs 1.75 points past it. calendar3.docx's closing empty paragraph, 32
+    /// points set 1.67, so stays below its table on the one page. Null where
+    /// the whole line has to fit.
+    /// </summary>
+    private double[]? BelowText(List<LayoutLine> lines) =>
+        _styleDefaults.ProportionalSpacingRunsPastBottom ? [.. lines.Select(line => line.ProportionalExtra)] : null;
+
+    /// <summary>
     /// The room a paragraph border's edge takes beside the text: its line and
     /// its distance from the text, or nothing where no line is drawn.
     /// </summary>
@@ -5358,7 +5378,13 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         double baselineOffset = style.LineHeightRule == LineHeightRule.Leading
             ? height - (natural + objectOverhang)
             : 0;
-        return new LayoutLine(pieces, 0, height, ascent + objectOverhang + baselineOffset, paragraphIndex);
+        double proportionalExtra = style.LineHeightRule == LineHeightRule.Proportional
+            ? Math.Max(0, height - Math.Max(imageAscent, natural + objectOverhang))
+            : 0;
+        return new LayoutLine(pieces, 0, height, ascent + objectOverhang + baselineOffset, paragraphIndex)
+        {
+            ProportionalExtra = proportionalExtra,
+        };
     }
 
     /// <summary>

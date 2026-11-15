@@ -122,6 +122,7 @@ internal static class DocxReader
                 KeepWithNextOpeningLines = true,
                 CollapsesParagraphSpacing = styles.HtmlParagraphAutoSpacing,
                 LaysOutBodyParagraphBorders = true,
+                ProportionalSpacingRunsPastBottom = true,
             });
             document = document.WithNoteNumbering(notes.Numbering with { RaisedLabels = notes.LabelsRaised ?? false });
             document = document.WithShowsRevisions(DocxRevisions.Shown(settings.Root));

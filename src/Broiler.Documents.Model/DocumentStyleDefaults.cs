@@ -167,6 +167,21 @@ public sealed record DocumentStyleDefaults
     /// </remarks>
     public bool LaysOutBodyParagraphBorders { get; init; }
 
+    /// <summary>
+    /// Whether the space proportional line spacing adds below a line's text may
+    /// run past the bottom of the page or column the line ends, as the space
+    /// below a paragraph may: only the text itself has to fit there.
+    /// </summary>
+    /// <remarks>
+    /// Set by the DOCX reader, as LibreOffice 24.2 lays a DOCX out: a page
+    /// 197.65 points tall holds three lines set double in 32 point type, the
+    /// last one's text ending at 245 points. An ODT LibreOffice wrote before
+    /// it put that space below every line can carry it above the text of a
+    /// paragraph's later lines (tdf172233_linespacingGap.odt), where it has to
+    /// fit, so ODT keeps the whole line.
+    /// </remarks>
+    public bool ProportionalSpacingRunsPastBottom { get; init; }
+
     /// <summary>Keep a heading with the opening lines of its splittable successor.</summary>
     public bool KeepWithNextOpeningLines { get; init; }
 
@@ -224,7 +239,8 @@ public sealed record DocumentStyleDefaults
     public bool IsDefault =>
         FontSizePoints == FallbackFontSizePoints && FontFamily is null && !WidensSpaceRuns && !ShrinksJustifiedLines &&
         !TabsOverMargin && !UndecoratedLinks && WidowOrphanLines == 0 && !PreserveOpeningParagraphSpacing &&
-        !KeepWithNextOpeningLines && !CollapsesParagraphSpacing && !LaysOutBodyParagraphBorders;
+        !KeepWithNextOpeningLines && !CollapsesParagraphSpacing && !LaysOutBodyParagraphBorders &&
+        !ProportionalSpacingRunsPastBottom;
 
     /// <summary>
     /// What <see cref="WidensSpaceRuns"/> adds to the width of
