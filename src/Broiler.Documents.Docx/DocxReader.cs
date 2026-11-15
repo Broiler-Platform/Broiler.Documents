@@ -977,7 +977,7 @@ internal static class DocxReader
         ReadParagraphChildren(paragraph.Elements(), context, inherited);
         if (context.Sections is not null && DocxSections.EndsSection(paragraph))
             context.Builder.TrimSectionParagraphEnd();
-        else if (context.Builder.JoinsFieldCodeParagraph())
+        else if (context.Builder.JoinsFieldCodeParagraph(NextBlockIsParagraph(paragraph)))
             return;
         context.Builder.ApplyContextualSpacing(
             (string.IsNullOrEmpty(paragraphStyleId) ? context.Styles.DefaultParagraphStyleId : paragraphStyleId) ?? string.Empty,
@@ -986,6 +986,17 @@ internal static class DocxReader
             context.Builder.ApplyIncreasedAnchoredObjectSpacing(placement.ContentWidth);
         context.Builder.FinishParagraph();
     }
+
+    /// <summary>
+    /// Whether the block after <paramref name="paragraph"/> in its own container
+    /// (the body, a cell, a text box) is a paragraph rather than a table, a
+    /// content control or the end of the container. Range marks between them,
+    /// such as bookmarks, are not blocks.
+    /// </summary>
+    private static bool NextBlockIsParagraph(XElement paragraph) =>
+        paragraph.ElementsAfterSelf().FirstOrDefault(element => element.Name.Namespace != DocxNamespaces.Wordprocessing ||
+            element.Name.LocalName is not ("bookmarkStart" or "bookmarkEnd" or "proofErr" or "permStart" or "permEnd" or
+                "commentRangeStart" or "commentRangeEnd"))?.Name == DocxNamespaces.Wordprocessing + "p";
 
     /// <summary>
     /// Whether <c>w:contextualSpacing</c> is on for the paragraph: its own

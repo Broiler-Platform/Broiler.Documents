@@ -600,17 +600,26 @@ internal sealed class DocxDocumentBuilder(
     /// table cell, where the paragraphs belong to the cell, and not for more than
     /// a bounded run of paragraphs, so a field whose instruction never ends does
     /// not fold the rest of the document into one paragraph.
+    /// <para>
+    /// A mark in the saved result of a <c>REF</c> field is held open the same
+    /// way (<see cref="DocxFields.InReferenceResult"/>), where
+    /// <paramref name="nextIsParagraph"/> says the next block of the same text
+    /// flow is a paragraph: in a cell too, since that paragraph is the cell's.
+    /// A result that runs into a table is left as it is.
+    /// </para>
     /// </summary>
-    public bool JoinsFieldCodeParagraph()
+    public bool JoinsFieldCodeParagraph(bool nextIsParagraph = false)
     {
-        if (!Fields.InCode)
+        bool inCode = Fields.InCode;
+        bool inReference = !inCode && nextIsParagraph && Fields.InReferenceResult;
+        if (!inCode && !inReference)
         {
             (_joinedParagraphs, _joinGaveUp) = (0, false);
             return false;
         }
         if (_joinedParagraphs >= MaxJoinedParagraphs)
             _joinGaveUp = true;
-        if (InTableCell || _pageBreakSeen || _joinGaveUp)
+        if ((InTableCell && !inReference) || _pageBreakSeen || _joinGaveUp)
             return false;
 
         _joinedParagraphs++;

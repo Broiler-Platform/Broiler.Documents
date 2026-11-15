@@ -82,6 +82,16 @@ internal sealed class DocxFields
     /// </summary>
     public bool InCode => _open.Exists(static open => !open.Separated);
 
+    /// <summary>
+    /// Whether what is being read is the saved result of a <c>REF</c> field.
+    /// LibreOffice imports the field as a reference text field, one character
+    /// of its paragraph, so a paragraph mark in its result is not a paragraph
+    /// break: line-break-in-ref.docx's "Text1" result and the "Text2" after the
+    /// field's end are one line in LibreOffice 24.2's text export, and so are
+    /// tdf171383_refFieldInCell.docx's three result paragraphs in a cell.
+    /// </summary>
+    public bool InReferenceResult => _open.Exists(static open => open.Separated && open.Reference);
+
     public static bool IsHiddenResult(string instruction) =>
         Tokens(instruction) is [string name, ..] && name.Equals("SET", StringComparison.OrdinalIgnoreCase);
 
@@ -115,6 +125,8 @@ internal sealed class DocxFields
                     _open[^1].PageStyle = runStyle with { PageField = separated };
                 _open[^1].TableOfContents = Tokens(_open[^1].Code.ToString()) is [string name, ..] &&
                     name.Equals("TOC", StringComparison.OrdinalIgnoreCase);
+                _open[^1].Reference = Tokens(_open[^1].Code.ToString()) is [string first, ..] &&
+                    first.Equals("REF", StringComparison.OrdinalIgnoreCase);
                 if (!_open[^1].HasNestedField && LibreOfficeIfResult(_open[^1].Code.ToString()) is string shown)
                 {
                     _open[^1].Recalculated = true;
@@ -406,6 +418,9 @@ internal sealed class DocxFields
 
         public bool TableOfContents { get; set; }
         public bool HiddenResult { get; set; }
+
+        /// <summary>The field is a <c>REF</c>, which LibreOffice imports as a reference text field.</summary>
+        public bool Reference { get; set; }
 
         /// <summary>A field begins inside this one's instruction.</summary>
         public bool HasNestedField { get; set; }
