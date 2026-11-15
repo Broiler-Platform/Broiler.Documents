@@ -109,26 +109,8 @@ internal sealed class OdtStyles : IOdtImageDiagnostics
 
         string size = level switch { 1 => "130%", 2 => "115%", 3 => "101%", 4 => "95%", _ => "85%" };
         string above = level switch { 1 => "12pt", 2 => "10pt", 3 => "7pt", _ => "6pt" };
-        // Its parent is Writer's built-in Heading where the document has none:
-        // the default heading face, Liberation Sans, at 14 pt, kept with the
-        // next paragraph (IndexElementsInHiddenSections.fodt).
-        var heading = new StyleKey(ParagraphFamily, "Heading");
-        if (!_styles.ContainsKey(heading))
-        {
-            _styles[heading] = new StyleDefinition(
-                "Heading",
-                _styles.ContainsKey(new StyleKey(ParagraphFamily, DefaultParagraphStyleName)) ? DefaultParagraphStyleName : null,
-                new XElement(OdtNamespaces.Style + "paragraph-properties",
-                    new XAttribute(OdtNamespaces.Fo + "margin-top", "12pt"),
-                    new XAttribute(OdtNamespaces.Fo + "margin-bottom", "6pt"),
-                    new XAttribute(OdtNamespaces.Fo + "keep-with-next", "always")),
-                new XElement(OdtNamespaces.Style + "text-properties",
-                    new XAttribute(OdtNamespaces.Fo + "font-family", "Liberation Sans"),
-                    new XAttribute(OdtNamespaces.Fo + "font-size", "14pt")),
-                null,
-                null);
-            _builtInHeadings++;
-        }
+        // Its parent is Writer's built-in Heading where the document has none.
+        AddBuiltInHeading();
         _styles[key] = new StyleDefinition(
             name,
             "Heading",
@@ -142,6 +124,34 @@ internal sealed class OdtStyles : IOdtImageDiagnostics
             null);
         _builtInHeadings++;
         return name;
+    }
+
+    /// <summary>
+    /// Adds Writer's built-in <c>Heading</c> paragraph style when the document
+    /// does not define one (DocumentStylePoolManager,
+    /// <c>RES_POOLCOLL_HEADLINE_BASE</c>): a child of <c>Standard</c> in the
+    /// default heading face, Liberation Sans, at 14 pt, 12 pt above and 6 pt
+    /// below, kept with the next paragraph (IndexElementsInHiddenSections.fodt).
+    /// </summary>
+    private void AddBuiltInHeading()
+    {
+        var heading = new StyleKey(ParagraphFamily, "Heading");
+        if (_styles.ContainsKey(heading))
+            return;
+
+        _styles[heading] = new StyleDefinition(
+            "Heading",
+            _styles.ContainsKey(new StyleKey(ParagraphFamily, DefaultParagraphStyleName)) ? DefaultParagraphStyleName : null,
+            new XElement(OdtNamespaces.Style + "paragraph-properties",
+                new XAttribute(OdtNamespaces.Fo + "margin-top", "12pt"),
+                new XAttribute(OdtNamespaces.Fo + "margin-bottom", "6pt"),
+                new XAttribute(OdtNamespaces.Fo + "keep-with-next", "always")),
+            new XElement(OdtNamespaces.Style + "text-properties",
+                new XAttribute(OdtNamespaces.Fo + "font-family", "Liberation Sans"),
+                new XAttribute(OdtNamespaces.Fo + "font-size", "14pt")),
+            null,
+            null);
+        _builtInHeadings++;
     }
 
     /// <summary>The number of list styles that were loaded.</summary>
@@ -919,6 +929,18 @@ internal sealed class OdtStyles : IOdtImageDiagnostics
         string? current = styleName;
         while (!string.IsNullOrEmpty(current))
         {
+            // A parent named Writer's Heading that the document does not define
+            // is the built-in one: Writer creates the pool style a parent name
+            // stands for on demand (SwDocStyleSheet::SetParent, lcl_FindParaFormat
+            // with bCreate). tdf160518_*.fodt's Heading 1 is drawn in Liberation
+            // Sans Bold, 12 pt above and 6 pt below.
+            if (chain.Count > 0 &&
+                string.Equals(family, ParagraphFamily, StringComparison.Ordinal) &&
+                string.Equals(current, "Heading", StringComparison.Ordinal))
+            {
+                AddBuiltInHeading();
+            }
+
             if (!_styles.TryGetValue(new StyleKey(family, current), out StyleDefinition? style))
             {
                 // Only the name the content actually referenced is worth
