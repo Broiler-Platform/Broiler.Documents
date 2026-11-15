@@ -337,7 +337,17 @@ public static class DocumentCommands
     /// word.
     /// </para>
     /// </remarks>
-    internal static string LabelledText(RichTextDocument document, bool joinsTableRows = true)
+    internal static string LabelledText(RichTextDocument document, bool joinsTableRows = true) =>
+        LabelledText(document, joinsTableRows, pageNumber: null);
+
+    /// <param name="document">The document, or a frame's text as one.</param>
+    /// <param name="joinsTableRows">Whether a table row is one line, its cells separated by tabs.</param>
+    /// <param name="pageNumber">
+    /// For a header or footer frame's text, the number of the page the frame is
+    /// drawn on, which its page-number fields show, or 0 when no page draws it;
+    /// null to write every field's saved text.
+    /// </param>
+    private static string LabelledText(RichTextDocument document, bool joinsTableRows, int? pageNumber)
     {
         var numberer = new ListNumberer();
         var notes = new NoteNumberer(document.NoteNumbering);
@@ -370,18 +380,15 @@ public static class DocumentCommands
             {
                 body = [.. Enumerable.Range(floating[0].ParagraphIndex, floating[0].ParagraphCount)];
             }
-            // A frame set as a character in the header counts as well
-            // (table-in-frame-in-table-in-header-base.odt, whose only text is
-            // one in the header's table). A floating header shape does not: a
-            // text watermark is a drawing, not a frame, to LibreOffice's export.
-            else if (document.Shapes.Where(shape => !shape.IsPageAnchored && (!shape.IsCustomShape || shape.Tables.Count > 0))
-                .Concat(document.RunningContent.HeaderShapes(PageSelection.Default)
-                    .Concat(document.RunningContent.FooterShapes(PageSelection.Default))
-                    .Where(shape => shape.IsAsCharacter && !shape.IsCustomShape))
-                .FirstOrDefault(shape => shape.HasText) is DocumentShape only)
+            // Otherwise it is the first shape LibreOffice made, whatever it is:
+            // the export looks at that one only, and writes nothing when it is
+            // a drawing rather than a frame with a text of its own.
+            else if (FirstExportedShape(document) is (DocumentShape only, var band))
             {
-                return LabelledText(RichTextDocument.FromParagraphs(only.Paragraphs).WithTables(only.Tables)
-                    .WithNoteNumbering(document.NoteNumbering), joinsTableRows);
+                return IsTextFrame(only)
+                    ? LabelledText(RichTextDocument.FromParagraphs(only.Paragraphs).WithTables(only.Tables)
+                        .WithNoteNumbering(document.NoteNumbering), joinsTableRows, FramePageNumber(document, band))
+                    : string.Empty;
             }
         }
 
@@ -410,6 +417,8 @@ public static class DocumentCommands
                 int length = Math.Min(run.Length, paragraph.Length - offset);
                 if (run.Style.Note is DocumentNote note)
                     builder.Append(notes.Label(note));
+                else if (pageNumber is int number && run.Style.PageField is { Kind: PageFieldKind.PageNumber } field)
+                    builder.Append((number > 0 ? field.Text(number, null) : null) ?? "0");
                 else if (!run.Style.IsImage)
                     builder.Append(paragraph.Text, offset, length);
                 offset += length;
@@ -418,6 +427,78 @@ public static class DocumentCommands
 
         return builder.ToString();
     }
+
+    /// <summary>
+    /// The shape LibreOffice's text export finds first among the document's
+    /// frames (<c>GetSpzFrameFormats()[0]</c> in <c>SwASCWriter::WriteStream</c>),
+    /// or null when there is none.
+    /// </summary>
+    /// <remarks>
+    /// That list is in the order the import made its formats: the body's
+    /// shapes first, then those of the headers and footers, which a DOCX's
+    /// closing <c>w:sectPr</c> names after the body's text, in the order Word
+    /// writes the references: even header, default header, even footer,
+    /// default footer, first-page header, first-page footer. An empty first
+    /// one is not skipped: a rectangle without text ahead of a text box
+    /// (fdo66688.docx) leaves the export empty.
+    /// </remarks>
+    private static (DocumentShape Shape, PageSelection? Band)? FirstExportedShape(RichTextDocument document)
+    {
+        RunningContent running = document.RunningContent;
+        (IReadOnlyList<DocumentShape> Shapes, PageSelection? Band)[] lists =
+        [
+            ([.. document.Shapes.Where(shape => !shape.IsPageAnchored)], null),
+            (running.HeaderShapes(PageSelection.Even), PageSelection.Even),
+            (running.HeaderShapes(PageSelection.Default), PageSelection.Default),
+            (running.FooterShapes(PageSelection.Even), PageSelection.Even),
+            (running.FooterShapes(PageSelection.Default), PageSelection.Default),
+            (running.HeaderShapes(PageSelection.First), PageSelection.First),
+            (running.FooterShapes(PageSelection.First), PageSelection.First),
+        ];
+        if (lists.FirstOrDefault(list => list.Shapes.Count > 0) is not { Shapes: { } shapes, Band: var band })
+            return null;
+
+        // A drawing group's text boxes are made as the group is read, before
+        // the group itself is added, so the group's first text box comes
+        // first (dml-groupshape-runfonts.docx, wpg-nested.docx).
+        DocumentShape first = shapes[0];
+        return (first.DrawingGroup == 0
+            ? first
+            : shapes.FirstOrDefault(shape => shape.DrawingGroup == first.DrawingGroup && IsTextFrame(shape)) ?? first, band);
+    }
+
+    /// <summary>
+    /// The number of the page a frame of the header or footer
+    /// <paramref name="band"/> is drawn on in a document whose body is one
+    /// empty paragraph, so one page; 0 when that page draws another band, or
+    /// null for a frame of the body.
+    /// </summary>
+    /// <remarks>
+    /// A page-number field holds the number of the page it was last formatted
+    /// on, and a frame of a band no page draws is never formatted: LibreOffice
+    /// 24.2 writes "0" for the <c>PAGE</c> field of a default footer's frame
+    /// when the section's first page has a footer of its own
+    /// (tdf112443.docx), and "1" without <c>w:titlePg</c> (tdf112446_frameStyle.docx).
+    /// </remarks>
+    private static int? FramePageNumber(RichTextDocument document, PageSelection? band)
+    {
+        if (band is not PageSelection selection)
+            return null;
+
+        PageSelection firstPage = document.RunningContent.DifferentFirstPage ? PageSelection.First : PageSelection.Default;
+        return selection == firstPage
+            ? Math.Max(1, document.Sections.Count > 0 ? document.Sections[0].PageNumberStart ?? 1 : 1)
+            : 0;
+    }
+
+    /// <summary>
+    /// Whether LibreOffice imports <paramref name="shape"/> as a frame whose
+    /// text its export writes: a text frame or a shape's text box. A custom or
+    /// grouped drawing, a WordArt string or a picture is a drawing object to
+    /// it, whose text, if any, is the drawing's own (a text watermark).
+    /// </summary>
+    private static bool IsTextFrame(DocumentShape shape) =>
+        shape.HasText && !shape.StretchesTextToBox && (!shape.IsCustomShape || shape.Tables.Count > 0);
 
     // Writer's text export separates table cells with tabs and rows with
     // newlines since LibreOffice 24.8 (tdf#144576, SwASCWriter::WriteTable).

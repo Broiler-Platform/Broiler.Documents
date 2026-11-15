@@ -95,6 +95,23 @@ public sealed class DocxShapeGroupTests
     }
 
     [Fact]
+    public void A_Groups_Boxes_Are_Marked_As_One_Drawing_Group()
+    {
+        // LibreOffice imports a group as one drawing, its text boxes as frames
+        // of their own; the text export needs to know the boxes belong together.
+        string group = Group(
+            Transform(0, 0, 2540000, 1270000, 0, 0, 2540000, 1270000),
+            Box("2", 0, 0, 2540000, 1270000, "007929") + Box("3", 0, 0, 1270000, 635000, "5EAD35"));
+        RichTextDocument document = Read(group + group).Document;
+
+        Assert.Equal(4, document.Shapes.Count);
+        Assert.All(document.Shapes, shape => Assert.NotEqual(0, shape.DrawingGroup));
+        Assert.Equal(document.Shapes[0].DrawingGroup, document.Shapes[1].DrawingGroup);
+        Assert.Equal(document.Shapes[2].DrawingGroup, document.Shapes[3].DrawingGroup);
+        Assert.NotEqual(document.Shapes[0].DrawingGroup, document.Shapes[2].DrawingGroup);
+    }
+
+    [Fact]
     public void Maps_Each_Box_Through_The_Groups_Child_Space()
     {
         // The group draws child space (1000, 2000)-(1400, 2200) into its 200 by

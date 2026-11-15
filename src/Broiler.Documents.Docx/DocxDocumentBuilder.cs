@@ -780,6 +780,24 @@ internal sealed class DocxDocumentBuilder(
 
     public void AddShape(DocumentShape shape) => _shapes.Add(shape);
 
+    /// <summary>How many shapes have been added so far.</summary>
+    public int ShapeCount => _shapes.Count;
+
+    private int _drawingGroups;
+
+    /// <summary>
+    /// Marks the shapes added from <paramref name="firstShape"/> on as the boxes
+    /// of one drawing group (<see cref="DocumentShape.DrawingGroup"/>).
+    /// </summary>
+    public void MarkDrawingGroup(int firstShape)
+    {
+        if (firstShape >= _shapes.Count)
+            return;
+        int group = ++_drawingGroups;
+        for (int i = Math.Max(0, firstShape); i < _shapes.Count; i++)
+            _shapes[i] = _shapes[i].InDrawingGroup(group);
+    }
+
     public RichTextDocument Build()
     {
         // A part that ends inside a field's instruction still ends its paragraph.

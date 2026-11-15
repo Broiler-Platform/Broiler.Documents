@@ -265,6 +265,23 @@ public sealed class DocumentShape(
     public bool OffsetXFromColumn { get; init; }
 
     /// <summary>
+    /// Nonzero for a box read from a drawing group, the same number for every
+    /// box of one group; zero for a shape of its own. A reader splits a group
+    /// into a shape per box, and this keeps the boxes known as one object:
+    /// LibreOffice imports the group as one drawing whose text boxes are frames
+    /// of their own.
+    /// </summary>
+    public int DrawingGroup { get; private set; }
+
+    /// <summary>Creates a copy of this shape as a box of the drawing group <paramref name="drawingGroup"/>.</summary>
+    public DocumentShape InDrawingGroup(int drawingGroup)
+    {
+        DocumentShape copy = WithParagraphIndex(ParagraphIndex);
+        copy.DrawingGroup = drawingGroup;
+        return copy;
+    }
+
+    /// <summary>
     /// Where the shape sits among the other shapes: a higher number draws later,
     /// and therefore on top.
     /// </summary>
@@ -412,6 +429,7 @@ public sealed class DocumentShape(
             MinimumWrapRoom = MinimumWrapRoom,
             BoundedByPage = BoundedByPage,
             OffsetXFromColumn = OffsetXFromColumn,
+            DrawingGroup = DrawingGroup,
         };
 
     /// <summary>The shape's own text, empty when it holds none.</summary>

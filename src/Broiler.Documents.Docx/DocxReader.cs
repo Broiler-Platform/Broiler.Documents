@@ -2059,7 +2059,9 @@ internal static class DocxReader
             childY);
 
         int read = 0;
+        int firstShape = context.Builder.ShapeCount;
         ReadGroupChildren(group, frame, anchor, context, ref read, depth: 0);
+        context.Builder.MarkDrawingGroup(firstShape);
         return read > 0;
     }
 
