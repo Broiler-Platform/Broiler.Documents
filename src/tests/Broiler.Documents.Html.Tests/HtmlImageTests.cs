@@ -67,6 +67,27 @@ public sealed class HtmlImageTests
     }
 
     [Fact]
+    public void A_Percentage_Width_Alone_Leaves_The_Height_At_The_Pictures_Own()
+    {
+        // tdf122789.html: LibreOffice draws <img width="70%"> as wide as 70% of
+        // the text area and as tall as the picture's own pixels, not in
+        // proportion. A pixel width alone keeps the proportion (no height here).
+        string html = $"<p><img src=\"{SamplePngDataUri}\" width=\"50%\"></p>" +
+            $"<p><img src=\"{SamplePngDataUri}\" width=\"96\"></p>";
+
+        DocumentReadResult result = ReadResult(html);
+        InlineImage? shared = result.Document.Paragraphs[0].StyleAt(0).Image;
+        InlineImage? pixels = result.Document.Paragraphs[1].StyleAt(0).Image;
+
+        Assert.NotNull(shared);
+        Assert.Equal((PageGeometry.A4.Width - PageGeometry.A4.MarginLeft - PageGeometry.A4.MarginRight) / 2, shared.Width!.Value, 6);
+        Assert.Equal(0.75, shared.Height);
+        Assert.NotNull(pixels);
+        Assert.Equal(72.0, pixels.Width);
+        Assert.Null(pixels.Height);
+    }
+
+    [Fact]
     public void Image_Dimensions_Are_Read_From_Html_Attributes()
     {
         // Attribute numbers mean px at 96 DPI: 96px = 72pt, 48px = 36pt.

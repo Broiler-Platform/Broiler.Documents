@@ -24,11 +24,13 @@ internal readonly record struct OdsCellAppearance(BColor Fill, CellBorders Borde
         return new OdsCellAppearance(
             ReadColor((string?)cell?.Attribute(Fo + "background-color")),
             new CellBorders(Edge("left"), Edge("top"), Edge("right"), Edge("bottom")),
+            // Calc's standard vertical alignment, which "automatic" and an
+            // unstated one mean, sets the text at the foot of the cell.
             (string?)cell?.Attribute(Style + "vertical-align") switch
             {
                 "middle" => CellVerticalAlignment.Center,
-                "bottom" => CellVerticalAlignment.Bottom,
-                _ => CellVerticalAlignment.Top,
+                "top" => CellVerticalAlignment.Top,
+                _ => CellVerticalAlignment.Bottom,
             },
             (string?)paragraph?.Attribute(Fo + "text-align") switch
             {
@@ -55,8 +57,8 @@ internal readonly record struct OdsCellAppearance(BColor Fill, CellBorders Borde
         var cell = new XElement(Style + "table-cell-properties",
             Alignment == TextAlignment.Left ? null : new XAttribute(Style + "text-align-source", "fix"),
             Fill.A > 0 ? new XAttribute(Fo + "background-color", Color(Fill)) : null,
-            Vertical == CellVerticalAlignment.Top ? null :
-                new XAttribute(Style + "vertical-align", Vertical == CellVerticalAlignment.Center ? "middle" : "bottom"),
+            Vertical == CellVerticalAlignment.Bottom ? null :
+                new XAttribute(Style + "vertical-align", Vertical == CellVerticalAlignment.Center ? "middle" : "top"),
             WriteBorder("left", Borders.Left), WriteBorder("top", Borders.Top),
             WriteBorder("right", Borders.Right), WriteBorder("bottom", Borders.Bottom));
         return cell.HasAttributes ? cell : null;

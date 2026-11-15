@@ -476,6 +476,20 @@
       "samples": ["layout/data/tdf165094.fodt"],
       "evidence": "Forty-five paragraphs fill most of page one; then a hidden paragraph names the Style1 page style with page number 5, and a table follows. The pinned 24.2 PDF has one page: the table follows paragraph 45 under the first page's 'first' header, and the page style change is lost. The fix ('do not skip empty page because of wrong page descriptor', master 2025-05-26, first released in 25.8) explains that Writer's initial layout put an automatic break before paragraph 26 and the manual break before the hidden paragraph, and that moving the content back skipped the page with the new style in SwFrame::WrongPageDesc, so the break was ignored. It came with this sample, whose table text says it must be after the page break, on a page with style Style1 and number 5, and a layout test that asserts it. broilerdoc draws the fixed layout: two pages, the table on the second under the 'first (Style1)' header. Cut-down copies converted with LibreOffice 24.2.7.2 show the defect depends on the page style: with a plain fo:break-before on the hidden paragraph instead, 24.2 does break the page. The text export holds the same text either way.",
       "reference": "docs/notes/office-issue-242-odt-layout.md"
+    },
+    {
+      "id": "tdf124339-nested-list-mixed-type",
+      "bug": "tdf#124339",
+      "fixedIn": "26.2",
+      "fixCommits": [
+        "0d9010656e3f75f6a88f6478ad7e24520119a9d3",
+        "d9a14b9b3eb39e1636bf69b77bc9945234bcbc5d"
+      ],
+      "upstreamTests": ["sw/qa/extras/htmlimport/htmlimport.cxx testNestedListMixedType"],
+      "axes": ["text"],
+      "samples": ["htmlimport/data/nested-list-mixed-type.html"],
+      "evidence": "An outer <ol> holds two items; the first nests an <ol>, the second a <ul>. The pinned 24.2 text export numbers the bullet list '1. Bullet 1' and '2. Bullet 2': its HTML import kept one numbering rule for the whole list hierarchy and never changed a level's type once set, so the <ul> took the sibling <ol>'s arabic numbering. The fix ('tdf#124339 fix HTML import of nested lists with mixed ol/ul types', master commit 0d901065, on libreoffice-26-2 as d9a14b9b and first released in 26.2.4) starts a new rule when a nested list's type conflicts with its level's and came with this sample and a test asserting 'Ordered 1' is arabic and 'Bullet 1' a character bullet. broilerdoc reads the <ul> as bullets. The pixel check passes either way: the labels differ by a few glyphs.",
+      "reference": "docs/notes/office-issue-249-misc-ods-html-pdf.md"
     }
   ]
 }
