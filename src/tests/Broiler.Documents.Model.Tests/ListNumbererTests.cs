@@ -108,8 +108,44 @@ public sealed class ListNumbererTests
     [InlineData(ListNumberFormat.LowerRoman, 14, "xiv")]
     [InlineData(ListNumberFormat.UpperRoman, 1999, "MCMXCIX")]
     [InlineData(ListNumberFormat.None, 3, "")]
+    // LibreOffice 24.2's ARABIC_ZERO3 to ARABIC_ZERO5, CIRCLE_NUMBER and
+    // NUMBER_HEBREW, as its text export writes them for cut-down copies of
+    // arabic-zero3-numbering.docx, numbering-circle.docx and FDO74106.docx.
+    [InlineData(ListNumberFormat.DecimalZero3, 1, "001")]
+    [InlineData(ListNumberFormat.DecimalZero3, 1234, "1234")]
+    [InlineData(ListNumberFormat.DecimalZero4, 12, "0012")]
+    [InlineData(ListNumberFormat.DecimalZero5, 1, "00001")]
+    [InlineData(ListNumberFormat.CircledNumber, 0, "0")]
+    [InlineData(ListNumberFormat.CircledNumber, 1, "①")]
+    [InlineData(ListNumberFormat.CircledNumber, 20, "⑳")]
+    [InlineData(ListNumberFormat.CircledNumber, 35, "㉟")]
+    [InlineData(ListNumberFormat.CircledNumber, 50, "㊿")]
+    [InlineData(ListNumberFormat.CircledNumber, 51, "51")]
+    [InlineData(ListNumberFormat.HebrewNumber, 1, "א")]
+    [InlineData(ListNumberFormat.HebrewNumber, 11, "יא")]
+    [InlineData(ListNumberFormat.HebrewNumber, 15, "טו")]
+    [InlineData(ListNumberFormat.HebrewNumber, 16, "טז")]
+    [InlineData(ListNumberFormat.HebrewNumber, 120, "קכ")]
+    [InlineData(ListNumberFormat.HebrewNumber, 499, "תצט")]
+    [InlineData(ListNumberFormat.HebrewNumber, 500, "תק")]
     public void Each_Format_Writes_Its_Number(ListNumberFormat format, int value, string expected) =>
         Assert.Equal(expected, ListNumberer.Format(value, format));
+
+    [Fact]
+    public void A_Legal_Level_Keeps_A_Zero_Padded_Level_Padded()
+    {
+        // listWithLgl.docx: a decimalZero level under isLgl is "Sect 1.01" in
+        // LibreOffice 24.2, and an upper-Roman chapter turned decimalZero
+        // reads "01.01".
+        var definition = new ListDefinition(
+        [
+            new ListLevel { Template = "%1", Format = ListNumberFormat.UpperRoman },
+            new ListLevel { Template = "%1.%2", Format = ListNumberFormat.DecimalZero, Legal = true },
+        ]);
+        var numberer = new ListNumberer();
+
+        Assert.Equal(["I", "1.01"], Labels(numberer, At(definition, 0), At(definition, 1)));
+    }
 
     [Fact]
     public void A_Legal_Level_Writes_The_Levels_Above_It_In_Decimal()

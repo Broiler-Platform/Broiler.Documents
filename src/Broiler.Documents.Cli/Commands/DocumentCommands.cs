@@ -311,7 +311,9 @@ public static class DocumentCommands
     /// <remarks>
     /// Lists known only by their kind use the same fallback labels as the
     /// renderer. A note's citation is its label too, as LibreOffice
-    /// writes it, and the note's own text is not part of the body's.
+    /// writes it, and the note's own text is not part of the body's. Nor are
+    /// the characters that draw a form control, which LibreOffice imports as
+    /// a drawn control (<see cref="InlineStyle.IsFormControl"/>).
     /// <para>
     /// The text in a shape is not the body's either. LibreOffice's export walks
     /// the body's paragraphs and nothing anchored to them (wrtasc.cxx,
@@ -337,27 +339,16 @@ public static class DocumentCommands
     /// word.
     /// </para>
     /// </remarks>
-    /// <summary>
-    /// Whether the document's first drawing - its first shape together with the
-    /// shapes after it that share a stated stacking order, as a group's do - has
-    /// no text of its own.
-    /// </summary>
-    private static bool FirstDrawingHasNoText(IReadOnlyList<DocumentShape> shapes)
-    {
-        if (shapes.Count == 0)
-            return false;
-        DocumentShape first = shapes[0];
-        int end = 1;
-        if (first.ZOrder > 0)
-            while (end < shapes.Count && shapes[end].ZOrder == first.ZOrder)
-                end++;
-        for (int i = 0; i < end; i++)
-            if (shapes[i].HasText || shapes[i].Tables.Count > 0)
-                return false;
-        return true;
-    }
+    internal static string LabelledText(RichTextDocument document, bool joinsTableRows = true) =>
+        LabelledText(document, joinsTableRows, pageNumber: null);
 
-    internal static string LabelledText(RichTextDocument document, bool joinsTableRows = true)
+    /// <param name="document">The document.</param>
+    /// <param name="joinsTableRows">Whether a table row is one line, its cells separated by tabs.</param>
+    /// <param name="pageNumber">
+    /// The number a page number field is written as, where it is known to
+    /// differ from the result the source saved; null to write the saved result.
+    /// </param>
+    private static string LabelledText(RichTextDocument document, bool joinsTableRows, int? pageNumber)
     {
         var numberer = new ListNumberer();
         var notes = new NoteNumberer(document.NoteNumbering);
@@ -384,9 +375,11 @@ public static class DocumentCommands
         int[] body = [.. Enumerable.Range(0, document.ParagraphCount).Where(index => !InFloatingTable(index))];
         // A frame set as a character is a character of its paragraph to
         // LibreOffice, so a paragraph holding one is not empty
-        // (SwASCWriter::WriteStream tests the node's text).
+        // (SwASCWriter::WriteStream tests the node's text), and so is a shape
+        // the source sets in the line though the layout places it as a block
+        // (inline-textbox-position.docx).
         if ((body.Length == 0 || (body.Length == 1 && document.Paragraphs[body[0]].Length == 0 &&
-                !document.Shapes.Any(shape => shape.IsAsCharacter && shape.ParagraphIndex == body[0]))) &&
+                !document.Shapes.Any(shape => shape.ParagraphIndex == body[0] && (shape.IsAsCharacter || shape.InlineInSource)))) &&
             document.Tables.All(table => table.IsFloating))
         {
             // LibreOffice's first frame is the floating table's where there is
@@ -400,11 +393,15 @@ public static class DocumentCommands
             // first, as the styles are read before the body - and nothing
             // when that is a drawing (SwASCWriter::WriteStream takes
             // GetSpzFrameFormats()[0], and a drawing has no text section):
-            // IndexingExport_Shapes.odt's first shape is a circle.
+            // IndexingExport_Shapes.odt's first shape is a circle. A drawn
+            // group's text boxes come before its drawing; FirstFrame below
+            // takes those.
             else if (document.RunningContent.HeaderShapes(PageSelection.Default)
                 .Concat(document.RunningContent.FooterShapes(PageSelection.Default))
                 .Concat(document.Shapes)
-                .FirstOrDefault() is DocumentShape firstMade && (firstMade.IsTextFrame || firstMade is { IsCustomShape: true, Tables.Count: 0 }))
+                .FirstOrDefault() is DocumentShape firstMade && (firstMade.IsTextFrame ||
+                    (firstMade is { IsCustomShape: true, Tables.Count: 0, GroupNumber: 0 } &&
+                        !(firstMade.ZOrder > 0 && document.Shapes.Any(shape => shape != firstMade && shape.ZOrder == firstMade.ZOrder)))))
             {
                 // A text frame the source names as one is written whether it
                 // stands in the header or the body (tdf118242.odt's header frame).
@@ -413,29 +410,35 @@ public static class DocumentCommands
                         .WithNoteNumbering(document.NoteNumbering), joinsTableRows)
                     : "";
             }
-            // LibreOffice exports the content of the first of the document's
-            // frames and drawings and nothing else (SpzFrameFormats()[0]): a
-            // drawing with no text there, such as a line or a rectangle before
-            // the text frame, leaves the export empty (n825305.rtf, tdf88811.rtf,
-            // fdo66688.docx). The shapes of one DOCX group share the group's
-            // stacking order and count as one drawing, whose text boxes LibreOffice
-            // does export (dml-groupshape-runfonts.docx, wpg-nested.docx).
-            else if (FirstDrawingHasNoText(document.Shapes.Where(shape => !shape.IsPageAnchored).ToList()))
-            {
-                return string.Empty;
-            }
             // A frame set as a character in the header counts as well
             // (table-in-frame-in-table-in-header-base.odt, whose only text is
             // one in the header's table). A floating header shape does not: a
             // text watermark is a drawing, not a frame, to LibreOffice's export.
-            else if (document.Shapes.Where(shape => !shape.IsCustomShape || shape.Tables.Count > 0)
-                .Concat(document.RunningContent.HeaderShapes(PageSelection.Default)
-                    .Concat(document.RunningContent.FooterShapes(PageSelection.Default))
-                    .Where(shape => shape.IsAsCharacter && !shape.IsCustomShape))
-                .FirstOrDefault(shape => shape.HasText) is DocumentShape only)
+            else if (FirstFrame(document.Shapes.Where(shape => !shape.IsPageAnchored)
+                .Concat(RunningShapes(document.RunningContent).Select(running => running.Shape)
+                    .Where(shape => shape.HasText && !shape.IsCustomShape && !shape.StretchesTextToBox))) is DocumentShape only)
             {
+                // A page number in a header or footer frame is the number its
+                // page gave it when LibreOffice laid the first page out: that
+                // page's number where the first page shows the header or
+                // footer, nought where it does not (tdf112446_frameStyle.docx
+                // writes 1, tdf112443.docx, whose first page has a footer of its
+                // own, 0; each the other way round with w:titlePg toggled).
+                int? framePageNumber = null;
+                foreach ((DocumentShape shape, PageSelection selection) in RunningShapes(document.RunningContent))
+                {
+                    if (ReferenceEquals(shape, only))
+                    {
+                        bool onFirstPage = document.RunningContent.DifferentFirstPage
+                            ? selection == PageSelection.First
+                            : selection == PageSelection.Default;
+                        framePageNumber = onFirstPage ? document.Sections.FirstOrDefault()?.PageNumberStart ?? 1 : 0;
+                        break;
+                    }
+                }
+
                 return LabelledText(RichTextDocument.FromParagraphs(only.Paragraphs).WithTables(only.Tables)
-                    .WithNoteNumbering(document.NoteNumbering), joinsTableRows);
+                    .WithNoteNumbering(document.NoteNumbering), joinsTableRows, framePageNumber);
             }
         }
 
@@ -478,12 +481,14 @@ public static class DocumentCommands
                 int length = Math.Min(run.Length, paragraph.Length - offset);
                 if (run.Style.Note is DocumentNote { Kind: NoteKind.Footnote, CustomMark: null } pageNote && unlaid &&
                     document.NoteNumbering.FootnoteRestart == NoteNumberingRestart.EachPage)
-                    builder.Append(UnlaidNumber(document.NoteNumbering.FootnoteFormat, 0));
+                    builder.Append(UnlaidNumber(pageNote.Section?.Format ?? document.NoteNumbering.FootnoteFormat, 0));
                 else if (run.Style.Note is DocumentNote note)
                     builder.Append(notes.Label(note));
-                else if (run.Style.PageField is { Kind: PageFieldKind.PageNumber } field && unlaid)
-                    builder.Append(UnlaidNumber(field.Format, field.Adjust));
-                else if (!run.Style.IsImage && !run.Style.IsFormElement)
+                else if (run.Style.PageField is { Kind: PageFieldKind.PageNumber } field && pageNumber is int number)
+                    builder.Append(number == 0 ? UnlaidNumber(field.Format, field.Adjust) : ListNumberer.Format(number, field.Format));
+                else if (run.Style.PageField is { Kind: PageFieldKind.PageNumber } unlaidField && unlaid)
+                    builder.Append(UnlaidNumber(unlaidField.Format, unlaidField.Adjust));
+                else if (!run.Style.IsImage && !run.Style.IsFormElement && !run.Style.IsFormControl)
                     builder.Append(paragraph.Text, offset, length);
                 offset += length;
             }
@@ -515,6 +520,58 @@ public static class DocumentCommands
     /// </remarks>
     internal static string UnlaidNumber(ListNumberFormat format, int adjust) =>
         adjust == 0 && format == ListNumberFormat.Decimal ? "0" : "";
+
+    /// <summary>
+    /// The headers' and footers' shapes in the order Word writes their
+    /// references, which is the order LibreOffice's import reads them in:
+    /// even header, default header, even footer, default footer, then the
+    /// first page's.
+    /// </summary>
+    private static IEnumerable<(DocumentShape Shape, PageSelection Selection)> RunningShapes(RunningContent running) =>
+        new (bool Header, PageSelection Selection)[]
+        {
+            (true, PageSelection.Even), (true, PageSelection.Default), (false, PageSelection.Even),
+            (false, PageSelection.Default), (true, PageSelection.First), (false, PageSelection.First),
+        }.SelectMany(part => (part.Header ? running.HeaderShapes(part.Selection) : running.FooterShapes(part.Selection))
+            .Select(shape => (shape, part.Selection)));
+
+    /// <summary>
+    /// The frame LibreOffice's text export writes for a body of one empty
+    /// paragraph, or null where it writes none.
+    /// </summary>
+    /// <remarks>
+    /// The export takes the document's first frame format, whatever it is
+    /// (wrtasc.cxx, <c>SwASCWriter::WriteStream</c>), and writes its text when
+    /// it is a frame with text of its own. A drawing has no text of its own and
+    /// a picture's frame holds the picture, so either one first means nothing
+    /// is written (tdf117028.docx's rectangle before its text box). A drawn
+    /// group's text boxes are frames the import makes before the group's
+    /// drawing, so the first of them comes first, even an empty one
+    /// (dml-groupshape-sdt.docx); a group with none is a drawing.
+    /// </remarks>
+    private static DocumentShape? FirstFrame(IEnumerable<DocumentShape> shapes)
+    {
+        static bool IsTextFrame(DocumentShape shape) =>
+            (!shape.IsCustomShape || shape.Tables.Count > 0) && !(shape.Image is not null && !shape.HasText);
+
+        List<DocumentShape> list = [.. shapes];
+        if (list.Count == 0)
+            return null;
+
+        // The members of one drawn group: those the reader numbered as one,
+        // or, where it numbers none, those sharing the first shape's stated
+        // stacking order, as a group's shapes do (n825305.rtf, tdf88811.rtf).
+        DocumentShape first = list[0];
+        Func<DocumentShape, bool>? sameGroup = first.GroupNumber > 0
+            ? shape => shape.GroupNumber == first.GroupNumber
+            : first.ZOrder > 0 && list.Count > 1 && list[1].ZOrder == first.ZOrder
+                ? shape => shape.ZOrder == first.ZOrder
+                : null;
+        DocumentShape? frame = sameGroup is not null
+            ? list.TakeWhile(sameGroup).FirstOrDefault(IsTextFrame)
+            : IsTextFrame(first) ? first : null;
+        return frame is { HasText: true } ? frame : null;
+    }
 
     // Writer's text export separates table cells with tabs and rows with
     // newlines since LibreOffice 24.8 (tdf#144576, SwASCWriter::WriteTable).

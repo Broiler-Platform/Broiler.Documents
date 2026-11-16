@@ -68,6 +68,7 @@ internal static class DocxReader
             // model anchors against needs the margins first. The sections come
             // first of all, because a section's properties follow its content.
             DocxSettings settings = ReadSettings(archive, documentRelationships, baseDirectory, options.Limits, diagnostics);
+            DocxDocumentVariables.Apply(documentXml, settings.Root, options.Limits);
             DocxSections sections = DocxSections.Read(documentXml.Root?.Element(DocxNamespaces.Wordprocessing + "body"));
             PageGeometry? page = ReadPageGeometry(documentXml, sections, diagnostics);
             int compatibilityMode = WordCompatibilityMode(settings.Root);
@@ -979,6 +980,8 @@ internal static class DocxReader
             context.Builder.TrimSectionParagraphEnd();
         else if (context.Builder.JoinsFieldCodeParagraph())
             return;
+        else if (NextBlockIsParagraph(paragraph))
+            context.Builder.CarryReferenceResult();
         context.Builder.ApplyContextualSpacing(
             (string.IsNullOrEmpty(paragraphStyleId) ? context.Styles.DefaultParagraphStyleId : paragraphStyleId) ?? string.Empty,
             HasContextualSpacing(pPr, paragraphStyleId, context));
@@ -986,6 +989,17 @@ internal static class DocxReader
             context.Builder.ApplyIncreasedAnchoredObjectSpacing(placement.ContentWidth);
         context.Builder.FinishParagraph();
     }
+
+    /// <summary>
+    /// Whether the block after <paramref name="paragraph"/> in its own container
+    /// (the body, a cell, a text box) is a paragraph rather than a table, a
+    /// content control or the end of the container. Range marks between them,
+    /// such as bookmarks, are not blocks.
+    /// </summary>
+    private static bool NextBlockIsParagraph(XElement paragraph) =>
+        paragraph.ElementsAfterSelf().FirstOrDefault(element => element.Name.Namespace != DocxNamespaces.Wordprocessing ||
+            element.Name.LocalName is not ("bookmarkStart" or "bookmarkEnd" or "proofErr" or "permStart" or "permEnd" or
+                "commentRangeStart" or "commentRangeEnd"))?.Name == DocxNamespaces.Wordprocessing + "p";
 
     /// <summary>
     /// Whether <c>w:contextualSpacing</c> is on for the paragraph: its own
@@ -1281,7 +1295,12 @@ internal static class DocxReader
             if (child.Name == DocxNamespaces.Wordprocessing + "fldChar")
             {
                 // A page field Word saved no result for still shows a number.
+                bool inReference = builder.Fields.InReferenceResult;
                 (PageField? empty, string? fallbackText, bool ruby) = builder.Fields.Read(child, context.Styles, runStyle);
+                if (!builder.Fields.InReferenceResult)
+                    builder.EndReferenceResult();
+                else if (!inReference)
+                    builder.StartReferenceResult();
                 if (builder.Fields.SuppressesResult)
                     continue;
                 if (empty is not null)
@@ -1437,6 +1456,22 @@ internal static class DocxReader
                     !char.IsSurrogate((char)symbol) && !char.IsControl((char)symbol))
                 {
                     string? font = (string?)child.Attribute(DocxNamespaces.Wordprocessing + "font");
+                    if (awaitingMark is not null)
+                    {
+                        // w:customMarkFollows with a symbol: the symbol is the
+                        // note's label, as LibreOffice 24.2 reads it
+                        // (tdf121441.docx's Wingdings mark, written once).
+                        var marked = new DocumentNote(awaitingMark.Kind, awaitingMark.Paragraphs, ((char)symbol).ToString())
+                        {
+                            Tables = awaitingMark.Tables,
+                        };
+                        builder.AppendText(DocumentNote.PlaceholderText, (string.IsNullOrWhiteSpace(font)
+                            ? awaitingStyle with { IsSymbolCharacter = true }
+                            : awaitingStyle with { FontFamily = font, IsSymbolCharacter = true }) with { Note = marked });
+                        awaitingMark = null;
+                        continue;
+                    }
+
                     builder.AppendText(((char)symbol).ToString(),
                         string.IsNullOrWhiteSpace(font)
                             ? style with { IsSymbolCharacter = true }
@@ -1497,9 +1532,9 @@ internal static class DocxReader
                     context.Images.ReadControl(control, context.Relationships) is { } activeX)
                 {
                     // The glyph is drawn in the face LibreOffice falls back to for it.
-                    builder.AppendText(activeX.Glyph, style with { FontFamily = "DejaVu Sans" });
+                    builder.AppendText(activeX.Glyph, style with { FontFamily = "DejaVu Sans", IsFormControl = true });
                     if (activeX.Caption.Length > 0)
-                        builder.AppendText(" " + activeX.Caption, style);
+                        builder.AppendText(" " + activeX.Caption, style with { IsFormControl = true });
                 }
                 else if (child.Element(DocxNamespaces.Wordprocessing + "drawing") is { } drawing)
                     ReadPicture(drawing, context, style);
@@ -2059,7 +2094,8 @@ internal static class DocxReader
             childY);
 
         int read = 0;
-        ReadGroupChildren(group, frame, anchor, context, ref read, depth: 0);
+        ReadGroupChildren(group, frame, anchor, context.GroupNumber > 0 ? context : context with { GroupNumber = context.Builder.NextGroupNumber() },
+            ref read, depth: 0);
         return read > 0;
     }
 
@@ -2247,7 +2283,12 @@ internal static class DocxReader
             offsetXFromCell: context.Builder.InTableCell && RelativeFrom(anchor, "positionH") == "column" &&
                 (geometry is ShapeGeometry.Line or ShapeGeometry.LineAscending || LaysOutInCell(anchor)))
         {
-            IsCustomShape = context.InDiagram,
+            // A shape with no text box is a drawing to LibreOffice; one with a
+            // text box, even an empty one, has a text frame attached.
+            IsCustomShape = context.InDiagram ||
+                (wsp.Element(DocxNamespaces.WordShape + "txbx") is null && wsp.Element(DocxNamespaces.WordShape + "linkedTxbx") is null),
+            InlineInSource = anchor.Name == DocxNamespaces.WordDrawing + "inline",
+            GroupNumber = context.GroupNumber,
             TextFlow = ReadShapeTextFlow(wsp.Element(DocxNamespaces.WordShape + "bodyPr")),
             WrapMargins = Wrap == ShapeWrap.None ? null : Margins,
             BoundedByPage = !context.Builder.InTableCell,
@@ -2654,6 +2695,8 @@ internal static class DocxReader
             RotationRadians = rotation,
             TextFlow = ReadVmlTextFlow(shape.Element(DocxNamespaces.Vml + "textbox")),
             IsCustomShape = shape.Attribute(DocxVmlShapeWalker.Grouped) is not null,
+            InlineInSource = shape.Attribute(DocxVmlShapeWalker.Grouped) is null &&
+                !string.Equals(style.GetValueOrDefault("position"), "absolute", StringComparison.OrdinalIgnoreCase),
             StretchesTextToBox = wordArtText,
             TextOutline = textOutline,
             TextOutlineWidth = outlineWidth,

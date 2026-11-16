@@ -170,6 +170,20 @@ public sealed class DocumentShape(
     /// the source does not say.
     /// </summary>
     public bool IsTextFrame { get; init; }
+    /// True when the source sets the shape in its paragraph's line, as one of
+    /// its characters (DOCX <c>wp:inline</c>, a VML shape without
+    /// <c>position:absolute</c>), though the layout may place it as a block of
+    /// its own. Unlike <see cref="IsAsCharacter"/> it does not change where the
+    /// shape is laid out; it says the paragraph is not empty.
+    /// </summary>
+    public bool InlineInSource { get; init; }
+
+    /// <summary>
+    /// The drawn group the shape is a member of, numbered from one in reading
+    /// order, or nought for a shape drawn on its own: the members of one DOCX
+    /// <c>wpg:wgp</c> group share the number.
+    /// </summary>
+    public int GroupNumber { get; init; }
 
     /// <summary>True when this shape's box shrinks/fits to its text content centered in the declared bounds.</summary>
     public bool FitsText { get; init; }
@@ -422,6 +436,8 @@ public sealed class DocumentShape(
             IsAsCharacter = IsAsCharacter,
             IsCustomShape = IsCustomShape,
             IsTextFrame = IsTextFrame,
+            InlineInSource = InlineInSource,
+            GroupNumber = GroupNumber,
             FitsText = FitsText,
             ShrinksWidthToText = ShrinksWidthToText,
             RotationRadians = RotationRadians,

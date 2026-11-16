@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using Broiler.Documents.Model;
 
@@ -60,6 +61,11 @@ internal sealed class DocxFields
             style = style with { StyleReference = field };
         if (_open.Exists(static open => open.Separated && open.Recalculated))
             style = style with { Hidden = true };
+        // A drop-down form field's result is the entry it shows, which
+        // LibreOffice imports as a drop-down control: drawn, but not text
+        // (tdf126114.docx's "gehuwd" is missing from its text export).
+        if (_open.Exists(static open => open.Separated && open.DropDown))
+            style = style with { IsFormControl = true };
         return style;
     }
 
@@ -82,8 +88,25 @@ internal sealed class DocxFields
     /// </summary>
     public bool InCode => _open.Exists(static open => !open.Separated);
 
+    /// <summary>
+    /// Whether what is being read is the saved result of a <c>REF</c> field,
+    /// which LibreOffice imports as a reference text field: one character,
+    /// where the field ends, showing the whole result
+    /// (<see cref="DocxDocumentBuilder.CarryReferenceResult"/>).
+    /// </summary>
+    public bool InReferenceResult => _open.Exists(static open => open.Separated && open.Reference);
+
+    /// <summary>
+    /// Whether a field shows none of the result Word saved: <c>SET</c>, and
+    /// <c>ASK</c>, which sets a bookmark from a prompt and displays nothing.
+    /// LibreOffice imports <c>ASK</c> as an input field that shows no text:
+    /// n751017.docx's <c>A{ASK foo}B{REF foo}C</c>, saved as "AbarBbarC", is
+    /// "ABbarC" in LibreOffice 24.2, and sdt-before-field.docx loses its saved
+    /// "Enter Permittee Name".
+    /// </summary>
     public static bool IsHiddenResult(string instruction) =>
-        Tokens(instruction) is [string name, ..] && name.Equals("SET", StringComparison.OrdinalIgnoreCase);
+        Tokens(instruction) is [string name, ..] &&
+        (name.Equals("SET", StringComparison.OrdinalIgnoreCase) || name.Equals("ASK", StringComparison.OrdinalIgnoreCase));
 
     /// <summary>Notes that the innermost field's result has text of its own.</summary>
     public void NoteResultText()
@@ -115,6 +138,10 @@ internal sealed class DocxFields
                     _open[^1].PageStyle = runStyle with { PageField = separated };
                 _open[^1].TableOfContents = Tokens(_open[^1].Code.ToString()) is [string name, ..] &&
                     name.Equals("TOC", StringComparison.OrdinalIgnoreCase);
+                _open[^1].Reference = Tokens(_open[^1].Code.ToString()) is [string first, ..] &&
+                    first.Equals("REF", StringComparison.OrdinalIgnoreCase);
+                _open[^1].DropDown = Tokens(_open[^1].Code.ToString()) is [string control, ..] &&
+                    control.Equals("FORMDROPDOWN", StringComparison.OrdinalIgnoreCase);
                 if (!_open[^1].HasNestedField && LibreOfficeIfResult(_open[^1].Code.ToString()) is string shown)
                 {
                     _open[^1].Recalculated = true;
@@ -133,11 +160,27 @@ internal sealed class DocxFields
                         return (null, ruby, true);
                     if (Symbol(ended.Code.ToString()) is string symbol)
                         return (null, symbol, false);
+                    if (MacroButtonText(ended.Code.ToString()) is string button)
+                        return (null, button, false);
                 }
                 break;
         }
 
         return (null, null, false);
+    }
+
+    /// <summary>
+    /// The text a <c>MACROBUTTON MacroName DisplayText</c> field shows, which
+    /// is its instruction after the macro's name, or null for any other field
+    /// or a button with no text. Word saves no result for it; LibreOffice 24.2
+    /// shows the text (tdf148494.docx: "This is a macro button field: Hello
+    /// World").
+    /// </summary>
+    internal static string? MacroButtonText(string instruction)
+    {
+        Match match = Regex.Match(instruction, @"\A\s*MACROBUTTON\s+\S+\s+(.*\S)\s*\z",
+            RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.NonBacktracking);
+        return match.Success ? match.Groups[1].Value : null;
     }
 
     internal static string? Symbol(string instruction)
@@ -406,6 +449,12 @@ internal sealed class DocxFields
 
         public bool TableOfContents { get; set; }
         public bool HiddenResult { get; set; }
+
+        /// <summary>The field is a <c>REF</c>, which LibreOffice imports as a reference text field.</summary>
+        public bool Reference { get; set; }
+
+        /// <summary>The field is a <c>FORMDROPDOWN</c> form field.</summary>
+        public bool DropDown { get; set; }
 
         /// <summary>A field begins inside this one's instruction.</summary>
         public bool HasNestedField { get; set; }

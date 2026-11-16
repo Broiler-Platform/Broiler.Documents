@@ -629,7 +629,9 @@ public sealed class ListNumberer
         if (value <= 0)
             return value.ToString(CultureInfo.InvariantCulture);
 
-        const string digits = "〇一二三四五六七八九";
+        // Nought is 零, not 〇: LibreOffice 24.2 numbers the tenth item of a
+        // koreanDigital2 list 一零 (ooxmlexport/data/cjklist44.docx).
+        const string digits = "零一二三四五六七八九";
         string s = value.ToString(CultureInfo.InvariantCulture);
         var sb = new StringBuilder(s.Length);
         foreach (char c in s)

@@ -2530,6 +2530,8 @@ public static class DocxWriter
         ListNumberFormat.IdeographLegalTraditional => "ideographLegalTraditional",
         ListNumberFormat.IdeographCounting => "chineseCounting",
         ListNumberFormat.KoreanDigital2 => "koreanDigital2",
+        ListNumberFormat.CircledNumber => "decimalEnclosedCircle",
+        ListNumberFormat.HebrewNumber => "hebrew1",
         ListNumberFormat.TianGan => "ideographTraditional",
         ListNumberFormat.DiZi => "ideographZodiac",
         ListNumberFormat.UpperLetter => "upperLetter",

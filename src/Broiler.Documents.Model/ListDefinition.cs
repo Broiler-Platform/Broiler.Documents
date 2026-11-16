@@ -74,7 +74,7 @@ public enum ListNumberFormat
     /// <summary>子, 丑, 寅 ... 亥 (Di Zi).</summary>
     DiZi,
 
-    /// <summary>〇, 一, 二 ... 一〇, 一一 ... 二〇 (Korean Hanja digital).</summary>
+    /// <summary>一, 二 ... 一零, 一一 ... 二零 (Korean Hanja digital), as LibreOffice writes it.</summary>
     KoreanDigital2,
 
     /// <summary>ｱ, ｲ, ｳ ... ﾝ, then ｱ again: the 46 half-width katakana in gojūon order.</summary>
@@ -210,7 +210,8 @@ public sealed record ListLevel
     /// <summary>
     /// True when every number in the label is written in decimal, whatever its
     /// own level's format: DOCX's <c>w:isLgl</c>, so a legal heading reads
-    /// "1.1" under a chapter numbered "I".
+    /// "1.1" under a chapter numbered "I". A level padded with zeros keeps its
+    /// padding, as LibreOffice draws it: "1.01" for a <c>decimalZero</c> level.
     /// </summary>
     public bool Legal { get; init; }
 

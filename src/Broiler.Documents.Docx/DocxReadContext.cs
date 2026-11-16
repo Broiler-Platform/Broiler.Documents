@@ -49,6 +49,9 @@ internal sealed record DocxReadContext(DocxRelationships Relationships, DocxNumb
     public bool InParagraphFrame { get; init; }
     public bool InDiagram { get; init; }
 
+    /// <summary>The <see cref="DocumentShape.GroupNumber"/> of the group whose members are being read, or nought.</summary>
+    public int GroupNumber { get; init; }
+
     /// <summary>
     /// The page a floating object's offsets are converted against: the page the
     /// body's text is on where the read follows the body's sections, the

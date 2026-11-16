@@ -16,6 +16,9 @@ public sealed class DocxNumberingTests
     [InlineData("chicago", "*.", "†.")]
     [InlineData("ideographLegalTraditional", "壹.", "貳.")]
     [InlineData("koreanDigital2", "一.", "二.")]
+    // numbering-circle.docx and FDO74106.docx in LibreOffice 24.2.
+    [InlineData("decimalEnclosedCircle", "①.", "②.")]
+    [InlineData("hebrew1", "א.", "ב.")]
     public void Specialized_Numbering_Round_Trips(string format, string first, string second)
     {
         var document = Read(Item(1, 0, "first") + Item(1, 0, "second"), Abstract(0, Level(0, format, "%1.")) + Num(1, 0));
@@ -28,9 +31,11 @@ public sealed class DocxNumberingTests
     [Theory]
     [InlineData(1, "一")]
     [InlineData(9, "九")]
-    [InlineData(10, "一〇")]
+    // LibreOffice 24.2 writes nought as 零 (ooxmlexport/data/cjklist44.docx's
+    // tenth and twentieth items are 一零 and 二零 in its text export).
+    [InlineData(10, "一零")]
     [InlineData(11, "一一")]
-    [InlineData(20, "二〇")]
+    [InlineData(20, "二零")]
     public void KoreanDigital2_Formats_Digits_Directly_To_Hanja(int value, string expected)
     {
         Assert.Equal(expected, ListNumberer.Format(value, ListNumberFormat.KoreanDigital2));
@@ -112,6 +117,45 @@ public sealed class DocxNumberingTests
             Abstract(0, Level(0, "upperRoman", "%1") + Level(1, "decimal", "%1.%2", extra: "<w:isLgl/>")) + Num(1, 0));
 
         Assert.Equal(["I", "1.1"], Labels(document));
+    }
+
+    [Fact]
+    public void A_Level_That_States_No_Start_Counts_From_Nought()
+    {
+        // ECMA-376 §17.9.25, and LibreOffice 24.2 for FDO74105.docx: "0. Zero".
+        RichTextDocument document = Read(
+            Item(1, 0, "zero") + Item(1, 0, "one"),
+            Abstract(0, "<w:lvl w:ilvl=\"0\"><w:numFmt w:val=\"decimal\"/><w:lvlText w:val=\"%1.\"/></w:lvl>") + Num(1, 0));
+
+        Assert.Equal(["0.", "1."], Labels(document));
+    }
+
+    [Theory]
+    [InlineData("001, 002, 003, ...", "001.")]
+    [InlineData("0001, 0002, 0003, ...", "0001.")]
+    [InlineData("00001, 00002, 00003, ...", "00001.")]
+    public void A_Custom_Zero_Padded_Format_Behind_Alternate_Content_Pads_The_Number(string sample, string expected)
+    {
+        // Word 2010 writes these with a plain decimal fallback; LibreOffice
+        // reads the choice (odfexport/data/arabic-zero*-numbering.docx).
+        string level = "<w:lvl w:ilvl=\"0\"><w:start w:val=\"1\"/>" +
+            "<mc:AlternateContent><mc:Choice Requires=\"w14\"><w:numFmt w:val=\"custom\" w:format=\"" + sample + "\"/></mc:Choice>" +
+            "<mc:Fallback><w:numFmt w:val=\"decimal\"/></mc:Fallback></mc:AlternateContent>" +
+            "<w:lvlText w:val=\"%1.\"/></w:lvl>";
+        RichTextDocument document = Read(Item(1, 0, "a"), Abstract(0, level) + Num(1, 0));
+
+        Assert.Equal([expected], Labels(document));
+    }
+
+    [Fact]
+    public void A_Legal_Level_Keeps_A_DecimalZero_Level_Padded()
+    {
+        // listWithLgl.docx: "Sect 1.01" in LibreOffice 24.2.
+        RichTextDocument document = Read(
+            Item(1, 0, "chapter") + Item(1, 1, "section"),
+            Abstract(0, Level(0, "upperRoman", "CH %1") + Level(1, "decimalZero", "Sect %1.%2", extra: "<w:isLgl/>")) + Num(1, 0));
+
+        Assert.Equal(["CH I", "Sect 1.01"], Labels(document));
     }
 
     [Fact]

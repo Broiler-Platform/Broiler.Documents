@@ -356,6 +356,12 @@ internal sealed class DocxDocumentBuilder(
         {
             _segments.Clear();
             _anchoredObjects.Clear();
+            if (_carriedReferenceResult is not null)
+            {
+                _segments.AddRange(_carriedReferenceResult);
+                _carriedReferenceResult = null;
+                _referenceResultStart = 0;
+            }
         }
         _markStyle = markStyle;
 
@@ -779,6 +785,66 @@ internal sealed class DocxDocumentBuilder(
     public bool HasShapeAnchoredAt(int index) => _shapes.Exists(s => s.ParagraphIndex == index);
 
     public void AddShape(DocumentShape shape) => _shapes.Add(shape);
+
+    // Where the open paragraph's part of a REF field's saved result begins,
+    // or -1 outside one; and the result text a paragraph mark inside it moved
+    // on to the next paragraph.
+    private int _referenceResultStart = -1;
+    private List<Segment>? _carriedReferenceResult;
+
+    /// <summary>Notes that a <c>REF</c> field's saved result starts here.</summary>
+    public void StartReferenceResult() => _referenceResultStart = CurrentParagraphLength;
+
+    /// <summary>Notes that the <c>REF</c> field's result has ended.</summary>
+    public void EndReferenceResult() => _referenceResultStart = -1;
+
+    /// <summary>
+    /// Moves the text of a <c>REF</c> field's saved result, from where it
+    /// starts in the open paragraph, on to the start of the next paragraph,
+    /// which the caller is about to open. The paragraph mark stays.
+    /// </summary>
+    /// <remarks>
+    /// LibreOffice imports a <c>REF</c> as a reference field, one character
+    /// placed where the field ends, showing the saved result as one string, so
+    /// the paragraphs the result ran over keep their marks and lose its text:
+    /// line-break-in-ref.docx is an empty paragraph, then "Text1Text2", in
+    /// LibreOffice 24.2 (its flat ODF export), and
+    /// tdf171383_refFieldInCell.docx's cell is three empty paragraphs, then
+    /// "Issue 1Input text here.".
+    /// </remarks>
+    public void CarryReferenceResult()
+    {
+        if (_referenceResultStart < 0 || !Fields.InReferenceResult)
+            return;
+
+        var carried = new List<Segment>();
+        int offset = 0;
+        var kept = new List<Segment>();
+        foreach (Segment segment in _segments)
+        {
+            int end = offset + segment.Text.Length;
+            if (end <= _referenceResultStart)
+                kept.Add(segment);
+            else if (offset >= _referenceResultStart)
+                carried.Add(segment);
+            else
+            {
+                int split = _referenceResultStart - offset;
+                kept.Add(segment with { Text = segment.Text[..split] });
+                carried.Add(segment with { Text = segment.Text[split..] });
+            }
+            offset = end;
+        }
+
+        _segments.Clear();
+        _segments.AddRange(kept);
+        _carriedReferenceResult = carried;
+    }
+
+    private int _groupNumbers;
+
+    /// <summary>The next <see cref="DocumentShape.GroupNumber"/> for a drawn group read into this flow.</summary>
+    public int NextGroupNumber() => ++_groupNumbers;
 
     public RichTextDocument Build()
     {
