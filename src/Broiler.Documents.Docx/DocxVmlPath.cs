@@ -72,6 +72,17 @@ internal static class DocxVmlPath
             char command = path[index++];
             if (char.IsWhiteSpace(command))
                 continue;
+            // Office's ha to hi tokens, which tdf105143.docx's freeform writes
+            // as "hdc...": LibreOffice's path decoder passes them over with
+            // any numbers after them (ConversionHelper::decodeVmlPath) and
+            // reads the curve that follows.
+            if (command == 'h' && index < path.Length && path[index] is >= 'a' and <= 'i')
+            {
+                index++;
+                while (index < path.Length && !char.IsAsciiLetter(path[index]))
+                    index++;
+                continue;
+            }
             string name = command.ToString();
             if (index < path.Length && (command, path[index]) is ('n', 'f' or 's') or ('w', 'a' or 'r') or ('a', 't' or 'r'))
                 name += path[index++];

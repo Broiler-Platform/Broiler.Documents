@@ -170,6 +170,8 @@ public sealed class DocumentShape(
     /// the source does not say.
     /// </summary>
     public bool IsTextFrame { get; init; }
+
+    /// <summary>
     /// True when the source sets the shape in its paragraph's line, as one of
     /// its characters (DOCX <c>wp:inline</c>, a VML shape without
     /// <c>position:absolute</c>), though the layout may place it as a block of
@@ -305,6 +307,16 @@ public sealed class DocumentShape(
         copy._groupNumber = groupNumber;
         return copy;
     }
+
+    /// <summary>
+    /// True for a shape <see cref="BehindText"/> stacks behind the text that a
+    /// renderer draws in front of it all the same: DOCX's <c>behindDoc</c> on
+    /// an object the text wraps around, which LibreOffice 24.2 keeps in front
+    /// of the paragraphs and their shading (<c>tdf60351.docx</c>, measured).
+    /// <see cref="BehindText"/> keeps what the document says, so it is written
+    /// back as it was read.
+    /// </summary>
+    public bool DrawsInFront { get; init; }
 
     /// <summary>
     /// Where the shape sits among the other shapes: a higher number draws later,
@@ -473,6 +485,7 @@ public sealed class DocumentShape(
             OffsetXFromColumn = OffsetXFromColumn,
             KeptBelowPageTop = KeptBelowPageTop,
             OffsetFromBandParagraph = OffsetFromBandParagraph,
+            DrawsInFront = DrawsInFront,
         };
 
     /// <summary>The shape's own text, empty when it holds none.</summary>

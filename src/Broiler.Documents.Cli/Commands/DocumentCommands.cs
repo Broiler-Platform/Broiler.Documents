@@ -330,6 +330,11 @@ public static class DocumentCommands
     /// does for the corpus samples built that way.
     /// </para>
     /// <para>
+    /// An inline WordArt shape's string is not written either
+    /// (<see cref="InlineStyle.IsShapeText"/>): LibreOffice imports the shape
+    /// as a drawing set as a character.
+    /// </para>
+    /// <para>
     /// A bullet is written as LibreOffice's text export writes one: not the
     /// glyph the document chose but LibreOffice's default bullet for the
     /// item's level - "•", "◦", "▪", and round again - whatever the list
@@ -489,7 +494,8 @@ public static class DocumentCommands
                     builder.Append(number == 0 ? UnlaidNumber(field.Format, field.Adjust) : ListNumberer.Format(number, field.Format));
                 else if (run.Style.PageField is { Kind: PageFieldKind.PageNumber } unlaidField && unlaid)
                     builder.Append(UnlaidNumber(unlaidField.Format, unlaidField.Adjust));
-                else if (!run.Style.IsImage && !run.Style.IsFormElement && !run.Style.IsFormControl)
+                else if (!run.Style.IsImage && !run.Style.IsFormElement && !run.Style.IsFormControl &&
+                    !run.Style.IsShapeText)
                     builder.Append(paragraph.Text, offset, length);
                 offset += length;
             }

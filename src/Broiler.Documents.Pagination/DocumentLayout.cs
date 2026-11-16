@@ -2528,9 +2528,9 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     private bool Draws(DocumentShape shape) => shape.Printable || _settings.DrawNonPrintingShapes;
 
     /// <summary>
-    /// Places a running band's shapes on every page it applies to. There is no
-    /// paragraph to hang one from - a header repeats - so the offset is measured
-    /// from the top of the page.
+    /// Places a running band's shapes on every page it applies to. The offset
+    /// is measured from the top of the page, except for a shape placed against
+    /// its paragraph in the band.
     /// </summary>
     /// <remarks>
     /// A shape placed against its paragraph in the band
@@ -2572,7 +2572,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 shape.Outline,
                 text,
                 shape.Image,
-                shape.BehindText,
+                shape.BehindText && !shape.DrawsInFront,
                 shape.ZOrder,
                 cells, shape.Geometry, shape.OutlineWidth)
             {
@@ -2651,7 +2651,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
             (List<LayoutLine> text, List<LayoutCell> cells) = PlaceShapeContent(shape, bounds, setup);
             placed.Add(new LayoutShape(bounds, shape.Fill, shape.Outline, text,
-                shape.Image, shape.BehindText, shape.ZOrder, cells, shape.Geometry, shape.OutlineWidth)
+                shape.Image, shape.BehindText && !shape.DrawsInFront, shape.ZOrder, cells, shape.Geometry, shape.OutlineWidth)
             {
                 RotationRadians = shape.RotationRadians,
                 TextFlow = shape.TextFlow,

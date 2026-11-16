@@ -381,7 +381,7 @@ internal static class DocxReader
             return [RunningContent.Empty];
 
         IReadOnlyList<XElement> sections = DocxSections.Properties(body);
-        var parts = new Dictionary<(string Id, bool IsHeader), (IReadOnlyList<RichTextParagraph> Paragraphs, IReadOnlyList<DocumentShape> Shapes, IReadOnlyList<DocumentTable> Tables)?>();
+        var parts = new Dictionary<(string Id, bool IsHeader, PageGeometry? Page), (IReadOnlyList<RichTextParagraph> Paragraphs, IReadOnlyList<DocumentShape> Shapes, IReadOnlyList<DocumentTable> Tables)?>();
         var contents = new List<RunningContent>(sections.Count);
         for (int index = 0; index < sections.Count; index++)
         {
@@ -412,6 +412,12 @@ internal static class DocxReader
             }
 
             RunningContent content = RunningContent.Empty.WithDifferentFirstPage(differentFirstPage);
+
+            // A band's shapes are placed on the page of the section that shows
+            // it: watermark-shapetype.docx's portrait first section centres its
+            // watermark in a portrait margin, where the last section's
+            // landscape page put it 108 points right and 130 points up.
+            PageGeometry? sectionPage = DocxSections.ReadPage(sections[index]) ?? page;
 
             foreach (XElement reference in ContinuedReferences(sections, index))
             {
@@ -454,15 +460,15 @@ internal static class DocxReader
                     continue;
                 }
 
-                if (!parts.TryGetValue((relationshipId, isHeader), out var part))
+                if (!parts.TryGetValue((relationshipId, isHeader, sectionPage), out var part))
                 {
                     part = ReadPart(
                         archive, relationship.Target, numbering, styles, images, limits, diagnostics, reported,
                         isHeader ? RunningBand.Header : RunningBand.Footer,
-                        page,
+                        sectionPage,
                         compatibilityMode,
                         splitPgBreakAndParaMark);
-                    parts.Add((relationshipId, isHeader), part);
+                    parts.Add((relationshipId, isHeader, sectionPage), part);
                 }
 
                 if (part is not var (paragraphs, shapes, tables) || (paragraphs.Count == 0 && shapes.Count == 0))
@@ -710,10 +716,10 @@ internal static class DocxReader
     /// <remarks>
     /// <para>
     /// The body-level w:sectPr is the document's final section. A document split
-    /// into several can give each its own page; the last one is the document's -
-    /// the same choice the header and footer reader makes, and for the same
-    /// reason: it is the section the running content belongs to - and a section
-    /// that states another keeps it as its own <see cref="DocumentSection.Page"/>.
+    /// into several can give each its own page; the last one is the document's,
+    /// the section the document's running content belongs to, and a section
+    /// that states another keeps it as its own <see cref="DocumentSection.Page"/>
+    /// (the header and footer reader places each section's bands on that page).
     /// Geometry a producer states nonsensically is dropped rather than honoured.
     /// </para>
     /// <para>
@@ -1713,6 +1719,7 @@ internal static class DocxReader
         context.Builder.AppendText(string.Join((char)0x2028, wordArt.Lines), wordArt.Style with
         {
             Foreground = DocxVml.TryColor((string?)shape.Attribute("fillcolor"), out BColor color) ? color : style.Foreground,
+            IsShapeText = true,
         });
         context.Builder.AddDiagnosticOnce("docx.shape.wordart",
             "A VML WordArt shape was drawn as plain text in its box; its glyphs are not fitted to the text path.");
@@ -1918,9 +1925,46 @@ internal static class DocxReader
 
         (ShapeWrap Wrap, WrapSide Side, TableCellPadding Margins) = ReadWrap(anchor);
         (double offsetY, bool fromPage) = VerticalOffset(anchor, context, picture: true);
+        double offsetX = HorizontalOffset(anchor, context);
+        IReadOnlyList<(double X, double Y)>? wrapPolygon = Wrap == ShapeWrap.None ? null : ReadWrapPolygon(anchor);
+
+        // A turned picture (pic:spPr/a:xfrm rot): its offsets place the
+        // unturned extent, and LibreOffice draws it turned about that box's
+        // centre in a frame as large as the turned picture's bounding box,
+        // which the text wraps around. position-and-rotation.docx's picture,
+        // turned 110 degrees, was drawn unturned.
+        if (anchor.Descendants(DocxNamespaces.Picture + "spPr").FirstOrDefault()?.Element(DocxNamespaces.Drawing + "xfrm") is XElement turn &&
+            long.TryParse((string?)turn.Attribute("rot"), NumberStyles.Integer, CultureInfo.InvariantCulture, out long sixtieths) &&
+            sixtieths % 21600000 != 0 && boxWidth > 0 && boxHeight > 0)
+        {
+            ImagePresentation turned = (image.Presentation ?? ImagePresentation.Default) with
+            {
+                Rotation = ((sixtieths % 21600000 / 60000.0) + 360) % 360,
+                UnrotatedWidth = boxWidth,
+                UnrotatedHeight = boxHeight,
+            };
+            if (turned.TurnedBounds is (double turnedWidth, double turnedHeight))
+            {
+                double grownX = (turnedWidth - boxWidth) / 2, grownY = (turnedHeight - boxHeight) / 2;
+                // Word states the wrap polygon in the unturned picture's box;
+                // it turns with the picture about the centre.
+                double angle = turned.RotationRadians, cos = Math.Cos(angle), sin = Math.Sin(angle);
+                double width = boxWidth, height = boxHeight;
+                wrapPolygon = wrapPolygon is null ? null : [.. wrapPolygon.Select(point =>
+                {
+                    double across = (point.X - 0.5) * width, down = (point.Y - 0.5) * height;
+                    return ((across * cos - down * sin) / turnedWidth + 0.5, (across * sin + down * cos) / turnedHeight + 0.5);
+                })];
+                offsetX -= grownX;
+                offsetY -= grownY;
+                (boxWidth, boxHeight) = (turnedWidth, turnedHeight);
+                image = image.WithSize(boxWidth, boxHeight).WithPresentation(turned);
+            }
+        }
+
         context.Builder.AddShape(new DocumentShape(
             AnchorParagraph(anchor, context, picture: true),
-            HorizontalOffset(anchor, context),
+            offsetX,
             offsetY,
             boxWidth,
             boxHeight,
@@ -1937,10 +1981,11 @@ internal static class DocxReader
             offsetXFromCell: context.Builder.InTableCell && RelativeFrom(anchor, "positionH") == "column" && LaysOutInCell(anchor))
         {
             WrapMargins = Wrap == ShapeWrap.None ? null : Margins,
-            WrapPolygon = Wrap == ShapeWrap.None ? null : ReadWrapPolygon(anchor),
+            WrapPolygon = wrapPolygon,
             BoundedByPage = !context.Builder.InTableCell,
             OffsetXFromColumn = FromColumn(anchor, context),
             OffsetFromBandParagraph = BandParagraphOffset(anchor, context),
+            DrawsInFront = BehindDocButWrapped(anchor),
         });
         return true;
     }
@@ -2160,6 +2205,7 @@ internal static class DocxReader
                     BoundedByPage = !context.Builder.InTableCell,
                     OffsetXFromColumn = FromColumn(anchor, context),
                     OffsetFromBandParagraph = BandParagraphOffset(anchor, context) + y,
+                    DrawsInFront = BehindDocButWrapped(anchor),
                 });
             }
             else if (child.Name == DocxNamespaces.WordGroup + "grpSp" && depth < MaxGroupDepth)
@@ -2306,10 +2352,14 @@ internal static class DocxReader
             InlineInSource = anchor.Name == DocxNamespaces.WordDrawing + "inline",
             GroupNumber = context.GroupNumber,
             TextFlow = ReadShapeTextFlow(wsp.Element(DocxNamespaces.WordShape + "bodyPr")),
+            OutlinePaths = image is null && geometry == ShapeGeometry.Rectangle
+                ? DocxPresetGeometry.Outline(preset, spPr?.Element(DocxNamespaces.Drawing + "prstGeom"), width, height, transform)
+                : null,
             WrapMargins = Wrap == ShapeWrap.None ? null : Margins,
             BoundedByPage = !context.Builder.InTableCell,
             OffsetXFromColumn = FromColumn(anchor, context),
             OffsetFromBandParagraph = BandParagraphOffset(anchor, context) + top,
+            DrawsInFront = BehindDocButWrapped(anchor),
         });
         return true;
     }
@@ -2536,6 +2586,23 @@ internal static class DocxReader
             (code, message) => context.Builder.AddDiagnosticOnce(code, message),
             "docx.shape.fill",
             "shape");
+        // A picture fill (v:fill type="tile" or "frame" with r:id): the
+        // picture tiled at its own size or stretched over the box, as the page
+        // background's (DocxVml.ReadBackground). tdf78749.docx's text box is
+        // tiled with water drops in LibreOffice; it was drawn in one colour.
+        if (fill is not null && shape.Element(DocxNamespaces.Vml + "fill") is XElement pictureFill &&
+            ((string?)pictureFill.Attribute("type"))?.Trim() is "tile" or "frame" &&
+            pictureFill.Attribute(DocxNamespaces.Relationships + "id") is not null &&
+            !pictureFill.Attributes().Any(attribute => attribute.Name.LocalName is
+                "size" or "origin" or "position" or "aspect" or "angle" or "alignshape" or "rotate" or
+                "opacity" or "opacity2" or "recolortarget") &&
+            context.Images.ReadFillPicture(pictureFill, context.Relationships, context.Builder.AddDiagnosticOnce) is InlineImage tiled)
+        {
+            fill = fill with
+            {
+                Image = new ImageFill(tiled, (string?)pictureFill.Attribute("type") == "frame" ? ImageFillRepeat.Stretch : ImageFillRepeat.Tile),
+            };
+        }
         RichTextDocument shapeContent = ReadShapeText(shape, context);
         IReadOnlyList<RichTextParagraph> paragraphs = ShapeParagraphs(shapeContent);
         BColor outline = ReadVmlOutline(shape);
@@ -2727,6 +2794,10 @@ internal static class DocxReader
             StretchesTextToBox = wordArtText,
             TextOutline = textOutline,
             TextOutlineWidth = outlineWidth,
+            // No vertical frame, "text" or "line": the header paragraph, as a
+            // DrawingML anchor's (BandParagraphOffset). LibreOffice ignores
+            // w10:wrap's anchory here (n779834.docx, measured).
+            OffsetFromBandParagraph = context.Band == RunningBand.Header && verticalFrom is null && !fromPage ? offsetY : null,
         });
         return true;
     }
@@ -2814,6 +2885,22 @@ internal static class DocxReader
             "0" or "false" => false,
             _ => true,
         };
+
+    /// <summary>
+    /// True for an object <c>behindDoc</c> puts behind the text that is drawn
+    /// in front all the same, because the text wraps around it
+    /// (<see cref="DocumentShape.DrawsInFront"/>).
+    /// </summary>
+    /// <remarks>
+    /// LibreOffice 24.2 sends an anchored object behind the text only when the
+    /// text runs through it (<c>wp:wrapNone</c>, Word's "Behind Text").
+    /// <c>tdf60351.docx</c>'s tightly wrapped picture is drawn over its
+    /// paragraph's white shading, and so is the same picture wrapped square,
+    /// while with <c>wp:wrapNone</c> the shading covers it (measured).
+    /// broilerdoc painted the shading over the wrapped picture.
+    /// </remarks>
+    private static bool BehindDocButWrapped(XElement anchor) =>
+        BehindDoc(anchor) && ReadWrap(anchor).Wrap != ShapeWrap.None;
 
     /// <summary>
     /// The <c>wp:anchor</c> attribute ordering one anchored object against

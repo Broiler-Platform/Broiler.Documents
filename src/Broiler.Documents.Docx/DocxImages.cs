@@ -199,7 +199,10 @@ internal sealed class DocxImageLoader(ZipArchive archive, DocumentLimits limits,
                     "A DOCX picture linked to an external image, which is not fetched.");
                 if (width > 0 && height > 0)
                 {
-                    return Admit(InlineImage.CreateMissingPayload(width, height, altText, name, presentation),
+                    string? link = (string?)blip.Attribute(DocxNamespaces.Relationships + "link");
+                    bool marked = link is null || !relationships.TryGet(link, out DocxRelationship? linked) || linked is null ||
+                        MarksUnfetchedLink(linked.Target);
+                    return Admit(InlineImage.CreateMissingPayload(width, height, altText, name, presentation, marked),
                         DocumentResourceDisposition.Linked, diagnostics);
                 }
                 return null;
@@ -424,6 +427,25 @@ internal sealed class DocxImageLoader(ZipArchive archive, DocumentLimits limits,
         return Load(embed, relationships, 0, 0, null, null, diagnostics, presentation);
     }
 
+    /// <summary>
+    /// Whether the page marks the box of a linked picture this reader does not
+    /// fetch. An absolute <c>file:</c> URL or drive path names a file on the
+    /// machine the document was written on; LibreOffice looks it up, does not
+    /// find it, and prints nothing there, its replacement graphic not being
+    /// part of the exported page (<c>FileWithInvalidImageLink.docx</c>'s
+    /// <c>file:///F:\...\ole9.gif</c>, measured). A relative path is looked up
+    /// beside the document, where LibreOffice does draw a picture it finds
+    /// (<c>linked-picture.docx</c>, <c>tdf59699.docx</c>), and a remote URL
+    /// may be drawn too: both keep the mark.
+    /// </summary>
+    private static bool MarksUnfetchedLink(string target)
+    {
+        string trimmed = target.Trim();
+        bool drivePath = trimmed.Length >= 3 && char.IsAsciiLetter(trimmed[0]) && trimmed[1] == ':' && trimmed[2] is '\\' or '/';
+        bool uncPath = trimmed.StartsWith(@"\\", StringComparison.Ordinal);
+        return !(drivePath || uncPath || trimmed.StartsWith("file:", StringComparison.OrdinalIgnoreCase));
+    }
+
     private InlineImage? Load(string relationshipId, DocxRelationships relationships, double width, double height, string? altText, string? name,
         IDocxImageDiagnostics diagnostics, ImagePresentation? presentation = null)
     {
@@ -438,7 +460,8 @@ internal sealed class DocxImageLoader(ZipArchive archive, DocumentLimits limits,
             diagnostics.AddDiagnosticOnce("docx.image.external", "A DOCX picture linked to an external image, which is not fetched.");
             if (width > 0 && height > 0)
             {
-                return Admit(InlineImage.CreateMissingPayload(width, height, altText, name, presentation),
+                return Admit(InlineImage.CreateMissingPayload(width, height, altText, name, presentation,
+                        MarksUnfetchedLink(relationship.Target)),
                     DocumentResourceDisposition.Linked, diagnostics);
             }
             return null;
