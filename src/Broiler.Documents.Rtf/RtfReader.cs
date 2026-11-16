@@ -1453,10 +1453,11 @@ public static class RtfReader
                         }
                         // A frame closed by an explicit \page was given its own
                         // paragraph on the page before the break (fdo52052.rtf:
-                        // \page\sect after each frame); only one the break
-                        // reached unanchored moves with it (tdf141173).
+                        // \page\sect after each frame). If the first unframed
+                        // paragraph contains a drawing but no text, the drawing
+                        // and its frames belong to the paragraph after the break.
                         if (_builder.PageBreakPending && _builder.ParagraphCount == 1 && !_pastFirstSection &&
-                            _shapesBeforePageBreak != 0)
+                            (_shapesBeforePageBreak != 0 || FirstAnchorHasDrawingAndFrame()))
                         {
                             for (int i = 0; i < _shapes.Count; i++)
                             {
@@ -1915,7 +1916,7 @@ public static class RtfReader
             {
                 if (_leadByte == 0)
                 {
-                    if (value >= 0x80)
+                    if (RtfCodePage.IsDbcsLeadByte(_state.CodePage, value))
                     {
                         _leadByte = value;
                         return;
@@ -2046,7 +2047,7 @@ public static class RtfReader
                             continue;
                         }
 
-                        if (ch >= 0x80)
+                        if (RtfCodePage.IsDbcsLeadByte(_state.CodePage, (byte)ch))
                         {
                             if (i + 1 < text.Length && text[i + 1] <= 0xFF)
                             {
@@ -3094,6 +3095,22 @@ public static class RtfReader
             return _frameText ??= new Accumulator(_maxParagraphs) { OnWrite = MarkContent };
         }
 
+        private bool FirstAnchorHasDrawingAndFrame()
+        {
+            bool drawing = false;
+            bool frame = false;
+            for (int i = 0; i < _shapes.Count; i++)
+            {
+                if (_shapes[i].IsPageAnchored || _shapes[i].ParagraphIndex != 0)
+                    continue;
+                if (_flowShapes.Contains(i))
+                    drawing = true;
+                else
+                    frame = true;
+            }
+            return drawing && frame;
+        }
+
         /// <summary>
         /// Turns the frame's paragraphs into a floating shape that holds them,
         /// placed where the frame's words say.
@@ -3780,7 +3797,8 @@ public static class RtfReader
 
         private void ReportCodePageIfNeeded(byte value)
         {
-            if (!_reportedCodePage && value >= 0x80 && !RtfCodePage.IsFullySupported(_state.CodePage))
+            if (!_reportedCodePage && value >= 0x80 && !RtfCodePage.IsFullySupported(_state.CodePage) &&
+                !RtfCodePage.IsHalfWidthKatakana(_state.CodePage, value))
             {
                 _diagnostics.Add(DocumentDiagnostic.Info(
                     "rtf.codepage",

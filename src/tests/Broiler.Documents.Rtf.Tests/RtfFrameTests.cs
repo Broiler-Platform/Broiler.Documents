@@ -262,6 +262,20 @@ public sealed class RtfFrameTests
     }
 
     [Fact]
+    public void Frames_Follow_The_Drawing_Anchor_Across_An_Opening_Page_Break()
+    {
+        var document = Read(
+            @"{\pard\pvpg\phpg\posx2007\posy597\absw12870\absh-900 frame\par}" +
+            @"\pard{\shp{\*\shpinst\shpleft10\shptop20\shpright200\shpbottom300" +
+            @"{\sp{\sn shapeType}{\sv 1}}}}\page\sect\sectd\sbknone\pard anchor\par",
+            page: "");
+
+        Assert.Equal(2, document.Shapes.Count);
+        Assert.All(document.Shapes, shape => Assert.Equal(1, shape.ParagraphIndex));
+        Assert.True(document.Paragraphs[1].Style.PageBreakBefore);
+    }
+
+    [Fact]
     public void Frames_Each_Closed_By_Page_And_Sect_Stay_On_Their_Own_Pages()
     {
         // fdo52052.rtf: a Crystal Reports export that ends every page's frame

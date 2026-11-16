@@ -509,6 +509,83 @@
       ],
       "evidence": "settings.xml states w:linkStyles and a w:attachedTemplate that is not in the package; Normal states no space below its paragraphs. The pinned 24.2 PDF puts 10 points under every paragraph (lines 13.9 points apart within a paragraph, 23.9 between paragraphs), because 24.2 updates the styles from Word's defaults (200 twips below, 115 % lines) whenever linkStyles is on. The fix ('writerfilter docx: linkStyles != 0.35cm bottom margin', gerrit change 186855, merged on master 2025-06-24 after the libreoffice-25-8 branch was cut and not cherry-picked to it, so first released in 26.2) leaves the styles alone when the template to update them from does not exist, and its test asserts the Standard style keeps ParaBottomMargin 0 for this sample. Its twin tdf166141_linkedStyles2.docx, with linkStyles and no attachedTemplate, keeps the Word defaults in the fixed release too, and broilerdoc draws both as the fixed release does. Cut-down copies converted with 24.2.7.2 show the defaults sit under w:docDefaults and the styles: a Normal stating 3 points below keeps 3, a pPrDefault stating 20 keeps 20.",
       "reference": "docs/notes/office-issue-249-docx-headers.md"
+    },
+    {
+      "id": "tdf171299-table-in-ref-field",
+      "bug": "tdf#171299",
+      "fixedIn": "26.8",
+      "fixCommits": [
+        "f6e1aa27081c736c3ec45341dab596e529d39f0e",
+        "986c69622f2905780778d4bbb38e1658ce5162b1"
+      ],
+      "upstreamTests": [
+        "sw/qa/extras/ooxmlexport/ooxmlexport25.cxx testTdf171299_tableInField"
+      ],
+      "axes": [
+        "text"
+      ],
+      "samples": [
+        "ooxmlexport/data/tdf171299_tableInField.docx"
+      ],
+      "evidence": "The pinned LibreOffice 24.2 text export flattens the table inside the REF result into a paragraph. The upstream fixes preserve table paragraphs and route their text to cells. Both fixes are ancestors of libreoffice-26.8.0.1. The regression test asserts that cell A1 contains ID.",
+      "reference": "docs/notes/office-issue-249-docx-text.md"
+    },
+    {
+      "id": "tdf165805-rtf-page-after-table",
+      "bug": "tdf#165805",
+      "fixedIn": "25.8",
+      "fixCommits": [
+        "00fd41ace152425b886a55fd4868faa976afd6b6"
+      ],
+      "upstreamTests": [
+        "sw/qa/extras/rtfimport/rtfimport2.cxx test165805Tdf"
+      ],
+      "axes": [
+        "pixel"
+      ],
+      "samples": [
+        "rtfimport/data/165805.rtf"
+      ],
+      "evidence": "The pinned 24.2.7.2 PDF has one page because Writer discards an RTF page break at the end of a table. The upstream fix is in libreoffice-25.8.0.1 and its test asserts two pages. LibreOffice 26.2.6.3 and broilerdoc both render two pages.",
+      "reference": "docs/notes/office-issue-249-rtf-layout.md"
+    },
+    {
+      "id": "tdf164176-docvariable-line-breaks",
+      "bug": "tdf#164176",
+      "fixedIn": "25.8",
+      "fixCommits": [
+        "9647aded124c17e97db1bf7bb071136c7f91cb90"
+      ],
+      "upstreamTests": [
+        "sw/qa/extras/ooxmlexport/ooxmlexport21.cxx testTdf164176"
+      ],
+      "axes": [
+        "text"
+      ],
+      "samples": [
+        "ooxmlexport/data/tdf164176.docx"
+      ],
+      "evidence": "LibreOffice 24.2 exposes literal _x000d_ and _x000a_ in the value of a multiline document variable. The regression test asserts that neither escape remains. The fix is an ancestor of libreoffice-25.8.0.1. LibreOffice 26.2.6.3 and broilerdoc both emit first line and second line as separate lines.",
+      "reference": "docs/notes/office-issue-249-docx-text.md"
+    },
+    {
+      "id": "tdf169173-cell-content-control",
+      "bug": "tdf#169173",
+      "fixedIn": "26.2",
+      "fixCommits": [
+        "b9c04b6e94bf9c320a91bd1528cfb3932b2b2728"
+      ],
+      "upstreamTests": [
+        "sw/qa/extras/ooxmlimport/ooxmlimport2.cxx testTdf169173"
+      ],
+      "axes": [
+        "text"
+      ],
+      "samples": [
+        "ooxmlimport/data/tdf169173.docx"
+      ],
+      "evidence": "The pinned text export puts the dropdown placeholder Choose an item. into the next table cell. The import fix keeps the cell-level control in its cell. The fix is in libreoffice-26.2.0.1. LibreOffice 26.2.6.3 and broilerdoc both export only Enter Amount and 10.",
+      "reference": "docs/notes/office-issue-249-docx-text.md"
     }
   ]
 }

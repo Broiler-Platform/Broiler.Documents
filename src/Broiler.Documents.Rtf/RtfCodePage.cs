@@ -25,6 +25,12 @@ internal static class RtfCodePage
     public static bool IsDbcsCodePage(int codePage) =>
         codePage is 932 or 936 or 949 or 950 or 1361;
 
+    public static bool IsDbcsLeadByte(int codePage, byte value) =>
+        IsDbcsCodePage(codePage) && value >= 0x80 && !IsHalfWidthKatakana(codePage, value);
+
+    public static bool IsHalfWidthKatakana(int codePage, byte value) =>
+        codePage == 932 && value is >= 0xA1 and <= 0xDF;
+
     public static Encoding? EncodingFor(int codePage) =>
         codePage <= 0 ? null : Encodings.GetOrAdd(codePage, cp => CodePagesEncodingProvider.Instance.GetEncoding(cp));
 
@@ -36,6 +42,8 @@ internal static class RtfCodePage
     {
         if (codePage is 0 or 1 or 1252)
             return Windows1252.Decode(value);
+        if (IsHalfWidthKatakana(codePage, value))
+            return (char)('\uFF61' + value - 0xA1);
 
         if (value >= 0x80 && TableFor(codePage) is { } table)
             return table[value];

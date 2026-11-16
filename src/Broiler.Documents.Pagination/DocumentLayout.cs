@@ -752,7 +752,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             pageNotes.Clear();
         }
 
-        void BreakPage(bool columnOverflow = false)
+        void BreakPage(bool columnOverflow = false, bool parityBlank = false)
         {
             if (truncated)
                 return;
@@ -764,8 +764,16 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             var inlineCells = new List<LayoutCell>(currentCells);
             currentLines.AddRange(floatLines);
             currentCells.AddRange(floatCells);
+            RunningContent savedRunning = _running;
+            if (parityBlank)
+                _running = RunningContent.Empty;
             pages.Add(NewPage(pages.Count + 1, setup, currentLines, currentCells, sectionPaint,
                 pageFloatingTables, inlineLines, inlineCells, columnSeparators));
+            if (parityBlank)
+            {
+                _running = savedRunning;
+                _firstPage = pages.Count + 1;
+            }
             sectionPaint = [];
             columnSeparators = [];
             currentLines = [];
@@ -1181,16 +1189,12 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
             if (needsBlank)
             {
-                RunningContent savedRunning = _running;
-                _running = RunningContent.Empty;
                 // The page after the blank one is the first of the section's
                 // page styles, so it is the one the sequence starts counting at.
                 ownerFirstPage = pages.Count + 2;
-                BreakPage();
+                BreakPage(parityBlank: true);
                 LayoutPage blank = pages[^1];
                 blank.IsParityBlank = blank.Lines.Count == 0 && blank.Cells.Count == 0 && blank.Shapes.Count == 0;
-                _running = savedRunning;
-                _firstPage = pages.Count + 1;
                 ownerFirstPage = pages.Count + 1;
             }
         }

@@ -40,7 +40,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            libreoffice-writer libreoffice-calc poppler-utils fontconfig \
+            libreoffice-writer libreoffice-calc libreoffice-math poppler-utils fontconfig \
             fonts-liberation fonts-crosextra-carlito fonts-crosextra-caladea fonts-dejavu-core
           # Exclude the runner's unrelated preinstalled fonts. These exact files
           # travel with the references and are reused by broilerdoc later.

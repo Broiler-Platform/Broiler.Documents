@@ -49,6 +49,7 @@ public sealed class RtfPlainCodePageTests
     [Theory]
     [InlineData(136, "'a4'40'a4'47'a4'54", "一二三")]
     [InlineData(128, "'82'a0'82'a2'82'a4", "あいう")]
+    [InlineData(128, "'b6'41'de'82'a0'dc", "ｶAﾞあﾜ")]
     [InlineData(134, "'d6'd0'ce'c4", "中文")]
     public void A_Double_Byte_Code_Page_Decodes_MultiByte_Sequences(int charset, string bytes, string expected)
     {
@@ -67,6 +68,16 @@ public sealed class RtfPlainCodePageTests
 
         Assert.Equal("一", document.PlainText);
         Assert.DoesNotContain(diagnostics, d => d.Code == "rtf.codepage");
+    }
+
+    [Fact]
+    public void Shift_Jis_Half_Width_Katakana_Works_With_Literal_Bytes()
+    {
+        byte[] rtf = Encoding.Latin1.GetBytes(@"{\rtf1\ansi\ansicpg932 " + "\xB6" + @"A\'82" + "\xA0\xDC" + @"\par}");
+        DocumentReadResult result = RtfReader.Read(rtf);
+
+        Assert.Equal("ｶAあﾜ", result.Document.PlainText);
+        Assert.DoesNotContain(result.Diagnostics, d => d.Code == "rtf.codepage");
     }
 
     [Fact]

@@ -520,6 +520,23 @@ public sealed class DocumentLayoutSectionTests
     }
 
     [Fact]
+    public void Footer_Can_Expand_The_Margin_After_A_Parity_Blank()
+    {
+        var geometry = new PageGeometry(300, 400, 20, 20, 20, 12, 8, 22);
+        RunningContent running = RunningContent.Empty.WithFooter(PageSelection.Default, [Line("footer")]);
+        RichTextDocument document = RichTextDocument.FromParagraphs([Line("body")])
+            .WithPageGeometry(geometry)
+            .WithRunningContent(running)
+            .WithSections([new DocumentSection(0, 1, 1, 0, breakType: SectionBreakType.EvenPage)]);
+
+        IReadOnlyList<LayoutPage> pages = Layout(document).Pages;
+
+        Assert.Equal(2, pages.Count);
+        Assert.True(pages[0].IsParityBlank);
+        Assert.Equal(2, pages[1].Lines.Count);
+    }
+
+    [Fact]
     public void An_Even_Page_Section_Numbered_From_Two_Starts_On_The_First_Page()
     {
         // tdf77417.docx: an evenPage section whose w:pgNumType starts at 2. Odd
