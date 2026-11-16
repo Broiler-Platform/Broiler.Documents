@@ -410,13 +410,14 @@ public static class DocumentCommands
                         .WithNoteNumbering(document.NoteNumbering), joinsTableRows)
                     : "";
             }
-            // A frame set as a character in the header counts as well
-            // (table-in-frame-in-table-in-header-base.odt, whose only text is
-            // one in the header's table). A floating header shape does not: a
-            // text watermark is a drawing, not a frame, to LibreOffice's export.
+            // Otherwise it is the first shape LibreOffice made, the body's
+            // before the headers' and footers' (whose references a DOCX's
+            // closing w:sectPr names after the text), whatever it is: the
+            // export looks at that one only, and writes nothing when it is a
+            // drawing, such as a text watermark, rather than a frame with text
+            // of its own (tdf120760_ZOrderInHeader.docx, fdo66688.docx).
             else if (FirstFrame(document.Shapes.Where(shape => !shape.IsPageAnchored)
-                .Concat(RunningShapes(document.RunningContent).Select(running => running.Shape)
-                    .Where(shape => shape.HasText && !shape.IsCustomShape && !shape.StretchesTextToBox))) is DocumentShape only)
+                .Concat(RunningShapes(document.RunningContent).Select(running => running.Shape))) is DocumentShape only)
             {
                 // A page number in a header or footer frame is the number its
                 // page gave it when LibreOffice laid the first page out: that
@@ -552,7 +553,8 @@ public static class DocumentCommands
     private static DocumentShape? FirstFrame(IEnumerable<DocumentShape> shapes)
     {
         static bool IsTextFrame(DocumentShape shape) =>
-            (!shape.IsCustomShape || shape.Tables.Count > 0) && !(shape.Image is not null && !shape.HasText);
+            (!shape.IsCustomShape || shape.Tables.Count > 0) && !shape.StretchesTextToBox &&
+            !(shape.Image is not null && !shape.HasText);
 
         List<DocumentShape> list = [.. shapes];
         if (list.Count == 0)

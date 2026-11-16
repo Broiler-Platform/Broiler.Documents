@@ -183,7 +183,9 @@ public sealed class DocumentShape(
     /// order, or nought for a shape drawn on its own: the members of one DOCX
     /// <c>wpg:wgp</c> group share the number.
     /// </summary>
-    public int GroupNumber { get; init; }
+    public int GroupNumber { get => _groupNumber; init => _groupNumber = value; }
+
+    private int _groupNumber;
 
     /// <summary>True when this shape's box shrinks/fits to its text content centered in the declared bounds.</summary>
     public bool FitsText { get; init; }
@@ -285,6 +287,24 @@ public sealed class DocumentShape(
     /// second column of a two-column section is that column's left edge.
     /// </summary>
     public bool OffsetXFromColumn { get; init; }
+
+    /// <summary>
+    /// For a header or footer shape placed against its paragraph, the offset
+    /// the document states from the top of that paragraph, which the layout
+    /// measures from where it lays the paragraph out in the band; null for any
+    /// other shape. <see cref="OffsetY"/> still holds the reader's estimate of
+    /// the offset from the page's top, for whatever needs it before the band
+    /// is laid out.
+    /// </summary>
+    public double? OffsetFromBandParagraph { get; init; }
+
+    /// <summary>Creates a copy of this shape as a member of the drawn group <paramref name="groupNumber"/> (<see cref="GroupNumber"/>).</summary>
+    public DocumentShape InDrawingGroup(int groupNumber)
+    {
+        DocumentShape copy = WithParagraphIndex(ParagraphIndex);
+        copy._groupNumber = groupNumber;
+        return copy;
+    }
 
     /// <summary>
     /// Where the shape sits among the other shapes: a higher number draws later,
@@ -452,6 +472,7 @@ public sealed class DocumentShape(
             BoundedByPage = BoundedByPage,
             OffsetXFromColumn = OffsetXFromColumn,
             KeptBelowPageTop = KeptBelowPageTop,
+            OffsetFromBandParagraph = OffsetFromBandParagraph,
         };
 
     /// <summary>The shape's own text, empty when it holds none.</summary>

@@ -73,6 +73,31 @@ internal sealed class DocxStyles
     /// </summary>
     public bool HtmlParagraphAutoSpacing { get; set; } = true;
 
+    private XElement? _linkedStyleDefaults;
+
+    /// <summary>
+    /// Whether the settings ask for the styles to be updated from the template
+    /// (<c>w:linkStyles</c>) and name none to update them from: LibreOffice then
+    /// takes the paragraph defaults of Word's own template, 10 points below and
+    /// lines at 115 % (writerfilter's <c>SettingsTable::ApplyProperties</c>,
+    /// tdf#166141), under whatever <c>w:docDefaults</c> and the styles state.
+    /// </summary>
+    public bool UpdatesStylesFromWordDefaults
+    {
+        get => _linkedStyleDefaults is not null;
+        set
+        {
+            _linkedStyleDefaults = value
+                ? new XElement(DocxNamespaces.Wordprocessing + "pPr",
+                    new XElement(DocxNamespaces.Wordprocessing + "spacing",
+                        new XAttribute(DocxNamespaces.Wordprocessing + "after", "200"),
+                        new XAttribute(DocxNamespaces.Wordprocessing + "line", "276"),
+                        new XAttribute(DocxNamespaces.Wordprocessing + "lineRule", "auto")))
+                : null;
+            _chainCache.Clear();
+        }
+    }
+
     /// <summary>
     /// Whether <c>w:docDefaults</c> holds a <c>w:rPrDefault</c>, which decides
     /// what a run stating no size or family falls back to (see
@@ -211,6 +236,8 @@ internal sealed class DocxStyles
         Resolve("p:" + (tableStyleId ?? string.Empty) + "\0" + (int)conditions + "\0" + (paragraphStyleId ?? string.Empty), () =>
         {
             var properties = new List<XElement>();
+            if (_linkedStyleDefaults is not null)
+                properties.Add(_linkedStyleDefaults);
             if (_defaultParagraphProperties is not null)
                 properties.Add(_defaultParagraphProperties);
 

@@ -196,12 +196,12 @@ public sealed class DumpTableTextTests
     [Fact]
     public void A_Header_Text_Box_Is_Exported_When_The_Body_Has_No_Frame()
     {
-        // n773061.docx: the only frame is a text box in the header; a text
-        // watermark there is a drawing and is passed over.
+        // n773061.docx: the only frame is a text box in the header. (A text
+        // watermark ahead of it would be the first frame instead, a drawing:
+        // DumpFirstFrameTextTests.A_Text_Watermark_In_The_Header_Is_A_Drawing.)
         RichTextDocument document = RichTextDocument.FromParagraphs([RichTextParagraph.Plain("")])
             .WithRunningContent(RunningContent.Empty.WithHeader(PageSelection.Default, null,
-                [new DocumentShape(0, 0, 0, 100, 80, paragraphs: [RichTextParagraph.Plain("DRAFT")]) { StretchesTextToBox = true },
-                 new DocumentShape(0, 0, 0, 100, 80, paragraphs: [RichTextParagraph.Plain("Line1"), RichTextParagraph.Plain("Line2")])]));
+                [new DocumentShape(0, 0, 0, 100, 80, paragraphs: [RichTextParagraph.Plain("Line1"), RichTextParagraph.Plain("Line2")])]));
 
         Assert.Equal("Line1\nLine2", DocumentCommands.LabelledText(document));
     }

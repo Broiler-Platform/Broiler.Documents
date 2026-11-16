@@ -490,6 +490,25 @@
       "samples": ["htmlimport/data/nested-list-mixed-type.html"],
       "evidence": "An outer <ol> holds two items; the first nests an <ol>, the second a <ul>. The pinned 24.2 text export numbers the bullet list '1. Bullet 1' and '2. Bullet 2': its HTML import kept one numbering rule for the whole list hierarchy and never changed a level's type once set, so the <ul> took the sibling <ol>'s arabic numbering. The fix ('tdf#124339 fix HTML import of nested lists with mixed ol/ul types', master commit 0d901065, on libreoffice-26-2 as d9a14b9b and first released in 26.2.4) starts a new rule when a nested list's type conflicts with its level's and came with this sample and a test asserting 'Ordered 1' is arabic and 'Bullet 1' a character bullet. broilerdoc reads the <ul> as bullets. The pixel check passes either way: the labels differ by a few glyphs.",
       "reference": "docs/notes/office-issue-249-misc-ods-html-pdf.md"
+    },
+    {
+      "id": "tdf166141-link-styles-missing-template",
+      "bug": "tdf#166141",
+      "fixedIn": "26.2",
+      "fixCommits": [
+        "bf326cd72905df985a1f150dbaabf4470fb5aabb"
+      ],
+      "upstreamTests": [
+        "sw/qa/extras/ooxmlexport/ooxmlexport25.cxx testTdf166141_linkedStyles"
+      ],
+      "axes": [
+        "pixel"
+      ],
+      "samples": [
+        "ooxmlexport/data/tdf166141_linkedStyles.docx"
+      ],
+      "evidence": "settings.xml states w:linkStyles and a w:attachedTemplate that is not in the package; Normal states no space below its paragraphs. The pinned 24.2 PDF puts 10 points under every paragraph (lines 13.9 points apart within a paragraph, 23.9 between paragraphs), because 24.2 updates the styles from Word's defaults (200 twips below, 115 % lines) whenever linkStyles is on. The fix ('writerfilter docx: linkStyles != 0.35cm bottom margin', gerrit change 186855, merged on master 2025-06-24 after the libreoffice-25-8 branch was cut and not cherry-picked to it, so first released in 26.2) leaves the styles alone when the template to update them from does not exist, and its test asserts the Standard style keeps ParaBottomMargin 0 for this sample. Its twin tdf166141_linkedStyles2.docx, with linkStyles and no attachedTemplate, keeps the Word defaults in the fixed release too, and broilerdoc draws both as the fixed release does. Cut-down copies converted with 24.2.7.2 show the defaults sit under w:docDefaults and the styles: a Normal stating 3 points below keeps 3, a pPrDefault stating 20 keeps 20.",
+      "reference": "docs/notes/office-issue-249-docx-headers.md"
     }
   ]
 }

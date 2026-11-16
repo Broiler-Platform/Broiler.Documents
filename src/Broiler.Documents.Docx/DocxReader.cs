@@ -74,6 +74,7 @@ internal static class DocxReader
             int compatibilityMode = WordCompatibilityMode(settings.Root);
             bool splitPgBreakAndParaMark = HasSplitPgBreakAndParaMark(settings.Root);
             styles.HtmlParagraphAutoSpacing = !HasCompatFlag(settings.Root, "doNotUseHTMLParagraphAutoSpacing");
+            styles.UpdatesStylesFromWordDefaults = UpdatesStylesFromWordDefaults(settings.Root);
             DocxNotes notes = DocxNotes.Load(
                 archive,
                 documentRelationships,
@@ -644,6 +645,18 @@ internal static class DocxReader
             displayBackground is not null && ReadOnOff(displayBackground),
             root);
     }
+
+    /// <summary>
+    /// Whether the settings turn <c>w:linkStyles</c> on without naming a
+    /// template in <c>w:attachedTemplate</c>. With no template to update the
+    /// styles from, LibreOffice updates them from Word's defaults
+    /// (tdf166141_linkedStyles2.docx, ten points under every paragraph in
+    /// 24.2.7.2's PDF). With a template it does not have, the fix of tdf#166141
+    /// leaves the styles alone; 24.2 applied the defaults there too.
+    /// </summary>
+    private static bool UpdatesStylesFromWordDefaults(XElement? settings) =>
+        settings?.Element(DocxNamespaces.Wordprocessing + "linkStyles") is XElement link && ReadOnOff(link) &&
+        settings.Element(DocxNamespaces.Wordprocessing + "attachedTemplate") is null;
 
     private static bool HasSplitPgBreakAndParaMark(XElement? settings) =>
         settings?.Element(DocxNamespaces.Wordprocessing + "compat")
@@ -1927,6 +1940,7 @@ internal static class DocxReader
             WrapPolygon = Wrap == ShapeWrap.None ? null : ReadWrapPolygon(anchor),
             BoundedByPage = !context.Builder.InTableCell,
             OffsetXFromColumn = FromColumn(anchor, context),
+            OffsetFromBandParagraph = BandParagraphOffset(anchor, context),
         });
         return true;
     }
@@ -2145,6 +2159,7 @@ internal static class DocxReader
                     WrapMargins = Wrap == ShapeWrap.None ? null : Margins,
                     BoundedByPage = !context.Builder.InTableCell,
                     OffsetXFromColumn = FromColumn(anchor, context),
+                    OffsetFromBandParagraph = BandParagraphOffset(anchor, context) + y,
                 });
             }
             else if (child.Name == DocxNamespaces.WordGroup + "grpSp" && depth < MaxGroupDepth)
@@ -2281,7 +2296,8 @@ internal static class DocxReader
             geometry: geometry,
             outlineWidth: long.TryParse((string?)spPr?.Element(DocxNamespaces.Drawing + "ln")?.Attribute("w"), out long lineWidth) && lineWidth >= 0 ? lineWidth / 12700d : 0.75,
             offsetXFromCell: context.Builder.InTableCell && RelativeFrom(anchor, "positionH") == "column" &&
-                (geometry is ShapeGeometry.Line or ShapeGeometry.LineAscending || LaysOutInCell(anchor)))
+                (geometry is ShapeGeometry.Line or ShapeGeometry.LineAscending || LaysOutInCell(anchor)),
+            printable: !IsHiddenDrawing(anchor))
         {
             // A shape with no text box is a drawing to LibreOffice; one with a
             // text box, even an empty one, has a text frame attached.
@@ -2293,9 +2309,20 @@ internal static class DocxReader
             WrapMargins = Wrap == ShapeWrap.None ? null : Margins,
             BoundedByPage = !context.Builder.InTableCell,
             OffsetXFromColumn = FromColumn(anchor, context),
+            OffsetFromBandParagraph = BandParagraphOffset(anchor, context) + top,
         });
         return true;
     }
+
+    /// <summary>
+    /// Whether the drawing's <c>wp:docPr</c> hides it (<c>hidden</c>, ECMA-376
+    /// §20.4.2.5). LibreOffice imports such a shape invisible
+    /// (writerfilter's <c>GraphicImport</c>, tdf#156484): laid out and wrapped
+    /// around, but not drawn, which <see cref="DocumentShape.Printable"/> says.
+    /// </summary>
+    private static bool IsHiddenDrawing(XElement anchor) =>
+        anchor.Element(DocxNamespaces.WordDrawing + "docPr")?.Attribute("hidden") is XAttribute hidden &&
+        (string)hidden is "1" or "true" or "on";
 
     /// <summary>
     /// Whether an anchored object outside a table is placed across from the left
@@ -3014,6 +3041,8 @@ internal static class DocxReader
                 "bottomMargin" => offset + running.Height - running.MarginBottom,
                 _ when context.Band == RunningBand.Footer && from is null or "paragraph" or "line" =>
                     offset + running.Height - running.MarginBottom,
+                _ when context.Band == RunningBand.Header && !context.Builder.InTableCell && from is null or "paragraph" or "line" =>
+                    offset + running.HeaderDistance,
                 // "page" and "topMargin" both measure from the page's top edge,
                 // and a header's own band starts there too.
                 _ => offset,
@@ -3046,6 +3075,38 @@ internal static class DocxReader
             "A floating DOCX object stated its vertical position against a margin this reader could not place " +
             "on the page; the offset was kept as stated and is measured from its paragraph instead.");
         return (offset, false);
+    }
+
+    /// <summary>
+    /// The offset in points a header or footer object states from the top of
+    /// its paragraph or line (<c>wp:positionV relativeFrom</c> <c>paragraph</c>,
+    /// <c>line</c> or none), for the layout to measure from where the band puts
+    /// that paragraph (<see cref="DocumentShape.OffsetFromBandParagraph"/>);
+    /// null in the body and for any other frame.
+    /// </summary>
+    /// <remarks>
+    /// The reader can only estimate where the paragraph is. LibreOffice stacks a
+    /// footer's paragraphs up from its distance above the page's foot, so a
+    /// one-line footer's paragraph starts a line above that, not at the bottom
+    /// margin: fdo80895.docx's oval, 8.55 points above its footer paragraph,
+    /// is drawn 784 points down an A4 page, not 761.
+    /// </remarks>
+    private static double? BandParagraphOffset(XElement anchor, DocxReadContext context)
+    {
+        // An inline drawing has no offset of its own; one in a table cell is
+        // measured from a cell the band lays out in its flow, where a
+        // floating table is not (tdf105688.docx).
+        if (context.Band == RunningBand.Body || anchor.Name != DocxNamespaces.WordDrawing + "anchor" ||
+            context.Builder.InTableCell || SimplePosition(anchor) is not null)
+            return null;
+
+        string? from = RelativeFrom(anchor, "positionV");
+        if (from is not (null or "paragraph" or "line"))
+            return null;
+        if (context.Page is PageGeometry page && AlignedOrRelativeV(anchor, from, page) is not null)
+            return null;
+
+        return EmuToPoints(PositionOffset(anchor, "positionV"));
     }
 
     /// <summary>
