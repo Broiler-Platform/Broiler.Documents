@@ -13,6 +13,15 @@ internal readonly record struct OdsCellAppearance(BColor Fill, CellBorders Borde
     private static readonly XNamespace Style = OdsNamespaces.Style;
     private static readonly XNamespace Fo = OdsNamespaces.Fo;
 
+    /// <summary>
+    /// Whether a left alignment is written out rather than left unstated: for
+    /// a number or truth value, whose unstated alignment Calc sets to the
+    /// right (<see cref="OdsCellStyles.StatesAlignment"/>).
+    /// </summary>
+    public bool StatesLeft { get; init; }
+
+    private bool WritesAlignment => Alignment != TextAlignment.Left || StatesLeft;
+
     public static OdsCellAppearance Read(XElement? style)
     {
         XElement? cell = style?.Element(Style + "table-cell-properties");
@@ -55,7 +64,7 @@ internal readonly record struct OdsCellAppearance(BColor Fill, CellBorders Borde
     public XElement? WriteCell()
     {
         var cell = new XElement(Style + "table-cell-properties",
-            Alignment == TextAlignment.Left ? null : new XAttribute(Style + "text-align-source", "fix"),
+            !WritesAlignment ? null : new XAttribute(Style + "text-align-source", "fix"),
             Fill.A > 0 ? new XAttribute(Fo + "background-color", Color(Fill)) : null,
             Vertical == CellVerticalAlignment.Bottom ? null :
                 new XAttribute(Style + "vertical-align", Vertical == CellVerticalAlignment.Center ? "middle" : "top"),
@@ -64,7 +73,7 @@ internal readonly record struct OdsCellAppearance(BColor Fill, CellBorders Borde
         return cell.HasAttributes ? cell : null;
     }
 
-    public XElement? WriteParagraph() => Alignment == TextAlignment.Left ? null :
+    public XElement? WriteParagraph() => !WritesAlignment ? null :
         new XElement(Style + "paragraph-properties",
             new XAttribute(Fo + "text-align", Alignment.ToString().ToLowerInvariant()));
 

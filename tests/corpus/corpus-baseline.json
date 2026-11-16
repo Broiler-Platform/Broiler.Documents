@@ -396,6 +396,23 @@
     {
       "sample": "alignment",
       "source": "ods",
+      "via": "rtf",
+      "differences": [
+        "inline-style@p0: formatting differs from character 0: font size default vs 10",
+        "inline-style@p1: formatting differs from character 0: font size default vs 10",
+        "inline-style@p2: formatting differs from character 0: font size default vs 10",
+        "inline-style@p3: formatting differs from character 0: font size default vs 10"
+      ],
+      "diagnostics": [],
+      "state": "suspected-defect",
+      "reference": null,
+      "why": "Since office issue 249 the ODS reader gives a sheet Calc's document defaults (Liberation Sans, 10 pt) rather than leaving them unset. The RTF writer writes that size on each run (\\fs20), and the RTF reader reads it back as each run's own size, so 'default' becomes an explicit 10 pt; the size every run is drawn at is the same. Not yet reviewed: the RTF writer could carry the document default instead.",
+      "reviewer": null,
+      "decided": null
+    },
+    {
+      "sample": "alignment",
+      "source": "ods",
       "via": "tsv",
       "differences": [
         "table.cell-layout@p0: column width count 1 vs 0"
@@ -1098,6 +1115,20 @@
       "state": "suspected-defect",
       "reference": null,
       "why": "Not yet classified. A row regenerated into this file starts as a suspected defect on purpose: an unreviewed difference should read as one until somebody says otherwise.",
+      "reviewer": null,
+      "decided": null
+    },
+    {
+      "sample": "colour",
+      "source": "ods",
+      "via": "rtf",
+      "differences": [
+        "inline-style@p0: formatting differs from character 0: font size default vs 10"
+      ],
+      "diagnostics": [],
+      "state": "suspected-defect",
+      "reference": null,
+      "why": "Since office issue 249 the ODS reader gives a sheet Calc's document defaults (Liberation Sans, 10 pt) rather than leaving them unset. The RTF writer writes that size on each run (\\fs20), and the RTF reader reads it back as each run's own size, so 'default' becomes an explicit 10 pt; the size every run is drawn at is the same. Not yet reviewed: the RTF writer could carry the document default instead.",
       "reviewer": null,
       "decided": null
     },
@@ -1903,6 +1934,22 @@
       "state": "suspected-defect",
       "reference": null,
       "why": "Not yet classified. A row regenerated into this file starts as a suspected defect on purpose: an unreviewed difference should read as one until somebody says otherwise.",
+      "reviewer": null,
+      "decided": null
+    },
+    {
+      "sample": "control-characters",
+      "source": "ods",
+      "via": "rtf",
+      "differences": [
+        "inline-style@p0: formatting differs from character 0: font size default vs 10",
+        "inline-style@p1: formatting differs from character 0: font size default vs 10",
+        "inline-style@p2: formatting differs from character 0: font size default vs 10"
+      ],
+      "diagnostics": [],
+      "state": "suspected-defect",
+      "reference": null,
+      "why": "Since office issue 249 the ODS reader gives a sheet Calc's document defaults (Liberation Sans, 10 pt) rather than leaving them unset. The RTF writer writes that size on each run (\\fs20), and the RTF reader reads it back as each run's own size, so 'default' becomes an explicit 10 pt; the size every run is drawn at is the same. Not yet reviewed: the RTF writer could carry the document default instead.",
       "reviewer": null,
       "decided": null
     },
@@ -2954,6 +3001,20 @@
     {
       "sample": "emphasis",
       "source": "ods",
+      "via": "rtf",
+      "differences": [
+        "inline-style@p0: formatting differs from character 0: font size default vs 10"
+      ],
+      "diagnostics": [],
+      "state": "suspected-defect",
+      "reference": null,
+      "why": "Since office issue 249 the ODS reader gives a sheet Calc's document defaults (Liberation Sans, 10 pt) rather than leaving them unset. The RTF writer writes that size on each run (\\fs20), and the RTF reader reads it back as each run's own size, so 'default' becomes an explicit 10 pt; the size every run is drawn at is the same. Not yet reviewed: the RTF writer could carry the document default instead.",
+      "reviewer": null,
+      "decided": null
+    },
+    {
+      "sample": "emphasis",
+      "source": "ods",
       "via": "tsv",
       "differences": [
         "table.cell-layout@p0: column width count 1 vs 0"
@@ -3634,6 +3695,22 @@
       "state": "suspected-defect",
       "reference": null,
       "why": "Not yet classified. A row regenerated into this file starts as a suspected defect on purpose: an unreviewed difference should read as one until somebody says otherwise.",
+      "reviewer": null,
+      "decided": null
+    },
+    {
+      "sample": "empty-paragraphs",
+      "source": "ods",
+      "via": "rtf",
+      "differences": [
+        "inline-style@p0: formatting differs from character 0: font size default vs 10",
+        "inline-style@p2: formatting differs from character 0: font size default vs 10",
+        "inline-style@p4: formatting differs from character 0: font size default vs 10"
+      ],
+      "diagnostics": [],
+      "state": "suspected-defect",
+      "reference": null,
+      "why": "Since office issue 249 the ODS reader gives a sheet Calc's document defaults (Liberation Sans, 10 pt) rather than leaving them unset. The RTF writer writes that size on each run (\\fs20), and the RTF reader reads it back as each run's own size, so 'default' becomes an explicit 10 pt; the size every run is drawn at is the same. Not yet reviewed: the RTF writer could carry the document default instead.",
       "reviewer": null,
       "decided": null
     },
@@ -4778,6 +4855,20 @@
     {
       "sample": "image",
       "source": "ods",
+      "via": "rtf",
+      "differences": [
+        "inline-style@p0: formatting differs from character 0: font size default vs 10"
+      ],
+      "diagnostics": [],
+      "state": "suspected-defect",
+      "reference": null,
+      "why": "Since office issue 249 the ODS reader gives a sheet Calc's document defaults (Liberation Sans, 10 pt) rather than leaving them unset. The RTF writer writes that size on each run (\\fs20), and the RTF reader reads it back as each run's own size, so 'default' becomes an explicit 10 pt; the size every run is drawn at is the same. Not yet reviewed: the RTF writer could carry the document default instead.",
+      "reviewer": null,
+      "decided": null
+    },
+    {
+      "sample": "image",
+      "source": "ods",
       "via": "tsv",
       "differences": [
         "table.cell-layout@p0: column width count 1 vs 0"
@@ -5576,6 +5667,23 @@
     {
       "sample": "indent-spacing",
       "source": "ods",
+      "via": "rtf",
+      "differences": [
+        "inline-style@p0: formatting differs from character 0: font size default vs 10",
+        "inline-style@p1: formatting differs from character 0: font size default vs 10",
+        "inline-style@p2: formatting differs from character 0: font size default vs 10",
+        "inline-style@p3: formatting differs from character 0: font size default vs 10"
+      ],
+      "diagnostics": [],
+      "state": "suspected-defect",
+      "reference": null,
+      "why": "Since office issue 249 the ODS reader gives a sheet Calc's document defaults (Liberation Sans, 10 pt) rather than leaving them unset. The RTF writer writes that size on each run (\\fs20), and the RTF reader reads it back as each run's own size, so 'default' becomes an explicit 10 pt; the size every run is drawn at is the same. Not yet reviewed: the RTF writer could carry the document default instead.",
+      "reviewer": null,
+      "decided": null
+    },
+    {
+      "sample": "indent-spacing",
+      "source": "ods",
       "via": "tsv",
       "differences": [
         "table.cell-layout@p0: column width count 1 vs 0"
@@ -6298,6 +6406,20 @@
     {
       "sample": "links",
       "source": "ods",
+      "via": "rtf",
+      "differences": [
+        "inline-style@p0: formatting differs from character 0: font size default vs 10"
+      ],
+      "diagnostics": [],
+      "state": "suspected-defect",
+      "reference": null,
+      "why": "Since office issue 249 the ODS reader gives a sheet Calc's document defaults (Liberation Sans, 10 pt) rather than leaving them unset. The RTF writer writes that size on each run (\\fs20), and the RTF reader reads it back as each run's own size, so 'default' becomes an explicit 10 pt; the size every run is drawn at is the same. Not yet reviewed: the RTF writer could carry the document default instead.",
+      "reviewer": null,
+      "decided": null
+    },
+    {
+      "sample": "links",
+      "source": "ods",
       "via": "tsv",
       "differences": [
         "table.cell-layout@p0: column width count 1 vs 0"
@@ -6904,6 +7026,20 @@
       "state": "suspected-defect",
       "reference": null,
       "why": "Not yet classified. A row regenerated into this file starts as a suspected defect on purpose: an unreviewed difference should read as one until somebody says otherwise.",
+      "reviewer": null,
+      "decided": null
+    },
+    {
+      "sample": "links-rejected",
+      "source": "ods",
+      "via": "rtf",
+      "differences": [
+        "inline-style@p0: formatting differs from character 0: font size default vs 10"
+      ],
+      "diagnostics": [],
+      "state": "suspected-defect",
+      "reference": null,
+      "why": "Since office issue 249 the ODS reader gives a sheet Calc's document defaults (Liberation Sans, 10 pt) rather than leaving them unset. The RTF writer writes that size on each run (\\fs20), and the RTF reader reads it back as each run's own size, so 'default' becomes an explicit 10 pt; the size every run is drawn at is the same. Not yet reviewed: the RTF writer could carry the document default instead.",
       "reviewer": null,
       "decided": null
     },
@@ -7524,6 +7660,22 @@
       "state": "suspected-defect",
       "reference": null,
       "why": "Not yet classified. A row regenerated into this file starts as a suspected defect on purpose: an unreviewed difference should read as one until somebody says otherwise.",
+      "reviewer": null,
+      "decided": null
+    },
+    {
+      "sample": "links-relative",
+      "source": "ods",
+      "via": "rtf",
+      "differences": [
+        "inline-style@p0: formatting differs from character 0: font size default vs 10",
+        "inline-style@p1: formatting differs from character 0: font size default vs 10",
+        "inline-style@p2: formatting differs from character 0: font size default vs 10"
+      ],
+      "diagnostics": [],
+      "state": "suspected-defect",
+      "reference": null,
+      "why": "Since office issue 249 the ODS reader gives a sheet Calc's document defaults (Liberation Sans, 10 pt) rather than leaving them unset. The RTF writer writes that size on each run (\\fs20), and the RTF reader reads it back as each run's own size, so 'default' becomes an explicit 10 pt; the size every run is drawn at is the same. Not yet reviewed: the RTF writer could carry the document default instead.",
       "reviewer": null,
       "decided": null
     },
@@ -8387,6 +8539,25 @@
     {
       "sample": "lists",
       "source": "ods",
+      "via": "rtf",
+      "differences": [
+        "inline-style@p0: formatting differs from character 0: font size default vs 10",
+        "inline-style@p1: formatting differs from character 0: font size default vs 10",
+        "inline-style@p2: formatting differs from character 0: font size default vs 10",
+        "inline-style@p3: formatting differs from character 0: font size default vs 10",
+        "inline-style@p4: formatting differs from character 0: font size default vs 10",
+        "inline-style@p5: formatting differs from character 0: font size default vs 10"
+      ],
+      "diagnostics": [],
+      "state": "suspected-defect",
+      "reference": null,
+      "why": "Since office issue 249 the ODS reader gives a sheet Calc's document defaults (Liberation Sans, 10 pt) rather than leaving them unset. The RTF writer writes that size on each run (\\fs20), and the RTF reader reads it back as each run's own size, so 'default' becomes an explicit 10 pt; the size every run is drawn at is the same. Not yet reviewed: the RTF writer could carry the document default instead.",
+      "reviewer": null,
+      "decided": null
+    },
+    {
+      "sample": "lists",
+      "source": "ods",
       "via": "tsv",
       "differences": [
         "table.cell-layout@p0: column width count 1 vs 0"
@@ -9116,6 +9287,25 @@
       "state": "suspected-defect",
       "reference": null,
       "why": "Not yet classified. A row regenerated into this file starts as a suspected defect on purpose: an unreviewed difference should read as one until somebody says otherwise.",
+      "reviewer": null,
+      "decided": null
+    },
+    {
+      "sample": "long-flow",
+      "source": "ods",
+      "via": "rtf",
+      "differences": [
+        "inline-style@p0: formatting differs from character 0: font size default vs 10",
+        "inline-style@p1: formatting differs from character 0: font size default vs 10",
+        "inline-style@p2: formatting differs from character 0: font size default vs 10",
+        "inline-style@p3: formatting differs from character 0: font size default vs 10",
+        "inline-style@p4: formatting differs from character 0: font size default vs 10",
+        "inline-style@p5: formatting differs from character 0: font size default vs 10"
+      ],
+      "diagnostics": [],
+      "state": "suspected-defect",
+      "reference": null,
+      "why": "Since office issue 249 the ODS reader gives a sheet Calc's document defaults (Liberation Sans, 10 pt) rather than leaving them unset. The RTF writer writes that size on each run (\\fs20), and the RTF reader reads it back as each run's own size, so 'default' becomes an explicit 10 pt; the size every run is drawn at is the same. Not yet reviewed: the RTF writer could carry the document default instead.",
       "reviewer": null,
       "decided": null
     },
@@ -10075,6 +10265,23 @@
     {
       "sample": "metacharacters",
       "source": "ods",
+      "via": "rtf",
+      "differences": [
+        "inline-style@p0: formatting differs from character 0: font size default vs 10",
+        "inline-style@p1: formatting differs from character 0: font size default vs 10",
+        "inline-style@p2: formatting differs from character 0: font size default vs 10",
+        "inline-style@p3: formatting differs from character 0: font size default vs 10"
+      ],
+      "diagnostics": [],
+      "state": "suspected-defect",
+      "reference": null,
+      "why": "Since office issue 249 the ODS reader gives a sheet Calc's document defaults (Liberation Sans, 10 pt) rather than leaving them unset. The RTF writer writes that size on each run (\\fs20), and the RTF reader reads it back as each run's own size, so 'default' becomes an explicit 10 pt; the size every run is drawn at is the same. Not yet reviewed: the RTF writer could carry the document default instead.",
+      "reviewer": null,
+      "decided": null
+    },
+    {
+      "sample": "metacharacters",
+      "source": "ods",
       "via": "tsv",
       "differences": [
         "table.cell-layout@p0: column width count 1 vs 0"
@@ -10361,14 +10568,20 @@
       "source": "ods",
       "via": "csv",
       "differences": [
-        "table.cell-layout@p0: column width count 2 vs 0"
+        "paragraph-style@p2: alignment Right vs Left",
+        "table.cell-layout@p0: column width count 2 vs 0",
+        "table.cell-layout@p0: vertical alignment Bottom vs Top",
+        "table.cell-layout@p1: vertical alignment Bottom vs Top",
+        "table.cell-layout@p2: vertical alignment Bottom vs Top",
+        "table.cell-layout@p3: vertical alignment Bottom vs Top"
       ],
       "diagnostics": [
+        "csv.paragraph-style",
         "csv.table.layout"
       ],
       "state": "suspected-defect",
       "reference": null,
-      "why": "Not yet classified. A row regenerated into this file starts as a suspected defect on purpose: an unreviewed difference should read as one until somebody says otherwise.",
+      "why": "Since office issue 249 a cell that states no alignment reads as Calc shows it: text at the foot of the cell, and a number, date or truth value to the right (ScOutputData's standard justification). CSV, TSV and Markdown keep neither, so the authored fixture's unstated alignments come back as the defaults of those formats. The ODS writer states top and left where the model has them, so a sheet written by broilerdoc keeps them. Not yet reviewed.",
       "reviewer": null,
       "decided": null
     },
@@ -10393,14 +10606,37 @@
       "source": "ods",
       "via": "markdown",
       "differences": [
+        "paragraph-style@p2: alignment Right vs Left",
         "table.grid-mismatch@p?: table count differs: 1 vs 0"
       ],
       "diagnostics": [
+        "markdown.paragraph-style",
         "markdown.table.flattened"
       ],
       "state": "suspected-defect",
       "reference": null,
-      "why": "Not yet classified. A row regenerated into this file starts as a suspected defect on purpose: an unreviewed difference should read as one until somebody says otherwise.",
+      "why": "Since office issue 249 a cell that states no alignment reads as Calc shows it: text at the foot of the cell, and a number, date or truth value to the right (ScOutputData's standard justification). CSV, TSV and Markdown keep neither, so the authored fixture's unstated alignments come back as the defaults of those formats. The ODS writer states top and left where the model has them, so a sheet written by broilerdoc keeps them. Not yet reviewed.",
+      "reviewer": null,
+      "decided": null
+    },
+    {
+      "sample": "ods-package",
+      "source": "ods",
+      "via": "rtf",
+      "differences": [
+        "inline-style@p0: formatting differs from character 0: font size default vs 10",
+        "inline-style@p1: formatting differs from character 0: font size default vs 10",
+        "inline-style@p2: formatting differs from character 0: font size default vs 10",
+        "inline-style@p3: formatting differs from character 0: font size default vs 10",
+        "table.cell-layout@p0: vertical alignment Bottom vs Top",
+        "table.cell-layout@p1: vertical alignment Bottom vs Top",
+        "table.cell-layout@p2: vertical alignment Bottom vs Top",
+        "table.cell-layout@p3: vertical alignment Bottom vs Top"
+      ],
+      "diagnostics": [],
+      "state": "suspected-defect",
+      "reference": null,
+      "why": "Since office issue 249 the ODS reader gives a sheet Calc's document defaults (Liberation Sans, 10 pt) rather than leaving them unset. The RTF writer writes that size on each run (\\fs20), and the RTF reader reads it back as each run's own size, so 'default' becomes an explicit 10 pt; the size every run is drawn at is the same. Not yet reviewed: the RTF writer could carry the document default instead.",
       "reviewer": null,
       "decided": null
     },
@@ -10409,14 +10645,20 @@
       "source": "ods",
       "via": "tsv",
       "differences": [
-        "table.cell-layout@p0: column width count 2 vs 0"
+        "paragraph-style@p2: alignment Right vs Left",
+        "table.cell-layout@p0: column width count 2 vs 0",
+        "table.cell-layout@p0: vertical alignment Bottom vs Top",
+        "table.cell-layout@p1: vertical alignment Bottom vs Top",
+        "table.cell-layout@p2: vertical alignment Bottom vs Top",
+        "table.cell-layout@p3: vertical alignment Bottom vs Top"
       ],
       "diagnostics": [
+        "csv.paragraph-style",
         "csv.table.layout"
       ],
       "state": "suspected-defect",
       "reference": null,
-      "why": "Not yet classified. A row regenerated into this file starts as a suspected defect on purpose: an unreviewed difference should read as one until somebody says otherwise.",
+      "why": "Since office issue 249 a cell that states no alignment reads as Calc shows it: text at the foot of the cell, and a number, date or truth value to the right (ScOutputData's standard justification). CSV, TSV and Markdown keep neither, so the authored fixture's unstated alignments come back as the defaults of those formats. The ODS writer states top and left where the model has them, so a sheet written by broilerdoc keeps them. Not yet reviewed.",
       "reviewer": null,
       "decided": null
     },
@@ -11067,6 +11309,22 @@
     {
       "sample": "page-break",
       "source": "ods",
+      "via": "rtf",
+      "differences": [
+        "inline-style@p0: formatting differs from character 0: font size default vs 10",
+        "inline-style@p1: formatting differs from character 0: font size default vs 10",
+        "inline-style@p2: formatting differs from character 0: font size default vs 10"
+      ],
+      "diagnostics": [],
+      "state": "suspected-defect",
+      "reference": null,
+      "why": "Since office issue 249 the ODS reader gives a sheet Calc's document defaults (Liberation Sans, 10 pt) rather than leaving them unset. The RTF writer writes that size on each run (\\fs20), and the RTF reader reads it back as each run's own size, so 'default' becomes an explicit 10 pt; the size every run is drawn at is the same. Not yet reviewed: the RTF writer could carry the document default instead.",
+      "reviewer": null,
+      "decided": null
+    },
+    {
+      "sample": "page-break",
+      "source": "ods",
       "via": "tsv",
       "differences": [
         "table.cell-layout@p0: column width count 1 vs 0"
@@ -11695,6 +11953,22 @@
       "state": "suspected-defect",
       "reference": null,
       "why": "Not yet classified. A row regenerated into this file starts as a suspected defect on purpose: an unreviewed difference should read as one until somebody says otherwise.",
+      "reviewer": null,
+      "decided": null
+    },
+    {
+      "sample": "plain",
+      "source": "ods",
+      "via": "rtf",
+      "differences": [
+        "inline-style@p0: formatting differs from character 0: font size default vs 10",
+        "inline-style@p1: formatting differs from character 0: font size default vs 10",
+        "inline-style@p2: formatting differs from character 0: font size default vs 10"
+      ],
+      "diagnostics": [],
+      "state": "suspected-defect",
+      "reference": null,
+      "why": "Since office issue 249 the ODS reader gives a sheet Calc's document defaults (Liberation Sans, 10 pt) rather than leaving them unset. The RTF writer writes that size on each run (\\fs20), and the RTF reader reads it back as each run's own size, so 'default' becomes an explicit 10 pt; the size every run is drawn at is the same. Not yet reviewed: the RTF writer could carry the document default instead.",
       "reviewer": null,
       "decided": null
     },
@@ -12564,6 +12838,20 @@
     {
       "sample": "typography",
       "source": "ods",
+      "via": "rtf",
+      "differences": [
+        "inline-style@p0: formatting differs from character 0: font size default vs 10"
+      ],
+      "diagnostics": [],
+      "state": "suspected-defect",
+      "reference": null,
+      "why": "Since office issue 249 the ODS reader gives a sheet Calc's document defaults (Liberation Sans, 10 pt) rather than leaving them unset. The RTF writer writes that size on each run (\\fs20), and the RTF reader reads it back as each run's own size, so 'default' becomes an explicit 10 pt; the size every run is drawn at is the same. Not yet reviewed: the RTF writer could carry the document default instead.",
+      "reviewer": null,
+      "decided": null
+    },
+    {
+      "sample": "typography",
+      "source": "ods",
       "via": "tsv",
       "differences": [
         "table.cell-layout@p0: column width count 1 vs 0"
@@ -13207,6 +13495,25 @@
       "state": "suspected-defect",
       "reference": null,
       "why": "Not yet classified. A row regenerated into this file starts as a suspected defect on purpose: an unreviewed difference should read as one until somebody says otherwise.",
+      "reviewer": null,
+      "decided": null
+    },
+    {
+      "sample": "unicode",
+      "source": "ods",
+      "via": "rtf",
+      "differences": [
+        "inline-style@p0: formatting differs from character 0: font size default vs 10",
+        "inline-style@p1: formatting differs from character 0: font size default vs 10",
+        "inline-style@p2: formatting differs from character 0: font size default vs 10",
+        "inline-style@p3: formatting differs from character 0: font size default vs 10",
+        "inline-style@p4: formatting differs from character 0: font size default vs 10",
+        "inline-style@p5: formatting differs from character 0: font size default vs 10"
+      ],
+      "diagnostics": [],
+      "state": "suspected-defect",
+      "reference": null,
+      "why": "Since office issue 249 the ODS reader gives a sheet Calc's document defaults (Liberation Sans, 10 pt) rather than leaving them unset. The RTF writer writes that size on each run (\\fs20), and the RTF reader reads it back as each run's own size, so 'default' becomes an explicit 10 pt; the size every run is drawn at is the same. Not yet reviewed: the RTF writer could carry the document default instead.",
       "reviewer": null,
       "decided": null
     },
@@ -13879,6 +14186,24 @@
       "state": "suspected-defect",
       "reference": null,
       "why": "Not yet classified. A row regenerated into this file starts as a suspected defect on purpose: an unreviewed difference should read as one until somebody says otherwise.",
+      "reviewer": null,
+      "decided": null
+    },
+    {
+      "sample": "whitespace",
+      "source": "ods",
+      "via": "rtf",
+      "differences": [
+        "inline-style@p0: formatting differs from character 0: font size default vs 10",
+        "inline-style@p1: formatting differs from character 0: font size default vs 10",
+        "inline-style@p2: formatting differs from character 0: font size default vs 10",
+        "inline-style@p3: formatting differs from character 0: font size default vs 10",
+        "inline-style@p4: formatting differs from character 0: font size default vs 10"
+      ],
+      "diagnostics": [],
+      "state": "suspected-defect",
+      "reference": null,
+      "why": "Since office issue 249 the ODS reader gives a sheet Calc's document defaults (Liberation Sans, 10 pt) rather than leaving them unset. The RTF writer writes that size on each run (\\fs20), and the RTF reader reads it back as each run's own size, so 'default' becomes an explicit 10 pt; the size every run is drawn at is the same. Not yet reviewed: the RTF writer could carry the document default instead.",
       "reviewer": null,
       "decided": null
     },
