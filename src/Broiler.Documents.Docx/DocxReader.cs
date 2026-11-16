@@ -124,6 +124,8 @@ internal static class DocxReader
                 KeepWithNextOpeningLines = true,
                 CollapsesParagraphSpacing = styles.HtmlParagraphAutoSpacing,
                 LaysOutBodyParagraphBorders = true,
+                ProportionalSpacingRunsPastBottom = true,
+                IgnoresBlanksInLineHeight = compatibilityMode <= 14,
             });
             document = document.WithNoteNumbering(notes.Numbering with { RaisedLabels = notes.LabelsRaised ?? false });
             document = document.WithShowsRevisions(DocxRevisions.Shown(settings.Root));
@@ -665,15 +667,22 @@ internal static class DocxReader
         settings.Element(DocxNamespaces.Wordprocessing + "attachedTemplate") is null;
 
     private static bool HasSplitPgBreakAndParaMark(XElement? settings) =>
-        settings?.Element(DocxNamespaces.Wordprocessing + "compat")
-            ?.Element(DocxNamespaces.Wordprocessing + "splitPgBreakAndParaMark") is XElement split &&
-        ReadOnOff(split);
+        HasCompatFlag(settings, "splitPgBreakAndParaMark");
 
     /// <summary>Whether the settings' <c>w:compat</c> turns <paramref name="name"/> on.</summary>
     private static bool HasCompatFlag(XElement? settings, string name) =>
-        settings?.Element(DocxNamespaces.Wordprocessing + "compat")
-            ?.Element(DocxNamespaces.Wordprocessing + name) is XElement flag &&
+        CompatElements(settings).Elements(DocxNamespaces.Wordprocessing + name).FirstOrDefault() is XElement flag &&
         ReadOnOff(flag);
+
+    /// <summary>
+    /// Every <c>w:compat</c> of the settings. A part may hold more than one:
+    /// LibreOffice writes its own flags in one and Word's
+    /// <c>compatibilityMode</c> in another (tdf142404_tabSpacing.docx), and
+    /// writerfilter's <c>SettingsTable</c> reads them all, so that document
+    /// is a Word 2013 one whose tabs do not go over the margin.
+    /// </summary>
+    private static IEnumerable<XElement> CompatElements(XElement? settings) =>
+        settings?.Elements(DocxNamespaces.Wordprocessing + "compat") ?? [];
 
     /// <summary>
     /// The Word version whose layout the document asks for: the highest
@@ -686,11 +695,7 @@ internal static class DocxReader
     private static int WordCompatibilityMode(XElement? settings)
     {
         int mode = -1;
-        XElement? compat = settings?.Element(DocxNamespaces.Wordprocessing + "compat");
-        if (compat is null)
-            return mode;
-
-        foreach (XElement setting in compat.Elements(DocxNamespaces.Wordprocessing + "compatSetting"))
+        foreach (XElement setting in CompatElements(settings).Elements(DocxNamespaces.Wordprocessing + "compatSetting"))
         {
             if ((string?)setting.Attribute(DocxNamespaces.Wordprocessing + "name") != "compatibilityMode" ||
                 (string?)setting.Attribute(DocxNamespaces.Wordprocessing + "uri") != WordCompatibilityUri ||
@@ -995,7 +1000,8 @@ internal static class DocxReader
                 context.Builder.SetDropCap(DocxFrameAccumulator.ReadDropCap(dropPPr, dropStyleId, context, length));
         }
         ReadParagraphChildren(paragraph.Elements(), context, inherited);
-        if (context.Sections is not null && DocxSections.EndsSection(paragraph))
+        bool endsSection = context.Sections is not null && DocxSections.EndsSection(paragraph);
+        if (endsSection)
             context.Builder.TrimSectionParagraphEnd();
         else if (context.Builder.JoinsFieldCodeParagraph())
             return;
@@ -1006,6 +1012,9 @@ internal static class DocxReader
             HasContextualSpacing(pPr, paragraphStyleId, context));
         if (context.Band == RunningBand.Body && context.PlacementPage is PageGeometry placement)
             context.Builder.ApplyIncreasedAnchoredObjectSpacing(placement.ContentWidth);
+        if (context.Sections is not null && !endsSection)
+            context.Builder.SplitPageBreakFromParagraphMark(
+                firstInSection: !context.Sections.CurrentHasParagraphs(context.Builder.CurrentParagraphIndex));
         context.Builder.FinishParagraph();
     }
 
@@ -1056,7 +1065,9 @@ internal static class DocxReader
     /// </remarks>
     private static void EndSection(DocxReadContext context, bool markKept)
     {
-        context.Sections!.Advance(context.Builder.CurrentParagraphIndex);
+        if (context.Sections!.CurrentColumnCount > 1)
+            context.Builder.DropHeldColumnBreakAtSectionEnd();
+        context.Sections.Advance(context.Builder.CurrentParagraphIndex);
         if (context.Sections.CurrentStartsPage)
             context.Builder.HoldPageBreak(keepsSpaceAbove: markKept || context.Builder.WordCompatibilityMode < 15);
     }
@@ -1150,6 +1161,41 @@ internal static class DocxReader
         foreach (XElement rPr in context.Styles.RunPropertiesForParagraph(paragraphStyleId, context.TableStyle, context.TableConditions))
             style = ApplyRunProperties(rPr, style, context.Styles.Theme);
 
+        if ((style.FontSize is null || string.IsNullOrWhiteSpace(style.FontFamily)) &&
+            context.Styles.IsDetachedFromDefaultParagraphStyle(paragraphStyleId))
+            style = WithDetachedStyleDefaults(style, context.Styles);
+
+        return style;
+    }
+
+    /// <summary>
+    /// Gives a run whose paragraph style is not based on the default paragraph
+    /// style the size and family <c>w:docDefaults</c> gives it, where neither
+    /// it nor its chain states one. The document's defaults
+    /// (<see cref="ReadStyleDefaults"/>) include the default paragraph style,
+    /// which such a paragraph does not inherit: LibreOffice sets
+    /// tdf108350_noFontdefaults.docx's "NoParent" paragraph in 10 point Times
+    /// New Roman, its fallback for a document with an empty <c>w:rPrDefault</c>,
+    /// beside "Normal" text in 32 point Calibri.
+    /// </summary>
+    private static InlineStyle WithDetachedStyleDefaults(InlineStyle style, DocxStyles styles)
+    {
+        InlineStyle own = ApplyRunProperties(styles.DefaultRunProperties, InlineStyle.Default, styles.Theme);
+        float size = own.FontSize is float stated && stated > 0
+            ? stated
+            : styles.HasRunDefaults ? StatedDefaultsFontSize : UnstatedDefaultsFontSize;
+        string family = string.IsNullOrWhiteSpace(own.FontFamily)
+            ? styles.HasRunDefaults ? StatedDefaultsFontFamily : UnstatedDefaultsFontFamily
+            : own.FontFamily;
+
+        // Only what differs from the document's defaults is stated, so a
+        // style that happens to agree with them reads as before.
+        DocumentStyleDefaults document = ReadStyleDefaults(styles);
+        if (style.FontSize is null && Math.Abs(size - document.FontSizePoints) > 0.001f)
+            style = style with { FontSize = size };
+        if (string.IsNullOrWhiteSpace(style.FontFamily) &&
+            !string.Equals(family, document.FontFamily, StringComparison.OrdinalIgnoreCase))
+            style = style with { FontFamily = family };
         return style;
     }
 

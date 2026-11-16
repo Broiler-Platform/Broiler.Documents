@@ -167,6 +167,37 @@ public sealed record DocumentStyleDefaults
     /// </remarks>
     public bool LaysOutBodyParagraphBorders { get; init; }
 
+    /// <summary>
+    /// Whether the space proportional line spacing adds below a line's text may
+    /// run past the bottom of the page or column the line ends, as the space
+    /// below a paragraph may: only the text itself has to fit there.
+    /// </summary>
+    /// <remarks>
+    /// Set by the DOCX reader, as LibreOffice 24.2 lays a DOCX out: a page
+    /// 197.65 points tall holds three lines set double in 32 point type, the
+    /// last one's text ending at 245 points. An ODT LibreOffice wrote before
+    /// it put that space below every line can carry it above the text of a
+    /// paragraph's later lines (tdf172233_linespacingGap.odt), where it has to
+    /// fit, so ODT keeps the whole line.
+    /// </remarks>
+    public bool ProportionalSpacingRunsPastBottom { get; init; }
+
+    /// <summary>
+    /// Whether a run of spaces leaves its line's height alone where the line
+    /// holds anything but spaces and tabs, as a tab already does: Word sizes
+    /// such a line by its other text.
+    /// </summary>
+    /// <remarks>
+    /// Set by the DOCX reader for Word 2010 and earlier (<c>compatibilityMode</c>
+    /// 14 or below, or none), as LibreOffice 24.2 lays such a document out
+    /// (tdf#117988): tdf117988.docx's 72 point spaces between 12 point words
+    /// leave its line 12 points tall, and only its "Proof line", whose 72 point
+    /// run starts with an "h", is tall. In a Word 2013 document 24.2 still
+    /// sizes the line by its spaces: tdf137335_whitespaceLineHeight2.docx's
+    /// lines of words and 72 point spaces are 72 points tall in its reference.
+    /// </remarks>
+    public bool IgnoresBlanksInLineHeight { get; init; }
+
     /// <summary>Keep a heading with the opening lines of its splittable successor.</summary>
     public bool KeepWithNextOpeningLines { get; init; }
 
@@ -267,7 +298,7 @@ public sealed record DocumentStyleDefaults
         FontSizePoints == FallbackFontSizePoints && FontFamily is null && !WidensSpaceRuns && !ShrinksJustifiedLines &&
         !TabsOverMargin && !UndecoratedLinks && WidowOrphanLines == 0 && !PreserveOpeningParagraphSpacing &&
         !KeepWithNextOpeningLines && !CollapsesParagraphSpacing && !LaysOutBodyParagraphBorders && !PrintsSheets &&
-        !PageBreaksKeepSpaceAbove;
+        !PageBreaksKeepSpaceAbove && !ProportionalSpacingRunsPastBottom && !IgnoresBlanksInLineHeight;
 
     /// <summary>
     /// What <see cref="WidensSpaceRuns"/> adds to the width of

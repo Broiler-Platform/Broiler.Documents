@@ -238,7 +238,26 @@ Tracked changes (ECMA-376 §17.13.5) are a `TextRevision` with `w:author` and
   LibreOffice's import does (tdf#77417, `DomainMapper_Impl::finishParagraph`),
   with the info diagnostic `docx.table.trailingspace`. `tdf77417.docx` needs
   both: its amount tables end cells in a tab and no-break spaces, with stops
-  past narrow cells' right indents.
+  past narrow cells' right indents. Below mode 15 the reader also sets
+  `IgnoresBlanksInLineHeight`: a run of spaces beside other text leaves its
+  line's height alone, as LibreOffice 24.2 sizes `tdf117988.docx`'s line of
+  12 point words and 72 point spaces.
+- **Several `w:compat`.** Every `w:compat` of the settings is read, as
+  writerfilter's `SettingsTable` reads them all: `tdf142404_tabSpacing.docx`
+  keeps LibreOffice's own flags in one and `compatibilityMode` 15 in another.
+- Where tabs do not go over the margin, a tab whose next default stop lies
+  past the row's edge starts a new row, and a word that does not fit after a
+  row of tabs starts the next one below their leader
+  (`tdf142404_tabSpacing.docx`: two tabs a line; `tdf142404_tabOverMarginC15.docx`).
+- Every DOCX sets `ProportionalSpacingRunsPastBottom`: the last line on a page
+  or in a column needs room only for its text, not for the space
+  proportional line spacing adds below it (issue 249 note).
+- Of several paragraph styles marked `w:default`, the last is the default
+  paragraph style, as writerfilter keeps overwriting it (`defaultStyle.docx`).
+  A paragraph style whose `w:basedOn` chain never reaches the default
+  paragraph style takes the size and family `w:docDefaults` gives (10 point
+  Times New Roman with an empty `w:rPrDefault`, 11 point Calibri with none),
+  not the default style's (`tdf108350_noFontdefaults.docx`).
 
 ### Tables
 
@@ -379,7 +398,18 @@ LibreOffice's `DomainMapperTableHandler` does:
   held over or `w:pageBreakBefore`.
 - A break in a part's last paragraph has none to start and is dropped
   (`docx.pagebreak.trailing`); a document deliberately ending on a blank page
-  loses it.
+  loses it. Not so under `w:splitPgBreakAndParaMark`: there a page break
+  ending a body paragraph is parted from the paragraph's mark, as
+  LibreOffice 24.2 imports it (`m_bIsSplitPara`, tdf#123636). A paragraph with
+  content before the break, or the first of its section, is split and an empty
+  paragraph with its properties (no space above, first-line indent or list)
+  opens the next page; an empty paragraph holding only the break moves there
+  itself. The page exists at the end of the document too. A paragraph that
+  ends a section keeps the break travelling to the next one.
+- A column break that the last paragraph of a section of several columns ends
+  on is dropped (`docx.columnbreak.sectionend`): LibreOffice 24.2 gives the
+  next section's first paragraph a column break, which its layout ignores
+  outside columns, and the next section goes on below (tdf#103975).
 - `w:br w:type="column"` in a one-column section is a page break, read exactly
   as `w:type="page"` with all the cases above: ECMA-376's `ST_BrType` restarts
   the text on the next page there, and Word and LibreOffice both do. With
@@ -709,6 +739,7 @@ told apart from one that *is* blank:
 | `docx.pagebreak.fragment` | Warning | A page or column break with text after it split the paragraph into two fragments. |
 | `docx.pagebreak.repeated` | Warning | A paragraph stated more than one page break; the first was kept, the blank pages the others make dropped. |
 | `docx.pagebreak.trailing` | Warning | A page break in a part's last paragraph was dropped. |
+| `docx.columnbreak.sectionend` | Warning | A column break ending the last paragraph of a section of several columns was dropped; the next section goes on below it. |
 | `docx.table.trailingspace` | Info | A Word 2010-or-earlier document (`compatibilityMode` 11 to 14) ended a cell paragraph with spaces, tabs or no-break spaces, dropped as Word ignores and LibreOffice removes them. |
 | `docx.pagebreak.table` | Warning | A page or column break in a table cell started no page or column: a page break was dropped, a column break split its paragraph; rows break only where the page runs out. |
 | `docx.section.columns` | Info | Sections differ in columns; each keeps its own, the page records those of the section with the most paragraphs. |

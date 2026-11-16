@@ -1862,7 +1862,18 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                     }
                 }
 
-                if ((style.KeepTogether || style.KeepWithNext) &&
+                // A paragraph that only continues a run of paragraphs kept with
+                // the next, begun higher in this column, does not move on by
+                // itself: Writer moves such a run from its first paragraph, and
+                // leaves it where it is when that one cannot move. LibreOffice
+                // 24.2 keeps defaultStyle.docx's two empty headings on page 1
+                // below the heading that opens the page, and moves only the
+                // "Title" that does not fit.
+                bool continuesKeptRun = style.KeepWithNext && !style.KeepTogether && paragraphIndex > 0 &&
+                    document.Paragraphs[paragraphIndex - 1].Style.KeepWithNext &&
+                    !document.Tables.Any(table => table.Covers(paragraphIndex - 1)) &&
+                    currentLines.Skip(columnStart).Any(line => line.ParagraphIndex == paragraphIndex - 1);
+                if ((style.KeepTogether || style.KeepWithNext) && !continuesKeptRun &&
                     required <= capacity &&
                     y + spacingBefore + required > contentBottom - NotesHeight(composed.Lines) &&
                     ColumnHasContent())
@@ -1971,7 +1982,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                         }
                     }
                     int fit = ParagraphPagination.LinesThatFit(lineHeights, lineIndex,
-                        contentBottom - y, style.OrphanLines ?? 0, style.WidowLines ?? 0);
+                        contentBottom - y, style.OrphanLines ?? 0, style.WidowLines ?? 0, BelowText(composed.Lines));
                     if (fit == 0 && (ColumnHasContent() || y > pageTop + 0.01))
                     {
                         regionUnbalanced = true;
@@ -2008,12 +2019,12 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                             line = composed.Lines[lineIndex];
                         }
                         fit = ParagraphPagination.LinesThatFit(lineHeights, lineIndex,
-                            contentBottom - y, style.OrphanLines ?? 0, style.WidowLines ?? 0);
+                            contentBottom - y, style.OrphanLines ?? 0, style.WidowLines ?? 0, BelowText(composed.Lines));
                     }
                     // Impossible constraints on an empty column must never
                     // produce an endless series of blank pages.
                     if (fit == 0)
-                        fit = ParagraphPagination.LinesThatFit(lineHeights, lineIndex, contentBottom - y, 0, 0);
+                        fit = ParagraphPagination.LinesThatFit(lineHeights, lineIndex, contentBottom - y, 0, 0, BelowText(composed.Lines));
                     segmentEnd = lineIndex + Math.Max(1, fit);
                 }
                 y += line.LeadingSkip;
@@ -2041,7 +2052,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
                 // A line that cites a footnote needs room for the note at the
                 // foot of the page as well as for itself.
-                if (y + line.Height > contentBottom - NotesHeight([line]) && (ColumnHasContent() || y > pageTop + 0.01) && !heldByOwnShapes)
+                double room = line.Height - (_styleDefaults.ProportionalSpacingRunsPastBottom ? line.ProportionalExtra : 0);
+                if (y + room > contentBottom - NotesHeight([line]) && (ColumnHasContent() || y > pageTop + 0.01) && !heldByOwnShapes)
                 {
                     // A paragraph that moves on whole takes the shapes anchored
                     // to it along: they are not drawn on the page it left, and
@@ -4459,7 +4471,9 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         DocumentShape shape, DocumentPageBox setup, double left, double? boxWidth)
     {
         ListNumberer bodyLists = _lists;
+        bool composingShapeText = _composingShapeText;
         _lists = _linkedStarts.TryGetValue(shape, out ListNumberer? start) ? start.Snapshot() : new ListNumberer();
+        _composingShapeText = true;
         try
         {
             RichTextDocument content = RichTextDocument.FromParagraphs(ShapeParagraphs(shape)).WithTables(shape.Tables);
@@ -4469,8 +4483,12 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         finally
         {
             _lists = bodyLists;
+            _composingShapeText = composingShapeText;
         }
     }
+
+    /// <summary>True while a shape's text is composed rather than the document's flow.</summary>
+    private bool _composingShapeText;
 
     private (List<LayoutLine> Lines, List<LayoutCell> Cells) PlaceShapeContent(DocumentShape shape, BRect bounds, DocumentPageBox setup)
     {
@@ -4640,6 +4658,29 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             }
         }
     }
+
+    /// <summary>
+    /// How far each line may run past the bottom of its page or column when it
+    /// is the last there, where the document lets it
+    /// (<see cref="DocumentStyleDefaults.ProportionalSpacingRunsPastBottom"/>):
+    /// the space proportional line spacing adds below its text. Writer lets
+    /// that space run past the bottom, as it lets the space below a paragraph
+    /// run past, at least on a paragraph's last line; within a paragraph it
+    /// sometimes does not (tdf165047_consolidatedTopMargin.docx), and this
+    /// rule, which allows it on every line, is the closer of the two simple
+    /// rules measured (docs/notes/office-issue-249-docx-pagination.md).
+    /// Measured with LibreOffice 24.2: a page
+    /// 197.65 points tall holds three lines set double in 32 point type, 78.1
+    /// points apart with the last text ending at 245 points, whether they are
+    /// three paragraphs, the three lines of one, or in columns;
+    /// fdo43573-2-min.docx's first column ends on a line set 1.5
+    /// whose text ends 4.5 points above the bottom margin and whose spacing
+    /// runs 1.75 points past it. calendar3.docx's closing empty paragraph, 32
+    /// points set 1.67, so stays below its table on the one page. Null where
+    /// the whole line has to fit.
+    /// </summary>
+    private double[]? BelowText(List<LayoutLine> lines) =>
+        _styleDefaults.ProportionalSpacingRunsPastBottom ? [.. lines.Select(line => line.ProportionalExtra)] : null;
 
     /// <summary>
     /// The room a paragraph border's edge takes beside the text: its line and
@@ -5476,6 +5517,10 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         return band;
     }
 
+    /// <summary>A piece of text that is nothing but spaces.</summary>
+    private static bool IsBlank(LayoutPiece piece) =>
+        !piece.IsImage && !piece.IsTab && piece.Text.Length > 0 && piece.Text.AsSpan().TrimStart(' ').IsEmpty;
+
     /// <summary>The spaces a justified line can spend its slack on.</summary>
     private static int CountSpaces(List<LayoutPiece> pieces, int first)
     {
@@ -5524,10 +5569,16 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         // the words beside it leaves the line at the words' height
         // (tdf164905.docx's table of contents, whose tab runs are 11 pt and
         // whose entries are 9 pt).
+        // So do spaces beside other text where the document says so
+        // (IgnoresBlanksInLineHeight); beside nothing but pictures they still
+        // count, as tdf165359_SdtWithInline.docx's line of bold spaces before
+        // a small logo keeps their height in LibreOffice 24.2.
         bool tabsSized = pieces.All(piece => piece.IsTab);
+        bool blanksIgnored = _styleDefaults.IgnoresBlanksInLineHeight &&
+            pieces.Exists(piece => !piece.IsImage && !piece.IsTab && piece.Text.Length > 0 && !IsBlank(piece));
         for (int i = 0; i < pieces.Count; i++)
         {
-            if (pieces[i].IsTab && !tabsSized)
+            if ((pieces[i].IsTab && !tabsSized) || (blanksIgnored && IsBlank(pieces[i])))
             {
                 if (i >= first)
                     used += pieces[i].Width;
@@ -5613,11 +5664,31 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         double height = style.LineHeightRule == LineHeightRule.Proportional
             ? Math.Max(imageAscent, style.LineBoxHeight(natural) + objectOverhang)
             : style.LineBoxHeight(natural + objectOverhang);
+        // A line of nothing but pictures still takes the spacing past single
+        // the paragraph's own type would: Writer scales the line's font
+        // height, which an as-character picture leaves to the paragraph. A
+        // 526-point picture set 1.5 in 12-point type is 6.9 points taller in
+        // LibreOffice 24.2 than set single (tdf109137.docx's figure). Only
+        // outside text boxes, where it was measured: a text box's lines keep
+        // their height, as test_msword_hang.docx's frame, which its picture
+        // already overfills, then lost its text.
+        if (style.LineHeightRule == LineHeightRule.Proportional && style.LineSpacing > 1 && !_composingShapeText &&
+            pieces.Count > 0 && pieces.TrueForAll(piece => piece.IsImage))
+        {
+            var font = VerticalMetrics(defaultFont);
+            height = Math.Max(height, imageAscent + ((style.LineSpacing - 1) * (font.Ascent + font.Descent + font.LineGap)));
+        }
         // LibreOffice applies fixed leading above the baseline, including on the first line.
         double baselineOffset = style.LineHeightRule == LineHeightRule.Leading
             ? height - (natural + objectOverhang)
             : 0;
-        return new LayoutLine(pieces, 0, height, ascent + objectOverhang + baselineOffset, paragraphIndex);
+        double proportionalExtra = style.LineHeightRule == LineHeightRule.Proportional
+            ? Math.Max(0, height - Math.Max(imageAscent, natural + objectOverhang))
+            : 0;
+        return new LayoutLine(pieces, 0, height, ascent + objectOverhang + baselineOffset, paragraphIndex)
+        {
+            ProportionalExtra = proportionalExtra,
+        };
     }
 
     /// <summary>

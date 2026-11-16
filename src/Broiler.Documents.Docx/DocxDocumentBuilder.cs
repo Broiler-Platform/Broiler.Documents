@@ -574,6 +574,75 @@ internal sealed class DocxDocumentBuilder(
     }
 
     /// <summary>
+    /// Drops a column break the last paragraph of a section of several columns
+    /// ended on, before it can reach the next section's first paragraph.
+    /// LibreOffice 24.2 imports it as a column break before that paragraph
+    /// (tdf#103975), which its layout honours only inside columns: the
+    /// following section's text goes on right below, on the same page
+    /// (tdf103975_notPageBreakD.docx and E draw on one page). Measured with
+    /// LibreOffice 24.2 whether the next section has one column or several. A
+    /// page break, and a column break out of a section of one column, still
+    /// start a page.
+    /// </summary>
+    public void DropHeldColumnBreakAtSectionEnd()
+    {
+        if (!_pageBreakStartsNextParagraph || !_heldBreakIsColumn)
+            return;
+
+        _pageBreakStartsNextParagraph = false;
+        _heldBreakIsColumn = false;
+        _heldBreakKeepsSpaceAbove = false;
+        AddDiagnosticOnce(
+            "docx.columnbreak.sectionend",
+            "A column break ending a section of several columns was dropped; the next section goes on below it, as LibreOffice lays it out.");
+    }
+
+    /// <summary>
+    /// Separates a page break that ends a body paragraph from the paragraph's
+    /// mark, as <c>w:splitPgBreakAndParaMark</c> asks: the mark goes to the
+    /// page the break starts. LibreOffice 24.2's import does this
+    /// (<c>DomainMapper</c>, <c>m_bIsSplitPara</c>, tdf#123636): a paragraph
+    /// with something before the break, or the first of its section, is
+    /// split, and an empty paragraph with its properties, but no space above,
+    /// first-line indent or list, opens the next page; an empty paragraph
+    /// holding nothing but the break moves to that page itself. Either way
+    /// the page exists even when no paragraph follows: LibreOffice draws
+    /// <c>tdf123636_newlinePageBreak.docx</c> and
+    /// <c>tdf99090_pgbrkAfterTable.docx</c> on two pages. Measured with
+    /// LibreOffice 24.2: the next paragraph lands one empty line down the new
+    /// page, and that line is as tall as the split paragraph's mark. Without
+    /// the setting the break passes to the next paragraph, and one ending the
+    /// document is dropped (<see cref="Build"/>). Column breaks, breaks in a
+    /// cell and a paragraph that ends a section keep the way they travel.
+    /// </summary>
+    /// <param name="firstInSection">Whether the paragraph is the first of its section.</param>
+    public void SplitPageBreakFromParagraphMark(bool firstInSection)
+    {
+        if (!SplitPgBreakAndParaMark || !_pageBreakSeen || _breakIsColumn || InTableCell)
+            return;
+
+        if (_pageBreakLeadsParagraph && _segments.Count == 0 && !firstInSection)
+        {
+            StartParagraphOnNewPage();
+            return;
+        }
+
+        _pageBreakSeen = false;
+        ParagraphStyle original = _paragraphStyle;
+        InlineStyle mark = _markStyle;
+        FinishParagraph();
+        StartParagraph(original with
+        {
+            PageBreakBefore = true,
+            PageBreakKeepsSpaceAbove = false,
+            SpacingBefore = 0,
+            FirstLineIndent = 0,
+            ListKind = ListKind.None,
+            List = null,
+        }, mark);
+    }
+
+    /// <summary>
     /// Consumes any pending inline page or column break before content that follows it,
     /// so shapes or images that follow the break are anchored to the correct paragraph.
     /// </summary>
