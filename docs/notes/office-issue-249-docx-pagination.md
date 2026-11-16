@@ -53,9 +53,17 @@ Measured with small DOCX files (one-line paragraphs, the flag set or not):
   by its own break keeps its space above below mode 15.
 
 `DocxDocumentBuilder.SplitPageBreakFromParagraphMark` does that for a body
-paragraph ending on a page break, unless it ends a section. Without the flag
-nothing changes, and the trailing break is still dropped
-(`docx.pagebreak.trailing`).
+paragraph ending on a page break. Without the flag nothing changes, and the
+trailing break is still dropped (`docx.pagebreak.trailing`).
+
+The first version left a paragraph that ends a section alone. The review of
+the merged clusters found that the docx-pixel cluster's own implementation
+split it, and soffice 24.2.7.2 agrees. With the flag, a section ending "x" and
+a page break, then "next", sets "next" one empty line down page 2, in a
+continuous section and in a next-page section alike, on two pages. A column
+break out of a one-column section, which is a page break there, is split the
+same way. Only a section's mark holding nothing but the break is passed on
+unsplit. writerfilter does not make that mark a paragraph.
 
 ## The last line on a page
 

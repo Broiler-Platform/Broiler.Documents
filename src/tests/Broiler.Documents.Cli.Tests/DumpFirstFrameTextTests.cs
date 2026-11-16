@@ -78,4 +78,33 @@ public sealed class DumpFirstFrameTextTests
 
         Assert.Equal(expected, DocumentCommands.LabelledText(document));
     }
+
+    [Fact]
+    public void A_Group_Is_Looked_For_In_Its_Own_Part_Only()
+    {
+        // The body's group of two drawings, with no text box, is the first
+        // drawing made, so nothing is written. Each part numbers its groups
+        // from one, and the default header's group 1 is another group.
+        RichTextDocument document = EmptyBody()
+            .WithShapes([Drawing().InDrawingGroup(1), Drawing().InDrawingGroup(1)])
+            .WithRunningContent(RunningContent.Empty.WithHeader(PageSelection.Default, [RichTextParagraph.Plain("")],
+                [Drawing().InDrawingGroup(1), TextBox("Header").InDrawingGroup(1)]));
+
+        Assert.Equal("", DocumentCommands.LabelledText(document));
+    }
+
+    [Fact]
+    public void A_Docx_Bodys_Shapes_Come_Before_Its_Headers()
+    {
+        // A DOCX's import makes the body's shapes before the headers' (whose
+        // references the closing w:sectPr names), so a drawing in the default
+        // header does not hide the body's text box. ODF makes them the other
+        // way round, which applies where the source names its text frames.
+        RichTextDocument document = EmptyBody()
+            .WithShapes([TextBox("Body")])
+            .WithRunningContent(RunningContent.Empty.WithHeader(PageSelection.Default, [RichTextParagraph.Plain("")],
+                [Drawing()]));
+
+        Assert.Equal("Body", DocumentCommands.LabelledText(document));
+    }
 }

@@ -400,8 +400,10 @@ public static class DocumentCommands
             // GetSpzFrameFormats()[0], and a drawing has no text section):
             // IndexingExport_Shapes.odt's first shape is a circle. A drawn
             // group's text boxes come before its drawing; FirstFrame below
-            // takes those.
-            else if (document.RunningContent.HeaderShapes(PageSelection.Default)
+            // takes those. This is ODF's order, where the source names its
+            // text frames (DocumentShape.IsTextFrame); a DOCX's import makes
+            // the body's shapes first, which FirstFrame below follows.
+            else if (StatesTextFrames(document) && document.RunningContent.HeaderShapes(PageSelection.Default)
                 .Concat(document.RunningContent.FooterShapes(PageSelection.Default))
                 .Concat(document.Shapes)
                 .FirstOrDefault() is DocumentShape firstMade && (firstMade.IsTextFrame ||
@@ -421,8 +423,7 @@ public static class DocumentCommands
             // export looks at that one only, and writes nothing when it is a
             // drawing, such as a text watermark, rather than a frame with text
             // of its own (tdf120760_ZOrderInHeader.docx, fdo66688.docx).
-            else if (FirstFrame(document.Shapes.Where(shape => !shape.IsPageAnchored)
-                .Concat(RunningShapes(document.RunningContent).Select(running => running.Shape))) is DocumentShape only)
+            else if (FirstFrame(ShapeParts(document).FirstOrDefault(part => part.Count > 0) ?? []) is DocumentShape only)
             {
                 // A page number in a header or footer frame is the number its
                 // page gave it when LibreOffice laid the first page out: that
@@ -535,12 +536,42 @@ public static class DocumentCommands
     /// first page's.
     /// </summary>
     private static IEnumerable<(DocumentShape Shape, PageSelection Selection)> RunningShapes(RunningContent running) =>
-        new (bool Header, PageSelection Selection)[]
-        {
-            (true, PageSelection.Even), (true, PageSelection.Default), (false, PageSelection.Even),
-            (false, PageSelection.Default), (true, PageSelection.First), (false, PageSelection.First),
-        }.SelectMany(part => (part.Header ? running.HeaderShapes(part.Selection) : running.FooterShapes(part.Selection))
+        RunningParts.SelectMany(part => (part.Header ? running.HeaderShapes(part.Selection) : running.FooterShapes(part.Selection))
             .Select(shape => (shape, part.Selection)));
+
+    private static readonly (bool Header, PageSelection Selection)[] RunningParts =
+    [
+        (true, PageSelection.Even), (true, PageSelection.Default), (false, PageSelection.Even),
+        (false, PageSelection.Default), (true, PageSelection.First), (false, PageSelection.First),
+    ];
+
+    /// <summary>
+    /// The shapes LibreOffice's import makes, part by part in the order it
+    /// makes them: the body's (those not anchored to the page), then each
+    /// header and footer part in <see cref="RunningShapes"/>'s order. A drawn
+    /// group is numbered within its own part, so it is looked for in one part
+    /// only.
+    /// </summary>
+    private static IEnumerable<IReadOnlyList<DocumentShape>> ShapeParts(RichTextDocument document)
+    {
+        yield return [.. document.Shapes.Where(shape => !shape.IsPageAnchored)];
+        foreach ((bool header, PageSelection selection) in RunningParts)
+            yield return header
+                ? document.RunningContent.HeaderShapes(selection)
+                : document.RunningContent.FooterShapes(selection);
+    }
+
+    /// <summary>
+    /// Whether the source names its word processor text frames as such
+    /// (<see cref="DocumentShape.IsTextFrame"/>, which only ODF states), so
+    /// that its frames are made in ODF's order: the headers' and footers'
+    /// before the body's.
+    /// </summary>
+    private static bool StatesTextFrames(RichTextDocument document) =>
+        document.Shapes.Any(shape => shape.IsTextFrame) ||
+        RunningParts.Any(part => (part.Header
+            ? document.RunningContent.HeaderShapes(part.Selection)
+            : document.RunningContent.FooterShapes(part.Selection)).Any(shape => shape.IsTextFrame));
 
     /// <summary>
     /// The frame LibreOffice's text export writes for a body of one empty

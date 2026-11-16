@@ -612,13 +612,22 @@ internal sealed class DocxDocumentBuilder(
     /// LibreOffice 24.2: the next paragraph lands one empty line down the new
     /// page, and that line is as tall as the split paragraph's mark. Without
     /// the setting the break passes to the next paragraph, and one ending the
-    /// document is dropped (<see cref="Build"/>). Column breaks, breaks in a
-    /// cell and a paragraph that ends a section keep the way they travel.
+    /// document is dropped (<see cref="Build"/>). Column breaks and breaks in a
+    /// cell keep the way they travel, and so does a section's mark holding
+    /// nothing but the break, which is no paragraph to writerfilter
+    /// (<c>DomainMapper::lcl_utext</c>'s <c>bRemove</c>). A section's mark with
+    /// text before the break is split as any paragraph is: soffice 24.2.7.2 sets
+    /// a continuous section ending "x" and a page break, then "next", with
+    /// "next" one empty line down page 2, as without the section.
     /// </summary>
     /// <param name="firstInSection">Whether the paragraph is the first of its section.</param>
-    public void SplitPageBreakFromParagraphMark(bool firstInSection)
+    /// <param name="endsSection">Whether the paragraph holds its section's <c>w:sectPr</c>.</param>
+    public void SplitPageBreakFromParagraphMark(bool firstInSection, bool endsSection = false)
     {
         if (!SplitPgBreakAndParaMark || !_pageBreakSeen || _breakIsColumn || InTableCell)
+            return;
+
+        if (_pageBreakLeadsParagraph && _segments.Count == 0 && endsSection)
             return;
 
         if (_pageBreakLeadsParagraph && _segments.Count == 0 && !firstInSection)

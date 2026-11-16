@@ -111,7 +111,8 @@ internal static class DocxReader
                 page,
                 settings.EvenAndOddHeaders,
                 compatibilityMode,
-                splitPgBreakAndParaMark);
+                splitPgBreakAndParaMark,
+                gutterAtTop);
             document = document.WithRunningContent(running[^1]);
             document = document.WithPageGeometry(page);
             document = document.WithSections(sections.ToModel(document.ParagraphCount, page, running,
@@ -379,7 +380,8 @@ internal static class DocxReader
         PageGeometry? page,
         bool evenAndOddHeaders,
         int compatibilityMode,
-        bool splitPgBreakAndParaMark)
+        bool splitPgBreakAndParaMark,
+        bool gutterAtTop)
     {
         XElement? body = documentXml.Root?.Element(DocxNamespaces.Wordprocessing + "body");
         if (body?.Elements(DocxNamespaces.Wordprocessing + "sectPr").LastOrDefault() is null)
@@ -422,7 +424,7 @@ internal static class DocxReader
             // it: watermark-shapetype.docx's portrait first section centres its
             // watermark in a portrait margin, where the last section's
             // landscape page put it 108 points right and 130 points up.
-            PageGeometry? sectionPage = DocxSections.ReadPage(sections[index]) ?? page;
+            PageGeometry? sectionPage = DocxSections.ReadPage(sections[index], gutterAtTop) ?? page;
 
             foreach (XElement reference in ContinuedReferences(sections, index))
             {
@@ -1016,9 +1018,9 @@ internal static class DocxReader
             HasContextualSpacing(pPr, paragraphStyleId, context));
         if (context.Band == RunningBand.Body && context.PlacementPage is PageGeometry placement)
             context.Builder.ApplyIncreasedAnchoredObjectSpacing(placement.ContentWidth);
-        if (context.Sections is not null && !endsSection)
+        if (context.Sections is not null)
             context.Builder.SplitPageBreakFromParagraphMark(
-                firstInSection: !context.Sections.CurrentHasParagraphs(context.Builder.CurrentParagraphIndex));
+                firstInSection: !context.Sections.CurrentHasParagraphs(context.Builder.CurrentParagraphIndex), endsSection);
         context.Builder.FinishParagraph();
     }
 
@@ -1977,6 +1979,7 @@ internal static class DocxReader
         (double offsetY, bool fromPage) = VerticalOffset(anchor, context, picture: true, lineStyle: style);
         double offsetX = HorizontalOffset(anchor, context);
         IReadOnlyList<(double X, double Y)>? wrapPolygon = Wrap == ShapeWrap.None ? null : ReadWrapPolygon(anchor);
+        double? bandOffset = BandParagraphOffset(anchor, context);
 
         // A turned picture (pic:spPr/a:xfrm rot): its offsets place the
         // unturned extent, and LibreOffice draws it turned about that box's
@@ -2007,6 +2010,8 @@ internal static class DocxReader
                 })];
                 offsetX -= grownX;
                 offsetY -= grownY;
+                // The offset from a band's paragraph places the same box.
+                bandOffset -= grownY;
                 (boxWidth, boxHeight) = (turnedWidth, turnedHeight);
                 image = image.WithSize(boxWidth, boxHeight).WithPresentation(turned);
             }
@@ -2034,7 +2039,7 @@ internal static class DocxReader
             WrapPolygon = wrapPolygon,
             BoundedByPage = !context.Builder.InTableCell,
             OffsetXFromColumn = FromColumn(anchor, context),
-            OffsetFromBandParagraph = BandParagraphOffset(anchor, context),
+            OffsetFromBandParagraph = bandOffset,
             DrawsInFront = BehindDocButWrapped(anchor),
         });
         return true;
@@ -2256,6 +2261,9 @@ internal static class DocxReader
                     OffsetXFromColumn = FromColumn(anchor, context),
                     OffsetFromBandParagraph = BandParagraphOffset(anchor, context) + y,
                     DrawsInFront = BehindDocButWrapped(anchor),
+                    // A group's pictures are members of the drawing as its
+                    // drawn shapes are (DumpFirstFrameTextTests).
+                    GroupNumber = context.GroupNumber,
                 });
             }
             else if (child.Name == DocxNamespaces.WordGroup + "grpSp" && depth < MaxGroupDepth)
@@ -2856,7 +2864,8 @@ internal static class DocxReader
             // No vertical frame, "text" or "line": the header paragraph, as a
             // DrawingML anchor's (BandParagraphOffset). LibreOffice ignores
             // w10:wrap's anchory here (n779834.docx, measured).
-            OffsetFromBandParagraph = context.Band == RunningBand.Header && verticalFrom is null && !fromPage ? offsetY : null,
+            OffsetFromBandParagraph = context.Band == RunningBand.Header && verticalFrom is null && !fromPage &&
+                !context.Builder.InTableCell ? offsetY : null,
         });
         return true;
     }

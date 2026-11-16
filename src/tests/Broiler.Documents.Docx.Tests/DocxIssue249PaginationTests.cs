@@ -72,7 +72,10 @@ public sealed class DocxIssue249PaginationTests
         // tdf103975_notPageBreakE.docx: the last paragraph of a two-column
         // section ends on a column break, and the next, continuous section of
         // one column goes on right below it in LibreOffice 24.2. Out of a
-        // section of one column the break is still a page break.
+        // section of one column the break is still a page break, and with
+        // w:splitPgBreakAndParaMark its paragraph's mark goes to the new page
+        // as an empty paragraph: soffice 24.2.7.2 sets "B" one empty line
+        // down page 2.
         const string continuous = "<w:type w:val=\"continuous\"/><w:pgSz w:w=\"11906\" w:h=\"16838\"/>";
         DocumentReadResult result = Read(
             "<w:p><w:pPr><w:sectPr>" + continuous + endingColumns + "</w:sectPr></w:pPr>" +
@@ -82,9 +85,31 @@ public sealed class DocxIssue249PaginationTests
             "<w:splitPgBreakAndParaMark/>");
 
         RichTextParagraph[] paragraphs = [.. result.Document.Paragraphs];
-        Assert.Equal(new[] { "A", "B" }, paragraphs.Select(p => p.Text));
+        Assert.Equal(startsPage ? new[] { "A", "", "B" } : new[] { "A", "B" }, paragraphs.Select(p => p.Text));
         Assert.False(paragraphs[1].Style.ColumnBreakBefore);
         Assert.Equal(startsPage, paragraphs[1].Style.PageBreakBefore);
+        Assert.False(paragraphs[^1].Style.PageBreakBefore && startsPage);
+    }
+
+    [Theory]
+    [InlineData("continuous")]
+    [InlineData("nextPage")]
+    public void A_Section_Mark_With_Text_Before_A_Page_Break_Is_Split_Too(string sectionType)
+    {
+        // soffice 24.2.7.2 with w:splitPgBreakAndParaMark: a section ending
+        // "x" and a page break, then "next", sets "next" one empty line down
+        // page 2 in both kinds of section, as without the section, and on two
+        // pages. A section mark holding nothing but the break is not split.
+        DocumentReadResult result = Read(
+            "<w:p><w:pPr><w:sectPr><w:type w:val=\"" + sectionType + "\"/></w:sectPr></w:pPr><w:r><w:t>x</w:t></w:r>" + PageBreak + "</w:p>" +
+            DocxTestPackage.Paragraph("next") +
+            "<w:sectPr><w:type w:val=\"continuous\"/></w:sectPr>",
+            "<w:splitPgBreakAndParaMark/>");
+
+        RichTextParagraph[] paragraphs = [.. result.Document.Paragraphs];
+        Assert.Equal(new[] { "x", "", "next" }, paragraphs.Select(p => p.Text));
+        Assert.True(paragraphs[1].Style.PageBreakBefore);
+        Assert.False(paragraphs[2].Style.PageBreakBefore);
     }
 
     [Fact]
