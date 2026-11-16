@@ -173,8 +173,23 @@ internal sealed class RtfStyleSheet
     public bool TryGetCharacterStyle(int id, [NotNullWhen(true)] out RtfStyle? style) =>
         _characterStyles.TryGetValue(id, out style);
 
-    public void ResolveInheritance(RtfFontTable fonts, RtfColorTable colors)
+    /// <summary>
+    /// Resolves the styles' fonts and colours from the document's tables and
+    /// their inheritance chains.
+    /// </summary>
+    /// <param name="fonts">The document's font table.</param>
+    /// <param name="colors">The document's colour table.</param>
+    /// <param name="defaultFontFamily">
+    /// The family <c>\deff</c> names in the font table, or null where it names
+    /// none there. writerfilter applies that font to all the text, so a style
+    /// based on Writer's "Heading" that states no font of its own is drawn in
+    /// it rather than in Heading's Liberation Sans: soffice 24.2 sets
+    /// <c>{\rtf1\deff0{\fonttbl{\f0 Courier New;}}{\stylesheet{\s1 heading 1;}}\s1 H\par}</c>
+    /// in Liberation Mono, Courier New's stand-in, at Heading's 14 points.
+    /// </param>
+    public void ResolveInheritance(RtfFontTable fonts, RtfColorTable colors, string? defaultFontFamily = null)
     {
+        _defaultFontFamily = defaultFontFamily;
         // 1. Resolve font names and colors from the document's resource tables
         foreach (RtfStyle style in _paragraphStyles.Values)
         {
@@ -259,6 +274,8 @@ internal sealed class RtfStyleSheet
             trimmed[8] is >= '1' and <= '9';
     }
 
+    private string? _defaultFontFamily;
+
     private void ResolveParagraphStyleInheritance(RtfStyle style, HashSet<int> visited)
     {
         if (!visited.Add(style.Id))
@@ -266,7 +283,7 @@ internal sealed class RtfStyleSheet
 
         if (style.BasedOn is null && IsBasedOnWriterHeading(style.FullName))
         {
-            style.FontFamily ??= WriterHeading.FontFamily;
+            style.FontFamily ??= _defaultFontFamily ?? WriterHeading.FontFamily;
             style.FontSize ??= WriterHeading.FontSize;
             style.SpacingBefore ??= WriterHeading.SpacingBefore;
             style.SpacingAfter ??= WriterHeading.SpacingAfter;

@@ -416,4 +416,21 @@ public sealed class RtfIssue249LayoutTests
 
         Assert.Equal(["note"], Assert.Single(document.Notes).Paragraphs.Select(p => p.Text));
     }
+
+    [Theory]
+    // The \deff font is applied to all the text, the heading's included.
+    [InlineData(@"{\rtf1\ansi\deff0{\fonttbl{\f0 Courier New;}}{\stylesheet{\s0 Normal;}{\s1 heading 1;}}\pard\s1 H one\par}", "Courier New")]
+    // No font table to name one: Writer's Heading font.
+    [InlineData(@"{\rtf1\ansi{\stylesheet{\s0 Normal;}{\s1 heading 1;}}\pard\s1 H one\par}", "Liberation Sans")]
+    // Even over a font of the style's own, which soffice 24.2 draws in
+    // Liberation Mono too: \deff is direct formatting.
+    [InlineData(@"{\rtf1\ansi\deff0{\fonttbl{\f0 Courier New;}{\f1 Arial;}}{\stylesheet{\s0 Normal;}{\s1\f1 heading 1;}}\pard\s1 H one\par}", "Courier New")]
+    public void A_Heading_Style_Without_A_Font_Takes_The_Default_Font(string rtf, string family)
+    {
+        RichTextDocument document = Read(rtf);
+        InlineStyle run = document.Paragraphs[0].Runs[0].Style;
+
+        Assert.Equal(family, document.StyleDefaults.FontFamilyOf(run));
+        Assert.Equal(14, document.StyleDefaults.FontSizeOf(run), 3);
+    }
 }

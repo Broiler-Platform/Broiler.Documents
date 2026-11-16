@@ -131,3 +131,18 @@ they changed with the behaviour, each with the soffice evidence in a comment:
   model.
 - `RtfPageBreakTests.A_Break_Keeps_The_Rest_Of_The_Paragraph_Style`: an RTF
   break before a paragraph with space above keeps that space.
+
+## Follow-up: a heading style when `\deff` names a font
+
+The cluster's verifier found a gap in the Writer "Heading" mapping. A
+`heading N`, Title or Subtitle style with no `\sbasedon` took Heading's
+Liberation Sans even when `\deff` names a font in the font table. writerfilter
+applies the `\deff` font to all the text as direct formatting. soffice 24.2.7.2
+draws `{\rtf1\deff0{\fonttbl{\f0 Courier New;}}{\stylesheet{\s1 heading 1;}}\s1 H\par}`
+in Liberation Mono, Courier New's stand-in, at Heading's 14 points. It does the
+same when the style names `\f1` Arial. `RtfStyleSheet.ResolveInheritance` now
+takes the `\deff` family and gives it to such a style in place of Liberation
+Sans. Without a font table, the style keeps Liberation Sans, as `tdf108955.rtf`
+needs. No corpus sample has this pattern.
+`RtfIssue249LayoutTests.A_Heading_Style_Without_A_Font_Takes_The_Default_Font`
+covers it.

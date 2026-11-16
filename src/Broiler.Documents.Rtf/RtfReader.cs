@@ -750,7 +750,8 @@ public static class RtfReader
             _state = _stack.Pop();
             if (_stylesheetDepth >= 0 && _stack.Count < _stylesheetDepth)
             {
-                _styleSheet.ResolveInheritance(_fonts, _colors);
+                _styleSheet.ResolveInheritance(_fonts, _colors,
+                    _defaultFont is int deff && !_fonts.IsEmpty ? _fonts.GetName(deff) : null);
                 _stylesheetDepth = -1;
                 if (_styleSheet.TryGetParagraphStyle(0, out RtfStyle? normalStyle))
                 {
