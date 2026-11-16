@@ -57,8 +57,14 @@ internal sealed class OdsWriteStyles(Action reportUnsupportedFormat)
         {
             FontFamily = fontFamily, FontSize = cell.Font.FontSize, Foreground = cell.Font.Foreground,
             Bold = cell.Font.Bold, Italic = cell.Font.Italic, Underline = cell.Font.Underline, Strikethrough = cell.Font.Strikethrough,
-        });
-        if (dataStyle is null && appearance == default)
+        })
+        {
+            StatesLeft = cell.Alignment == Broiler.Documents.Model.TextAlignment.Left && (cell.Value.IsNumber || cell.Value.IsBoolean),
+        };
+        // A cell with no style is Calc's standard: text at the foot of the
+        // cell. A top-aligned cell, the model's default, needs a style to say
+        // so (OdsCellAppearance.WriteCell).
+        if (dataStyle is null && appearance == default(OdsCellAppearance) with { Vertical = Broiler.Documents.Model.CellVerticalAlignment.Bottom })
             return null;
 
         var key = (dataStyle, appearance);

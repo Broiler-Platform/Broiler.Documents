@@ -38,4 +38,21 @@ public sealed class HtmlRenderArgumentTests
         Assert.DoesNotContain("--default-margin", arguments);
         Assert.DoesNotContain("--font", arguments);
     }
+
+    [Theory]
+    [InlineData(".html", "html", true)]
+    [InlineData(".odt", "odt", true)]
+    [InlineData(".fodt", "odt", true)]
+    [InlineData(".ott", "odt", true)]
+    [InlineData(".docx", "docx", false)]
+    [InlineData(".rtf", "rtf", false)]
+    public void Only_Html_And_Odt_Samples_May_Load_Pictures_Beside_Themselves(string extension, string format, bool allowed)
+    {
+        // LibreOffice draws an ODT package's ../name link from the document's
+        // own directory (globalfilter's document_with_linked_graphic.odt), as
+        // it draws an HTML sibling image (office issue #249).
+        List<string> arguments = Arguments(extension, format);
+
+        Assert.Equal(allowed, arguments.Contains("--allow-local-images"));
+    }
 }

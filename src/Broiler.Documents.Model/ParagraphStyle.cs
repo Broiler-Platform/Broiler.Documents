@@ -229,6 +229,13 @@ public readonly record struct ParagraphStyle
     /// </summary>
     public bool IgnoresTextGrid { get; init; }
 
+    /// <summary>
+    /// True when the paragraph's lines in the body set their baselines on the
+    /// page's <see cref="LineRegister"/>, as ODF's <c>style:register-true</c>
+    /// says. A page with no register leaves them at their own height.
+    /// </summary>
+    public bool RegisterTrue { get; init; }
+
     /// <summary>Left-aligned, single-spaced, no list, no indent.</summary>
     public static ParagraphStyle Default => new() { LineSpacing = 1f };
 }

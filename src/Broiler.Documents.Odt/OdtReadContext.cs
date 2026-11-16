@@ -41,7 +41,11 @@ internal sealed record OdtReadContext(
     public int SoftPageNumber { get; set; } = 1;
     public int TableDepth { get; set; }
     public int HiddenSectionDepth { get; set; }
+
+    /// <summary>True for the document body's own flow: not a header, footer, note or shape's text.</summary>
+    public bool IsBody { get; init; }
     public SectionFootnotes? SectionFootnotes { get; set; }
+    public SectionFootnotes? SectionEndnotes { get; set; }
     public IReadOnlySet<string> LinkedFrameTargets { get; init; } = new HashSet<string>(StringComparer.Ordinal);
     public IReadOnlyDictionary<string, string> Variables { get; init; } =
         new Dictionary<string, string>(StringComparer.Ordinal);
@@ -50,6 +54,9 @@ internal sealed record OdtReadContext(
     public IReadOnlyDictionary<string, XElement> FormControls { get; init; } = new Dictionary<string, XElement>(StringComparer.Ordinal);
     /// <summary>True for the flow of a note's own text, which cannot hold another note.</summary>
     public bool InNote { get; init; }
+
+    /// <summary>The paragraph style a paragraph naming none takes in the note being read, or null outside notes.</summary>
+    public string? NoteParagraphStyle { get; init; }
 
     /// <summary>The document's tracked changes by region id; see <see cref="OdtRevisions"/>.</summary>
     public IReadOnlyDictionary<string, OdtChangedRegion> Regions { get; init; } =

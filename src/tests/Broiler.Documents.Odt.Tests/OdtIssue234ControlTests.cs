@@ -151,7 +151,12 @@ public sealed class OdtIssue234ControlTests
     {
         RichTextDocument document = Read(DatabaseBody, extraParts: Settings("true"));
 
-        Assert.Equal("Name Ada", Assert.Single(document.Paragraphs).Text);
+        // The hidden paragraph is kept as wholly hidden text, which takes no
+        // room; LibreOffice's text export still writes it (empty-db-field.fodt).
+        Assert.Equal("Name Ada", Assert.Single(document.Paragraphs,
+            paragraph => !paragraph.MarkStyle.Hidden || !paragraph.Runs.All(run => run.Style.Hidden)).Text);
+        Assert.Equal(2, document.ParagraphCount);
+        Assert.True(document.Paragraphs[0].MarkStyle.Hidden && document.Paragraphs[0].Runs.All(run => run.Style.Hidden));
     }
 
     [Fact]

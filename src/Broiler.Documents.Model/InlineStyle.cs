@@ -122,6 +122,42 @@ public readonly record struct InlineStyle
     /// </remarks>
     public bool IsSymbolCharacter { get; init; }
 
+    /// <summary>
+    /// True for text that draws a form control set in the line - a legacy
+    /// check box's box, a drop-down's chosen entry - rather than text the
+    /// author wrote.
+    /// </summary>
+    /// <remarks>
+    /// LibreOffice keeps such a control as one placeholder character
+    /// (<c>CH_TXT_ATR_FORMELEMENT</c>) that it draws as the control, and its
+    /// text export leaves that character out (ascatr.cxx,
+    /// <c>OutASC_SwTextNode</c>), so the text of a document is the same with
+    /// the box ticked or not.
+    /// </remarks>
+    public bool IsFormElement { get; init; }
+
+    /// <summary>
+    /// True for the characters that draw a form control in the line, such as
+    /// an ActiveX check box's box and caption: a control rather than text,
+    /// which LibreOffice imports as a drawn control and its text export leaves
+    /// out (tdf118169.docx, tdf126626.docx).
+    /// </summary>
+    public bool IsFormControl { get; init; }
+
+    /// <summary>
+    /// True for the string of a drawing set in the line as a character rather
+    /// than text of the paragraph: an inline VML WordArt shape
+    /// (<c>v:textpath</c>), which the DOCX reader keeps as styled text so its
+    /// glyphs land where the shape's do.
+    /// </summary>
+    /// <remarks>
+    /// LibreOffice imports the shape as a drawing object anchored as a
+    /// character, and its text export writes only the paragraph's own text
+    /// (<c>SwASCWriter</c>): <c>fdo77727.docx</c>'s "Currents" and
+    /// <c>fdo78300.docx</c>'s "Homer was sleeping" are drawn but not exported.
+    /// </remarks>
+    public bool IsShapeText { get; init; }
+
     /// <summary>The unformatted default style (<c>default(InlineStyle)</c>).</summary>
     public static InlineStyle Default => default;
 

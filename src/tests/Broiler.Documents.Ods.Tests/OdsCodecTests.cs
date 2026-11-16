@@ -40,6 +40,29 @@ public sealed class OdsCodecTests
     }
 
     [Fact]
+    public void Plain_Top_Aligned_Text_And_A_Left_Aligned_Number_Survive_The_Calc_Defaults()
+    {
+        // A cell with no style reads as Calc shows it: text at the foot of the
+        // cell, a number to the right. The model's plain cell is top-aligned,
+        // and a number may be left-aligned, so the writer has to say so; it
+        // gave neither a style, and both came back as Calc's defaults.
+        var text = new SpreadsheetCell(new CellAddress(0, 0), CellValue.FromText("plain"));
+        var number = new SpreadsheetCell(new CellAddress(0, 1), CellValue.FromNumber(42)) { Alignment = TextAlignment.Left };
+        var right = new SpreadsheetCell(new CellAddress(0, 2), CellValue.FromNumber(7)) { Alignment = TextAlignment.Right };
+        var workbook = new SpreadsheetWorkbook(
+            [new SpreadsheetWorksheet("Defaults", [new SpreadsheetRow(0, [text, number, right])])]);
+        using var stream = new MemoryStream();
+        Assert.Equal(DocumentResultStatus.Success, _codec.Write(workbook.ToRichTextDocument(), stream).Status);
+        stream.Position = 0;
+
+        SpreadsheetWorksheet sheet = Assert.Single(Assert.IsType<OdsReadResult>(_codec.Read(stream)).Workbook.Sheets);
+        Assert.Equal(CellVerticalAlignment.Top, sheet[0, 0]!.VerticalAlignment);
+        Assert.Equal(TextAlignment.Left, sheet[0, 0]!.Alignment);
+        Assert.Equal(TextAlignment.Left, sheet[0, 1]!.Alignment);
+        Assert.Equal(TextAlignment.Right, sheet[0, 2]!.Alignment);
+    }
+
+    [Fact]
     public void Format_Descriptor_Matches_Expected_Extensions_And_Mime_Type()
     {
         Assert.Equal("ODS", _codec.Descriptor.Name);

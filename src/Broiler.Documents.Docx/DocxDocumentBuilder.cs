@@ -356,6 +356,12 @@ internal sealed class DocxDocumentBuilder(
         {
             _segments.Clear();
             _anchoredObjects.Clear();
+            if (_carriedReferenceResult is not null)
+            {
+                _segments.AddRange(_carriedReferenceResult);
+                _carriedReferenceResult = null;
+                _referenceResultStart = 0;
+            }
         }
         _markStyle = markStyle;
 
@@ -568,6 +574,84 @@ internal sealed class DocxDocumentBuilder(
     }
 
     /// <summary>
+    /// Drops a column break the last paragraph of a section of several columns
+    /// ended on, before it can reach the next section's first paragraph.
+    /// LibreOffice 24.2 imports it as a column break before that paragraph
+    /// (tdf#103975), which its layout honours only inside columns: the
+    /// following section's text goes on right below, on the same page
+    /// (tdf103975_notPageBreakD.docx and E draw on one page). Measured with
+    /// LibreOffice 24.2 whether the next section has one column or several. A
+    /// page break, and a column break out of a section of one column, still
+    /// start a page.
+    /// </summary>
+    public void DropHeldColumnBreakAtSectionEnd()
+    {
+        if (!_pageBreakStartsNextParagraph || !_heldBreakIsColumn)
+            return;
+
+        _pageBreakStartsNextParagraph = false;
+        _heldBreakIsColumn = false;
+        _heldBreakKeepsSpaceAbove = false;
+        AddDiagnosticOnce(
+            "docx.columnbreak.sectionend",
+            "A column break ending a section of several columns was dropped; the next section goes on below it, as LibreOffice lays it out.");
+    }
+
+    /// <summary>
+    /// Separates a page break that ends a body paragraph from the paragraph's
+    /// mark, as <c>w:splitPgBreakAndParaMark</c> asks: the mark goes to the
+    /// page the break starts. LibreOffice 24.2's import does this
+    /// (<c>DomainMapper</c>, <c>m_bIsSplitPara</c>, tdf#123636): a paragraph
+    /// with something before the break, or the first of its section, is
+    /// split, and an empty paragraph with its properties, but no space above,
+    /// first-line indent or list, opens the next page; an empty paragraph
+    /// holding nothing but the break moves to that page itself. Either way
+    /// the page exists even when no paragraph follows: LibreOffice draws
+    /// <c>tdf123636_newlinePageBreak.docx</c> and
+    /// <c>tdf99090_pgbrkAfterTable.docx</c> on two pages. Measured with
+    /// LibreOffice 24.2: the next paragraph lands one empty line down the new
+    /// page, and that line is as tall as the split paragraph's mark. Without
+    /// the setting the break passes to the next paragraph, and one ending the
+    /// document is dropped (<see cref="Build"/>). Column breaks and breaks in a
+    /// cell keep the way they travel, and so does a section's mark holding
+    /// nothing but the break, which is no paragraph to writerfilter
+    /// (<c>DomainMapper::lcl_utext</c>'s <c>bRemove</c>). A section's mark with
+    /// text before the break is split as any paragraph is: soffice 24.2.7.2 sets
+    /// a continuous section ending "x" and a page break, then "next", with
+    /// "next" one empty line down page 2, as without the section.
+    /// </summary>
+    /// <param name="firstInSection">Whether the paragraph is the first of its section.</param>
+    /// <param name="endsSection">Whether the paragraph holds its section's <c>w:sectPr</c>.</param>
+    public void SplitPageBreakFromParagraphMark(bool firstInSection, bool endsSection = false)
+    {
+        if (!SplitPgBreakAndParaMark || !_pageBreakSeen || _breakIsColumn || InTableCell)
+            return;
+
+        if (_pageBreakLeadsParagraph && _segments.Count == 0 && endsSection)
+            return;
+
+        if (_pageBreakLeadsParagraph && _segments.Count == 0 && !firstInSection)
+        {
+            StartParagraphOnNewPage();
+            return;
+        }
+
+        _pageBreakSeen = false;
+        ParagraphStyle original = _paragraphStyle;
+        InlineStyle mark = _markStyle;
+        FinishParagraph();
+        StartParagraph(original with
+        {
+            PageBreakBefore = true,
+            PageBreakKeepsSpaceAbove = false,
+            SpacingBefore = 0,
+            FirstLineIndent = 0,
+            ListKind = ListKind.None,
+            List = null,
+        }, mark);
+    }
+
+    /// <summary>
     /// Consumes any pending inline page or column break before content that follows it,
     /// so shapes or images that follow the break are anchored to the correct paragraph.
     /// </summary>
@@ -661,6 +745,7 @@ internal sealed class DocxDocumentBuilder(
         // one before the paragraph that follows.
         if (_pageBreakSeen && _breakIsColumn && _pageBreakLeadsParagraph && _segments.Count == 0 && !InTableCell)
             StartParagraphOnNewPage();
+
         if (_pageBreakSeen)
         {
             _pageBreakSeen = false;
@@ -779,6 +864,66 @@ internal sealed class DocxDocumentBuilder(
     public bool HasShapeAnchoredAt(int index) => _shapes.Exists(s => s.ParagraphIndex == index);
 
     public void AddShape(DocumentShape shape) => _shapes.Add(shape);
+
+    // Where the open paragraph's part of a REF field's saved result begins,
+    // or -1 outside one; and the result text a paragraph mark inside it moved
+    // on to the next paragraph.
+    private int _referenceResultStart = -1;
+    private List<Segment>? _carriedReferenceResult;
+
+    /// <summary>Notes that a <c>REF</c> field's saved result starts here.</summary>
+    public void StartReferenceResult() => _referenceResultStart = CurrentParagraphLength;
+
+    /// <summary>Notes that the <c>REF</c> field's result has ended.</summary>
+    public void EndReferenceResult() => _referenceResultStart = -1;
+
+    /// <summary>
+    /// Moves the text of a <c>REF</c> field's saved result, from where it
+    /// starts in the open paragraph, on to the start of the next paragraph,
+    /// which the caller is about to open. The paragraph mark stays.
+    /// </summary>
+    /// <remarks>
+    /// LibreOffice imports a <c>REF</c> as a reference field, one character
+    /// placed where the field ends, showing the saved result as one string, so
+    /// the paragraphs the result ran over keep their marks and lose its text:
+    /// line-break-in-ref.docx is an empty paragraph, then "Text1Text2", in
+    /// LibreOffice 24.2 (its flat ODF export), and
+    /// tdf171383_refFieldInCell.docx's cell is three empty paragraphs, then
+    /// "Issue 1Input text here.".
+    /// </remarks>
+    public void CarryReferenceResult()
+    {
+        if (_referenceResultStart < 0 || !Fields.InReferenceResult)
+            return;
+
+        var carried = new List<Segment>();
+        int offset = 0;
+        var kept = new List<Segment>();
+        foreach (Segment segment in _segments)
+        {
+            int end = offset + segment.Text.Length;
+            if (end <= _referenceResultStart)
+                kept.Add(segment);
+            else if (offset >= _referenceResultStart)
+                carried.Add(segment);
+            else
+            {
+                int split = _referenceResultStart - offset;
+                kept.Add(segment with { Text = segment.Text[..split] });
+                carried.Add(segment with { Text = segment.Text[split..] });
+            }
+            offset = end;
+        }
+
+        _segments.Clear();
+        _segments.AddRange(kept);
+        _carriedReferenceResult = carried;
+    }
+
+    private int _groupNumbers;
+
+    /// <summary>The next <see cref="DocumentShape.GroupNumber"/> for a drawn group read into this flow.</summary>
+    public int NextGroupNumber() => ++_groupNumbers;
 
     public RichTextDocument Build()
     {

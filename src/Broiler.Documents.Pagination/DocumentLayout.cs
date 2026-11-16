@@ -111,11 +111,19 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     /// </summary>
     private int _offBody;
 
+    /// <summary>
+    /// The line register of the page being filled: the distance between its
+    /// lines and how far below the top of the body its first baseline is, or
+    /// null for none.
+    /// </summary>
+    private (double Pitch, double Ascent)? _register;
+
     /// <summary>The grid a body line is set on, or null where none applies.</summary>
     private TextGrid? BodyGrid => _offBody == 0 ? _grid : null;
     private bool _verticalWriting;
     private double? _headerDistance;
     private double? _footerDistance;
+    private int[]? _sheetOrigins;
     private (bool Header, bool Footer) _fixedBands;
     private (double Header, double Footer) _bandSpacing;
     private PageFrame? _frame;
@@ -149,6 +157,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     /// </summary>
     private const double ChangeBarDistance = 567.0 / 4 / 20;
     private bool _raisedNoteLabels;
+    private bool _drawsNoteSeparator = true;
     private readonly Dictionary<DocumentNote, NoteBlock> _noteBlocks = new(ReferenceEqualityComparer.Instance);
 
     /// <summary>A citation's size against its text, and how far it is raised: LibreOffice's superscript.</summary>
@@ -168,6 +177,13 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     private const double SeparatorGap = 2.86;
 
     private const double SeparatorBlock = SeparatorGap + SeparatorThickness + SeparatorGap;
+
+    /// <summary>
+    /// The share of a page's text area its footnotes may take: Writer keeps at
+    /// least a fifth of the page for the body (SwFootnoteBossFrame::GetVarSpace)
+    /// and continues the rest of a note on the next page.
+    /// </summary>
+    private const double MaxFootnoteShare = 0.8;
 
     /// <summary>Writer's layout unit, a twentieth of a point.</summary>
     private const double Twip = 0.05;
@@ -224,6 +240,20 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             result = LayoutOnce(document, setup);
         }
 
+        // A sheet's cells were laid out in the order its pages print them; the
+        // lines name the paragraphs of the document they were given.
+        if (_sheetOrigins is int[] origins)
+        {
+            var lines = new HashSet<LayoutLine>(ReferenceEqualityComparer.Instance);
+            foreach (LayoutPage page in result.Pages)
+                lines.UnionWith(page.Lines.Concat(page.InlineLines));
+            foreach (LayoutLine line in lines)
+            {
+                if (line.ParagraphIndex >= 0 && line.ParagraphIndex < origins.Length)
+                    line.ParagraphIndex = origins[line.ParagraphIndex];
+            }
+        }
+
         return result;
     }
 
@@ -257,6 +287,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         // A document that hides its changes is laid out as it reads with its
         // deletions gone; one that shows them draws each in its author's colour.
         document = RevisionDisplay.HideDeletions(document);
+        // A spreadsheet's sheets are cut into runs of columns that fit the page.
+        document = SheetPrinting.Lay(document, setup.ContentWidthPoints, out _sheetOrigins);
         _revisions = RevisionDisplay.For(document);
         _bodyParagraphs = document.Paragraphs;
         _pageStartsFound.Clear();
@@ -290,6 +322,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         _styleDefaults = document.StyleDefaults;
         _noteLabels = NoteNumberer.For(document.Paragraphs.Where((_, index) => !IsHidden(index)).ToArray(), document.NoteNumbering);
         _raisedNoteLabels = document.NoteNumbering.RaisedLabels;
+        _drawsNoteSeparator = document.NoteNumbering.DrawsSeparatorLine;
         _noteBlocks.Clear();
         _paragraphTops.Clear();
         _paragraphColumns.Clear();
@@ -357,10 +390,12 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             if (setup.Continuous)
             {
                 _grid = null;
+                _register = null;
                 return (setup.ContentTopPoints, setup.ContentTopPoints + columnHeight);
             }
 
             _currentPageGeometry = selectedPage ?? document.PageGeometry;
+            _register = RegisterOf(_currentPageGeometry?.LineRegister);
             if (!sectionPages || selectedPage is not PageGeometry page)
             {
                 _frame = FrameFor(
@@ -536,8 +571,13 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         // each is cited, so everything below that measures room against
         // contentBottom leaves room for them. A note is set on the page where
         // it is first cited; in a continuous render, which has no page foot,
-        // footnotes follow the body with the endnotes.
-        var pageNotes = new List<DocumentNote>();
+        // footnotes follow the body with the endnotes. A note too tall for the
+        // room left under the line that cites it is split: what fits stays on
+        // that page and the rest continues at the foot of the next page, above
+        // that page's own notes (LibreOffice's footnote follow frames;
+        // quo_vadis_footnote.fodt, ergo_sum_footnote.fodt).
+        var pageNotes = new List<NotePart>();
+        var noteCarry = new List<NotePart>();
         var placedNotes = new HashSet<DocumentNote>(ReferenceEqualityComparer.Instance);
         var sectionNoteEnds = new Dictionary<SectionFootnotes, (int End, int Order)>();
         foreach (DocumentSection section in document.Sections)
@@ -580,21 +620,83 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             return height;
         }
 
-        // Takes the footnotes cited in lines just placed onto the page.
-        void TakeNotes(IEnumerable<LayoutLine> lines)
+        // Takes the footnotes cited in lines just placed onto the page;
+        // cutShort when they are part of a row that could have been cut
+        // shorter on this page to leave its notes room.
+        void TakeNotes(IEnumerable<LayoutLine> lines, bool cutShort = false)
         {
             if (setup.Continuous)
                 return;
 
+            double citedBottom = double.NegativeInfinity;
+            foreach (LayoutLine line in lines)
+                citedBottom = Math.Max(citedBottom, line.Top + line.Height);
             foreach (DocumentNote note in CitedNotes(lines))
             {
                 if (note.Kind != NoteKind.Footnote || IsCollected(note) || !placedNotes.Add(note))
                     continue;
 
-                double height = NoteBlockFor(note, setup).Height + (pageNotes.Count == 0 ? SeparatorBlock : 0);
-                pageNotes.Add(note);
+                NoteBlock block = NoteBlockFor(note, setup);
+                double separator = pageNotes.Count == 0 ? SeparatorBlock : 0;
+                int end = block.Lines.Count;
+                // A note keeps what fits under the text that cites it and in
+                // the share of the page notes may take, and continues on the
+                // next page; after a note that already continues there, it goes
+                // there whole. A note with no room at all goes on whole: its
+                // citation could not move (Cool16072_rowWithOwnFootnoteKeepsThePage.fodt).
+                // A row that could have been cut shorter to leave the note room
+                // is not cut for it, and its note is set whole under it as before.
+                double room = Math.Min(contentBottom - citedBottom, FootnoteRoom()) - separator;
+                if (end > 0 && block.Height > room)
+                {
+                    int fit = noteCarry.Count > 0 ? 0 : NoteLinesThatFit(block, 0, room, atLeastOne: false);
+                    end = fit == 0 && cutShort && noteCarry.Count == 0 ? block.Lines.Count : fit;
+                }
+                if (end == 0)
+                {
+                    noteCarry.Add(new NotePart(note, 0, block.Lines.Count));
+                    continue;
+                }
+
+                double height = NotePartHeight(block, 0, end) + separator;
+                pageNotes.Add(new NotePart(note, 0, end));
                 noteArea += height;
                 contentBottom -= height;
+                if (end < block.Lines.Count)
+                    noteCarry.Add(new NotePart(note, end, block.Lines.Count));
+            }
+        }
+
+        // How much more of the page the footnotes may take.
+        double FootnoteRoom() => (contentBottom + noteArea - pageTop) * MaxFootnoteShare - noteArea;
+
+        // Sets what was carried over from the page before at the foot of a new
+        // page, before anything cited on it, as much as fits.
+        void TakeCarriedNotes()
+        {
+            if (noteCarry.Count == 0)
+                return;
+
+            NotePart[] carried = [.. noteCarry];
+            noteCarry.Clear();
+            foreach (NotePart part in carried)
+            {
+                NoteBlock block = NoteBlockFor(part.Note, setup);
+                double separator = pageNotes.Count == 0 ? SeparatorBlock : 0;
+                int end = noteCarry.Count > 0 ? part.First
+                    : NoteLinesThatFit(block, part.First, Math.Min(contentBottom - pageTop, FootnoteRoom()) - separator, pageNotes.Count == 0);
+                if (end == part.First)
+                {
+                    noteCarry.Add(part);
+                    continue;
+                }
+
+                double height = NotePartHeight(block, part.First, end) + separator;
+                pageNotes.Add(part with { End = end });
+                noteArea += height;
+                contentBottom -= height;
+                if (end < part.End)
+                    noteCarry.Add(part with { First = end });
             }
         }
 
@@ -608,31 +710,41 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             double top = foot - noteArea;
             double left = _frame?.Left ?? setup.ContentLeftPoints;
             double width = _frame?.Width ?? setup.ContentWidthPoints;
-            currentCells.Add(new LayoutCell(
-                new BRect(left, top + SeparatorGap, width * SeparatorWidthRatio, SeparatorThickness),
-                _settings.DefaultForeground,
-                default));
+            if (_drawsNoteSeparator)
+            {
+                currentCells.Add(new LayoutCell(
+                    new BRect(left, top + SeparatorGap, width * SeparatorWidthRatio, SeparatorThickness),
+                    _settings.DefaultForeground,
+                    default));
+            }
 
             double noteTop = top + SeparatorBlock;
-            foreach (DocumentNote note in pageNotes)
+            foreach (NotePart part in pageNotes)
             {
-                NoteBlock block = NoteBlockFor(note, setup);
-                foreach ((LayoutLine line, double offset) in block.Lines)
+                NoteBlock block = NoteBlockFor(part.Note, setup);
+                bool whole = part.First == 0 && part.End == block.Lines.Count;
+                double start = whole || part.First >= block.Lines.Count ? 0 : block.Lines[part.First].Offset;
+                double partHeight = NotePartHeight(block, part.First, part.End);
+                for (int i = part.First; i < part.End; i++)
                 {
-                    line.Top = noteTop + offset;
+                    (LayoutLine line, double offset) = block.Lines[i];
+                    line.Top = noteTop + offset - start;
                     line.Shift(left - setup.ContentLeftPoints);
                     currentLines.Add(line);
                 }
 
                 foreach ((LayoutCell cell, double offset) in block.Cells)
                 {
+                    double cellTop = offset + cell.Bounds.Top;
+                    if (!whole && (cellTop < start || cellTop >= start + partHeight))
+                        continue;
                     currentCells.Add(new LayoutCell(
-                        new BRect(cell.Bounds.Left + left - setup.ContentLeftPoints, noteTop + offset + cell.Bounds.Top,
+                        new BRect(cell.Bounds.Left + left - setup.ContentLeftPoints, noteTop + cellTop - start,
                             cell.Bounds.Width, cell.Bounds.Height),
                         cell.Shading, cell.Borders));
                 }
 
-                noteTop += block.Height;
+                noteTop += partHeight;
             }
 
             contentBottom = foot;
@@ -690,6 +802,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             // sequence. Rebuild the text columns after that selection.
             columns = ColumnsOf(region, owner);
             y = pageTop;
+            TakeCarriedNotes();
             paintedSection = region;
             paintTop = y;
             regionTop = y;
@@ -1003,6 +1116,10 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         // and the last column of a page to the next page. So does a column that
         // holds nothing yet: it starts below a section above it, too low on the
         // page for even one line, and the next column starts just as low.
+        // Whether a column break asked for here breaks: always, unless the
+        // document's column breaks need columns and the text has one.
+        bool BreaksColumn() => !_styleDefaults.ColumnBreaksNeedColumns || columns.Count > 1;
+
         void BreakColumn()
         {
             if (column + 1 >= columns.Count || currentLines.Count == columnStart)
@@ -1164,7 +1281,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             int linesFrom = currentLines.Count;
             int cellsFrom = currentCells.Count;
             row.PlaceAt(y, columns.Offset(column), currentLines, currentCells, _paragraphTops);
-            TakeNotes(currentLines.Skip(linesFrom));
+            TakeNotes(currentLines.Skip(linesFrom), row.CanSplit);
             if (region is not null && columns.Count > 1)
             {
                 regionLines.Add(new FlowItem(
@@ -1179,6 +1296,14 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         bool CarriesFreeShapes(int index) =>
             _documentShapes.Any(shape => shape.ParagraphIndex == index && !shape.IsPageAnchored && !shape.OffsetFromPage) &&
             !_documentShapes.Any(shape => shape.ParagraphIndex == index && (shape.Wraps || shape.IsAsCharacter));
+
+        // True when the paragraph's own shapes include one text wraps around
+        // and none sits in its line: moved to a new page, such a paragraph
+        // leaves those shapes on the page they were drawn on.
+        bool LeavesWrappingShapesBehind(int index) =>
+            _documentShapes.Any(shape => shape.ParagraphIndex == index && shape.Wraps &&
+                !shape.IsPageAnchored && !shape.OffsetFromPage) &&
+            !_documentShapes.Any(shape => shape.ParagraphIndex == index && shape.IsAsCharacter);
 
         void ReanchorParagraph(int index)
         {
@@ -1197,10 +1322,30 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
         void PlaceSectionNotes(int paragraphEnd)
         {
+            int separatedEnd = -1;
             while (!truncated && sectionNotes.TryPeek(out var group) && group.End <= paragraphEnd)
             {
                 sectionNotes.Dequeue();
-                y += SeparatorGap;
+                // A section of one column sets the notes it collects under the
+                // page's note separator, as LibreOffice draws its footnote
+                // container in the section (footnote-collect-at-end-of-section.fodt,
+                // tdf146704_EndnoteInSection.odt); its columns' containers draw
+                // none (ooo32780-1.odt). Footnotes and endnotes ending together
+                // share one line.
+                if (columns.Count == 1 && group.End != separatedEnd)
+                {
+                    separatedEnd = group.End;
+                    currentCells.Add(new LayoutCell(
+                        new BRect(setup.ContentLeftPoints + columns.Offset(column), y + SeparatorGap,
+                            (_frame?.Width ?? setup.ContentWidthPoints) * SeparatorWidthRatio, SeparatorThickness),
+                        _settings.DefaultForeground,
+                        default));
+                    y += SeparatorBlock;
+                }
+                else
+                {
+                    y += SeparatorGap;
+                }
                 foreach (DocumentNote note in group.Notes)
                 {
                     for (int i = 0; i < note.Paragraphs.Count && !truncated; i++)
@@ -1267,7 +1412,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                     OwnBreak();
                     BreakPage();
                 }
-                else if (!pageBreak && table.ColumnBreakBefore && ColumnHasContent())
+                else if (!pageBreak && table.ColumnBreakBefore && ColumnHasContent() && BreaksColumn())
                 {
                     regionUnbalanced = true;
                     BreakColumn();
@@ -1500,7 +1645,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 continue;
             }
 
-            RichTextParagraph paragraph = document.Paragraphs[paragraphIndex];
+            RichTextParagraph paragraph = JoinBodyHiddenMarks(document, paragraphIndex, out int joinedLast);
             ParagraphStyle style = paragraph.Style;
             string? marker = numbering.Advance(style);
 
@@ -1532,7 +1677,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 if (truncated)
                     break;
             }
-            else if (style.ColumnBreakBefore && !styleBreaksPage && !setup.Continuous && ColumnHasContent())
+            else if (style.ColumnBreakBefore && !styleBreaksPage && !setup.Continuous && ColumnHasContent() && BreaksColumn())
             {
                 // A column break moves to the top of the next column of the
                 // stretch being filled, and from its last column, or where it has
@@ -1604,7 +1749,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             // LibreOffice hides it; the break it asked for was taken above.
             if (IsWhollyHidden(paragraph) && !_documentShapes.Any(shape => shape.ParagraphIndex == paragraphIndex))
             {
-                paragraphIndex++;
+                paragraphIndex = joinedLast + 1;
                 continue;
             }
 
@@ -1625,8 +1770,10 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             // (SwFlowFrame::HasParaSpaceAtPages, tdf170003_bottomSpacing.docx).
             bool openingSpacing = _styleDefaults.PreserveOpeningParagraphSpacing &&
                 (paragraphIndex == 0
-                    ? !style.PageBreakBefore && !style.ColumnBreakBefore
-                    : style.PageBreakBefore && style.PageBreakKeepsSpaceAbove);
+                    ? (!style.PageBreakBefore || KeepsSpaceAbove(style)) && !style.ColumnBreakBefore
+                    : style.PageBreakBefore && KeepsSpaceAbove(style));
+            bool KeepsSpaceAbove(ParagraphStyle opening) =>
+                opening.PageBreakKeepsSpaceAbove || _styleDefaults.PageBreaksKeepSpaceAbove;
             double spacingBefore = ColumnHasContent() ? _styleDefaults.SpaceAbove(style.SpacingBefore, spacingAfterPrevious)
                 : openingSpacing || style.ColumnBreakBefore ? Math.Max(0, style.SpacingBefore) : 0;
 
@@ -1715,7 +1862,18 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                     }
                 }
 
-                if ((style.KeepTogether || style.KeepWithNext) &&
+                // A paragraph that only continues a run of paragraphs kept with
+                // the next, begun higher in this column, does not move on by
+                // itself: Writer moves such a run from its first paragraph, and
+                // leaves it where it is when that one cannot move. LibreOffice
+                // 24.2 keeps defaultStyle.docx's two empty headings on page 1
+                // below the heading that opens the page, and moves only the
+                // "Title" that does not fit.
+                bool continuesKeptRun = style.KeepWithNext && !style.KeepTogether && paragraphIndex > 0 &&
+                    document.Paragraphs[paragraphIndex - 1].Style.KeepWithNext &&
+                    !document.Tables.Any(table => table.Covers(paragraphIndex - 1)) &&
+                    currentLines.Skip(columnStart).Any(line => line.ParagraphIndex == paragraphIndex - 1);
+                if ((style.KeepTogether || style.KeepWithNext) && !continuesKeptRun &&
                     required <= capacity &&
                     y + spacingBefore + required > contentBottom - NotesHeight(composed.Lines) &&
                     ColumnHasContent())
@@ -1807,7 +1965,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 // A line on the page's text grid starts on one of its rows: the
                 // space above its paragraph, or a line kept off the grid before
                 // it, moves it down to the next row.
-                if (line.OnGrid && BodyGrid is TextGrid grid)
+                if (line.OnGrid && BodyGrid is TextGrid { SnapsParagraphsToRows: true } grid)
                     y = grid.Snap(y, _gridTop);
                 if (!setup.Continuous && (style.OrphanLines is > 0 || style.WidowLines is > 0) && lineIndex >= segmentEnd)
                 {
@@ -1824,12 +1982,13 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                         }
                     }
                     int fit = ParagraphPagination.LinesThatFit(lineHeights, lineIndex,
-                        contentBottom - y, style.OrphanLines ?? 0, style.WidowLines ?? 0);
+                        contentBottom - y, style.OrphanLines ?? 0, style.WidowLines ?? 0, BelowText(composed.Lines));
                     if (fit == 0 && (ColumnHasContent() || y > pageTop + 0.01))
                     {
                         regionUnbalanced = true;
                         if (first && CarriesFreeShapes(paragraphIndex))
                             _paragraphTops.Remove(paragraphIndex);
+                        int pagesBeforeBreak = pages.Count;
                         BreakColumn();
                         if (truncated)
                             break;
@@ -1841,7 +2000,14 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                         if (first)
                         {
                             y += borderTopAtColumnTop;
-                            ReanchorParagraph(paragraphIndex);
+                            // A frame the text wraps around was drawn on the page
+                            // the paragraph left and stays there, as on the
+                            // overflow path below. Anchored again here it was
+                            // drawn a second time and pushed the line on once
+                            // more (tdf138039.odt: a page-tall picture on two
+                            // pages, then the empty line on a fourth).
+                            if (pages.Count == pagesBeforeBreak || !LeavesWrappingShapesBehind(paragraphIndex))
+                                ReanchorParagraph(paragraphIndex);
                             composed = ComposeParagraph(paragraph, marker, setup, paragraphIndex,
                                 columnWidthOverride: columns.Width, wrapTop: y,
                                 wrapColumnLeft: columns.Offset(column));
@@ -1853,18 +2019,19 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                             line = composed.Lines[lineIndex];
                         }
                         fit = ParagraphPagination.LinesThatFit(lineHeights, lineIndex,
-                            contentBottom - y, style.OrphanLines ?? 0, style.WidowLines ?? 0);
+                            contentBottom - y, style.OrphanLines ?? 0, style.WidowLines ?? 0, BelowText(composed.Lines));
                     }
                     // Impossible constraints on an empty column must never
                     // produce an endless series of blank pages.
                     if (fit == 0)
-                        fit = ParagraphPagination.LinesThatFit(lineHeights, lineIndex, contentBottom - y, 0, 0);
+                        fit = ParagraphPagination.LinesThatFit(lineHeights, lineIndex, contentBottom - y, 0, 0, BelowText(composed.Lines));
                     segmentEnd = lineIndex + Math.Max(1, fit);
                 }
                 y += line.LeadingSkip;
+                y = OnRegister(line, style, y, columns.Count > 1 ? regionTop : pageTop);
 
                 double asCharHeight = lineIndex == 0
-                    ? _documentShapes.Where(s => s.ParagraphIndex == paragraphIndex && s.IsAsCharacter).Select(s => BoxHeight(s)).DefaultIfEmpty(0).Max()
+                    ? _documentShapes.Where(s => s.ParagraphIndex == paragraphIndex && s.IsAsCharacter).Select(s => TurnedBox(s).Height).DefaultIfEmpty(0).Max()
                     : 0;
                 if (asCharHeight > 0)
                     line.Height = Math.Max(line.Height, asCharHeight);
@@ -1885,7 +2052,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
                 // A line that cites a footnote needs room for the note at the
                 // foot of the page as well as for itself.
-                if (y + line.Height > contentBottom - NotesHeight([line]) && (ColumnHasContent() || y > pageTop + 0.01) && !heldByOwnShapes)
+                double room = line.Height - (_styleDefaults.ProportionalSpacingRunsPastBottom ? line.ProportionalExtra : 0);
+                if (y + room > contentBottom - NotesHeight([line]) && (ColumnHasContent() || y > pageTop + 0.01) && !heldByOwnShapes)
                 {
                     // A paragraph that moves on whole takes the shapes anchored
                     // to it along: they are not drawn on the page it left, and
@@ -1930,6 +2098,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                     }
                 }
 
+                // A line moved to the next page meets the register again there.
+                y = OnRegister(line, style, y, columns.Count > 1 ? regionTop : pageTop);
                 line.Top = y;
                 line.Shift(columns.Offset(column));
                 if (border is not null)
@@ -1960,7 +2130,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             borderedAbove = border is not null ? style : null;
             spacingAfterPrevious = Math.Max(0, style.SpacingAfter);
             y += spacingAfterPrevious;
-            paragraphIndex++;
+            paragraphIndex = joinedLast + 1;
         }
 
         PlaceSectionNotes(paragraphIndex);
@@ -1971,7 +2141,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         // they are cited; in a continuous render the footnotes go with them.
         List<DocumentNote> trailing = [.. DocumentNote.CitedIn(document.Paragraphs)
             .Distinct<DocumentNote>(ReferenceEqualityComparer.Instance)
-            .Where(note => note.Kind == NoteKind.Endnote || (setup.Continuous && !IsCollected(note)))];
+            .Where(note => !IsCollected(note) && (note.Kind == NoteKind.Endnote || setup.Continuous))];
         if (trailing.Count > 0 && !truncated)
         {
             region = null;
@@ -1979,6 +2149,16 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             column = 0;
             columnStart = currentLines.Count;
             bool dedicatedEndnotePage = !setup.Continuous && document.NoteNumbering.EndnotesStartOnNewPage;
+            // The pages of their own the endnotes start are on the endnotes'
+            // page style, its paper, margins, header and footer.
+            if (dedicatedEndnotePage && sectionPages && document.NoteNumbering.EndnotePage is PageGeometry endnotePage &&
+                (currentLines.Count > 0 || currentCells.Count > 0))
+            {
+                pendingOwner = new DocumentSection(document.ParagraphCount, 0, 1, 0, endnotePage,
+                    document.NoteNumbering.EndnoteRunningContent ?? RunningContent.Empty);
+                hasPendingOwner = true;
+                pendingSharesFirst = false;
+            }
             if ((dedicatedEndnotePage || y + SeparatorBlock > contentBottom) &&
                 (currentLines.Count > 0 || currentCells.Count > 0))
             {
@@ -2033,7 +2213,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
         // A floating table that ran past the last page of text still has rows
         // to stand on the pages after it.
-        while (floatCarry.Count > 0 && !truncated)
+        while ((floatCarry.Count > 0 || noteCarry.Count > 0) && !truncated)
             BreakPage();
 
         SetNotes();
@@ -2186,8 +2366,10 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         List<LayoutShape> shapes = PlaceShapes(setup, number, lines);
         if (sectionPaint is not null)
             shapes.AddRange(sectionPaint);
-        shapes.AddRange(PlaceRunningShapes(_running.EffectiveHeaderShapes(selection), setup));
-        shapes.AddRange(PlaceRunningShapes(_running.EffectiveFooterShapes(selection), setup));
+        shapes.AddRange(PlaceRunningShapes(_running.EffectiveHeaderShapes(selection), setup,
+            headerLines, _running.EffectiveHeader(selection)));
+        shapes.AddRange(PlaceRunningShapes(_running.EffectiveFooterShapes(selection), setup,
+            footerLines, _running.EffectiveFooter(selection)));
         shapes = [.. shapes.OrderBy(shape => shape.ZOrder)];
 
         List<LayoutCell> grid = setup.Continuous ? [] : GridLines(frame);
@@ -2488,11 +2670,19 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     private bool Draws(DocumentShape shape) => shape.Printable || _settings.DrawNonPrintingShapes;
 
     /// <summary>
-    /// Places a running band's shapes on every page it applies to. There is no
-    /// paragraph to hang one from - a header repeats - so the offset is measured
-    /// from the top of the page.
+    /// Places a running band's shapes on every page it applies to. The offset
+    /// is measured from the top of the page, except for a shape placed against
+    /// its paragraph in the band.
     /// </summary>
-    private List<LayoutShape> PlaceRunningShapes(IReadOnlyList<DocumentShape> shapes, DocumentPageBox setup)
+    /// <remarks>
+    /// A shape placed against its paragraph in the band
+    /// (<see cref="DocumentShape.OffsetFromBandParagraph"/>) hangs from where
+    /// <paramref name="bandLines"/> put that paragraph: the top of its first
+    /// line less the space above it. Running lines carry their paragraph as
+    /// <c>-1 - index</c>.
+    /// </remarks>
+    private List<LayoutShape> PlaceRunningShapes(IReadOnlyList<DocumentShape> shapes, DocumentPageBox setup,
+        IReadOnlyList<LayoutLine>? bandLines = null, IReadOnlyList<RichTextParagraph>? bandParagraphs = null)
     {
         var placed = new List<LayoutShape>();
         foreach (DocumentShape shape in shapes)
@@ -2500,11 +2690,18 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             NoteGrownHeight(shape, setup);
             if (!Draws(shape))
                 continue;
+            double top = shape.OffsetY;
+            if (shape.OffsetFromBandParagraph is double fromParagraph && bandLines is not null && bandParagraphs is not null &&
+                shape.ParagraphIndex >= 0 && shape.ParagraphIndex < bandParagraphs.Count &&
+                bandLines.FirstOrDefault(candidate => candidate.ParagraphIndex == -1 - shape.ParagraphIndex) is LayoutLine anchorLine)
+            {
+                top = anchorLine.Top - Math.Max(0, bandParagraphs[shape.ParagraphIndex].Style.SpacingBefore) + fromParagraph;
+            }
             var bounds = _asCharLines.TryGetValue(shape, out LayoutLine? line)
                 ? new BRect(line.TextAreaLeft, line.Top, BoxWidth(shape), BoxHeight(shape))
                 : new BRect(
                 setup.ContentLeftPoints + (shape.FitsText ? shape.OffsetX + (shape.Width - BoxWidth(shape)) / 2 : shape.OffsetX),
-                shape.OffsetY,
+                top,
                 BoxWidth(shape),
                 BoxHeight(shape));
             if ((bounds.Width <= 0 || bounds.Height <= 0) && !shape.IsRule)
@@ -2517,7 +2714,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 shape.Outline,
                 text,
                 shape.Image,
-                shape.BehindText,
+                shape.BehindText && !shape.DrawsInFront,
                 shape.ZOrder,
                 cells, shape.Geometry, shape.OutlineWidth)
             {
@@ -2590,13 +2787,24 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             };
             var bounds = new BRect(area.Left + offset, shape.TopOnPage(anchorTop),
                 BoxWidth(shape), BoxHeight(shape));
+            // A turned shape set as a character stands in its line by the box
+            // round it as turned (tdf70838.odt). It is drawn turned about its
+            // top left corner, so that corner moves to put the box in place.
+            if (shape.IsAsCharacter && shape.RotationRadians != 0 && double.IsFinite(shape.RotationRadians))
+            {
+                double cos = Math.Cos(shape.RotationRadians), sin = Math.Sin(shape.RotationRadians);
+                double w = bounds.Width, h = bounds.Height;
+                double minX = Math.Min(Math.Min(0, w * cos), Math.Min(-h * sin, (w * cos) - (h * sin)));
+                double minY = Math.Min(Math.Min(0, w * sin), Math.Min(h * cos, (w * sin) + (h * cos)));
+                bounds = new BRect(bounds.X - minX, bounds.Y - minY, w, h);
+            }
 
             if (((bounds.Width <= 0 || bounds.Height <= 0) && !shape.IsRule) || !Draws(shape))
                 continue;
 
             (List<LayoutLine> text, List<LayoutCell> cells) = PlaceShapeContent(shape, bounds, setup);
             placed.Add(new LayoutShape(bounds, shape.Fill, shape.Outline, text,
-                shape.Image, shape.BehindText, shape.ZOrder, cells, shape.Geometry, shape.OutlineWidth)
+                shape.Image, shape.BehindText && !shape.DrawsInFront, shape.ZOrder, cells, shape.Geometry, shape.OutlineWidth)
             {
                 RotationRadians = shape.RotationRadians,
                 TextFlow = shape.TextFlow,
@@ -2629,9 +2837,31 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         double[] edges = table.AutoFit
             ? AutoColumnEdges(table, document, left, width) : ColumnEdges(table, left, width);
         var boxes = new List<RowBox>(table.Rows.Count);
+        bool collapsing = _styleDefaults.CollapsingTableBorders;
+        double previousBottomLine = 0;
 
         foreach (TableRow row in table.Rows)
         {
+            // Writer's collapsing borders (SwRowFrame::Format): the row's text
+            // starts below the widest top line and distance of its cells, or the
+            // row above's widest bottom line and this row's widest distance,
+            // whichever is lower, and ends above the widest bottom distance.
+            double rowTop = 0, rowBottom = 0, bottomLine = 0;
+            if (collapsing)
+            {
+                double topSpace = 0, topDistance = 0;
+                foreach (TableCell cell in row.Cells)
+                {
+                    TableCellPadding cellPadding = cell.PaddingFor(table);
+                    topSpace = Math.Max(topSpace, LineSize(cell.Borders.Top) + cellPadding.Top);
+                    topDistance = Math.Max(topDistance, cellPadding.Top);
+                    rowBottom = Math.Max(rowBottom, cellPadding.Bottom);
+                    bottomLine = Math.Max(bottomLine, LineSize(cell.Borders.Bottom));
+                }
+                rowTop = Math.Max(topSpace, previousBottomLine + topDistance);
+                previousBottomLine = bottomLine;
+            }
+
             // A row may break across a page where every cell can be cut on its
             // own line boundary, or between the rows of a table nested in it. A
             // box that spans rows would need cutting with the rows it spans, so a
@@ -2647,6 +2877,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             {
                 (double cellLeft, double cellWidth) = ColumnSpanBox(edges, cell);
                 TableCellPadding padding = cell.PaddingFor(table);
+                if (collapsing)
+                    padding = new TableCellPadding(padding.Left, rowTop, padding.Right, rowBottom);
                 double textWidth = Math.Max(1.0, cellWidth - padding.Left - padding.Right);
 
                 (List<LayoutLine> lines, List<LayoutCell> nested, List<CutPiece> pieces, double height) =
@@ -2697,6 +2929,10 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             boxes.Add(box);
         }
 
+        // The table's own bottom margin holds its last row's bottom line.
+        if (collapsing && boxes.Count > 0)
+            boxes[^1].Height += previousBottomLine;
+
         // The merges that end first are grown first: a row an earlier merge
         // grows is then counted in the rows of a merge that ends below it,
         // rather than both growing their own last row for the same text
@@ -2741,6 +2977,9 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         }
         return boxes;
     }
+
+    /// <summary>The room a cell's border line takes: its width, or none when it draws nothing.</summary>
+    private static double LineSize(TableBorder border) => border.IsVisible ? border.Width : 0;
 
     /// <summary>
     /// Breaks a group of rows that a merged cell's text holds together between
@@ -3364,7 +3603,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 // The rows are counted from the top of the cell's row, which
                 // is taken to be on one, so text below the cell's top padding
                 // starts a row down (tdf167583.fodt in LibreOffice 24.2).
-                if (line.OnGrid && BodyGrid is TextGrid grid)
+                if (line.OnGrid && BodyGrid is TextGrid { SnapsParagraphsToRows: true } grid)
                     y = grid.Snap(y + gridOffset, 0) - gridOffset;
                 line.Top = y;
                 if (lineIndex == 0)
@@ -4203,6 +4442,20 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         return shape.OffsetXFromCell ? column : Math.Max(1, column - Math.Max(0, shape.OffsetX));
     }
 
+    /// <summary>
+    /// The box round a shape as it is turned (Writer's snap rectangle), or its
+    /// own box where it is not turned.
+    /// </summary>
+    private (double Width, double Height) TurnedBox(DocumentShape shape)
+    {
+        double width = BoxWidth(shape), height = BoxHeight(shape);
+        double angle = shape.RotationRadians;
+        if (angle == 0 || !double.IsFinite(angle))
+            return (width, height);
+        double cos = Math.Abs(Math.Cos(angle)), sin = Math.Abs(Math.Sin(angle));
+        return ((width * cos) + (height * sin), (width * sin) + (height * cos));
+    }
+
     /// <summary>The height a shape's box is drawn at, grown to its text where it grows.</summary>
     private double BoxHeight(DocumentShape shape) =>
         _grownHeights.TryGetValue(shape, out double grown) ? grown : Math.Max(0, shape.Height);
@@ -4249,7 +4502,9 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         DocumentShape shape, DocumentPageBox setup, double left, double? boxWidth)
     {
         ListNumberer bodyLists = _lists;
+        bool composingShapeText = _composingShapeText;
         _lists = _linkedStarts.TryGetValue(shape, out ListNumberer? start) ? start.Snapshot() : new ListNumberer();
+        _composingShapeText = true;
         try
         {
             RichTextDocument content = RichTextDocument.FromParagraphs(ShapeParagraphs(shape)).WithTables(shape.Tables);
@@ -4259,8 +4514,12 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         finally
         {
             _lists = bodyLists;
+            _composingShapeText = composingShapeText;
         }
     }
+
+    /// <summary>True while a shape's text is composed rather than the document's flow.</summary>
+    private bool _composingShapeText;
 
     private (List<LayoutLine> Lines, List<LayoutCell> Cells) PlaceShapeContent(DocumentShape shape, BRect bounds, DocumentPageBox setup)
     {
@@ -4432,6 +4691,29 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     }
 
     /// <summary>
+    /// How far each line may run past the bottom of its page or column when it
+    /// is the last there, where the document lets it
+    /// (<see cref="DocumentStyleDefaults.ProportionalSpacingRunsPastBottom"/>):
+    /// the space proportional line spacing adds below its text. Writer lets
+    /// that space run past the bottom, as it lets the space below a paragraph
+    /// run past, at least on a paragraph's last line; within a paragraph it
+    /// sometimes does not (tdf165047_consolidatedTopMargin.docx), and this
+    /// rule, which allows it on every line, is the closer of the two simple
+    /// rules measured (docs/notes/office-issue-249-docx-pagination.md).
+    /// Measured with LibreOffice 24.2: a page
+    /// 197.65 points tall holds three lines set double in 32 point type, 78.1
+    /// points apart with the last text ending at 245 points, whether they are
+    /// three paragraphs, the three lines of one, or in columns;
+    /// fdo43573-2-min.docx's first column ends on a line set 1.5
+    /// whose text ends 4.5 points above the bottom margin and whose spacing
+    /// runs 1.75 points past it. calendar3.docx's closing empty paragraph, 32
+    /// points set 1.67, so stays below its table on the one page. Null where
+    /// the whole line has to fit.
+    /// </summary>
+    private double[]? BelowText(List<LayoutLine> lines) =>
+        _styleDefaults.ProportionalSpacingRunsPastBottom ? [.. lines.Select(line => line.ProportionalExtra)] : null;
+
+    /// <summary>
     /// The room a paragraph border's edge takes beside the text: its line and
     /// its distance from the text, or nothing where no line is drawn.
     /// </summary>
@@ -4494,6 +4776,49 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         {
             RichTextParagraph next = paragraphs[++last];
             joined = joined.Append(next).WithMarkStyle(next.MarkStyle);
+        }
+
+        return joined;
+    }
+
+    /// <summary>
+    /// The body paragraph at <paramref name="index"/> joined, as
+    /// <see cref="JoinHiddenMarks"/> joins a running band's, with the body
+    /// paragraphs after it while its mark is hidden; <paramref name="last"/> is
+    /// the last one joined.
+    /// </summary>
+    /// <remarks>
+    /// Writer 24.2 lays a body paragraph whose mark is hidden out as one with
+    /// the next (hidden-para-separator.docx's "C", "D" and "E" stand on one
+    /// line; tdf131728.docx's style separators run each heading on into the
+    /// paragraph after it). The join stops before anything that is not a
+    /// plain paragraph of the same flow: a table, a section's start, a
+    /// paragraph that breaks a page or column, or one an object is anchored
+    /// to, whose place the layout keeps by its index. A paragraph with no
+    /// text shown starts no join here: it is hidden on its own. The RTF
+    /// reading is the same: soffice 24.2 sets hidden-para-separator.rtf's
+    /// "C ", "D", a hidden empty paragraph and "E" on one line
+    /// (testTdf152872).
+    /// </remarks>
+    private RichTextParagraph JoinBodyHiddenMarks(RichTextDocument document, int index, out int last)
+    {
+        RichTextParagraph joined = document.Paragraphs[index];
+        last = index;
+        if (!joined.MarkStyle.Hidden || joined.Length == 0 || IsWhollyHidden(joined))
+            return joined;
+        DocumentSection? section = DocumentSection.Containing(document.Sections, index);
+        while (joined.MarkStyle.Hidden && last + 1 < document.ParagraphCount)
+        {
+            int next = last + 1;
+            RichTextParagraph candidate = document.Paragraphs[next];
+            if (document.Tables.Any(table => table.Covers(next)) ||
+                !ReferenceEquals(DocumentSection.Containing(document.Sections, next), section) ||
+                section?.ParagraphIndex == next ||
+                candidate.Style.PageBreakBefore || candidate.Style.ColumnBreakBefore ||
+                _documentShapes.Any(shape => shape.ParagraphIndex == next))
+                break;
+            joined = joined.Append(candidate).WithMarkStyle(candidate.MarkStyle);
+            last = next;
         }
 
         return joined;
@@ -4830,6 +5155,33 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     private sealed record NoteBlock(List<(LayoutLine Line, double Offset)> Lines, double Height,
         List<(LayoutCell Cell, double Offset)> Cells);
 
+    /// <summary>The lines <see cref="First"/> up to <see cref="End"/> of a footnote's block, set on one page.</summary>
+    private readonly record struct NotePart(DocumentNote Note, int First, int End);
+
+    /// <summary>How tall lines <paramref name="first"/> up to <paramref name="end"/> of a note's block stand.</summary>
+    private static double NotePartHeight(NoteBlock block, int first, int end)
+    {
+        if (first == 0 && end == block.Lines.Count)
+            return block.Height;
+        if (end <= first)
+            return 0;
+        (LayoutLine last, double lastOffset) = block.Lines[end - 1];
+        return lastOffset + last.Height - block.Lines[first].Offset;
+    }
+
+    /// <summary>
+    /// The end of the run of a note's lines from <paramref name="first"/> that
+    /// fits in <paramref name="room"/>; one line at least where
+    /// <paramref name="atLeastOne"/>.
+    /// </summary>
+    private static int NoteLinesThatFit(NoteBlock block, int first, double room, bool atLeastOne)
+    {
+        int end = first;
+        while (end < block.Lines.Count && NotePartHeight(block, first, end + 1) <= room + 0.01)
+            end++;
+        return end == first && atLeastOne && first < block.Lines.Count ? first + 1 : end;
+    }
+
     /// <summary>Wraps one paragraph into lines, without deciding which page they land on.</summary>
     private ParagraphLines ComposeParagraph(RichTextParagraph paragraph, string? marker, DocumentPageBox setup, int paragraphIndex,
         double? columnLeftOverride = null, double? columnWidthOverride = null, double? wrapTop = null, bool continuation = false,
@@ -4957,7 +5309,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 style,
                 defaultFont,
                 paragraphIndex,
-                i == rows.Count - 1);
+                i == rows.Count - 1,
+                i == 0 && !continuation);
             line.LeadingSkip = i < skips.Count ? skips[i] : 0;
 
             // A line that holds a change is marked in the margin, left of the
@@ -5201,6 +5554,10 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         return band;
     }
 
+    /// <summary>A piece of text that is nothing but spaces.</summary>
+    private static bool IsBlank(LayoutPiece piece) =>
+        !piece.IsImage && !piece.IsTab && piece.Text.Length > 0 && piece.Text.AsSpan().TrimStart(' ').IsEmpty;
+
     /// <summary>The spaces a justified line can spend its slack on.</summary>
     private static int CountSpaces(List<LayoutPiece> pieces, int first)
     {
@@ -5227,7 +5584,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     /// Positions one line's pieces, applies alignment, and computes the line box.
     /// </summary>
     private LayoutLine PlaceLine(List<LayoutPiece> pieces, bool hasMarker, double textLeft, double textWidth,
-        ParagraphStyle style, BFontStyle defaultFont, int paragraphIndex, bool isLastLine)
+        ParagraphStyle style, BFontStyle defaultFont, int paragraphIndex, bool isLastLine, bool isFirstLine = false)
     {
         // A populated line is measured from the fonts it actually draws. The
         // fallback face is only for empty lines; including it in every maximum
@@ -5249,10 +5606,16 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         // the words beside it leaves the line at the words' height
         // (tdf164905.docx's table of contents, whose tab runs are 11 pt and
         // whose entries are 9 pt).
+        // So do spaces beside other text where the document says so
+        // (IgnoresBlanksInLineHeight); beside nothing but pictures they still
+        // count, as tdf165359_SdtWithInline.docx's line of bold spaces before
+        // a small logo keeps their height in LibreOffice 24.2.
         bool tabsSized = pieces.All(piece => piece.IsTab);
+        bool blanksIgnored = _styleDefaults.IgnoresBlanksInLineHeight &&
+            pieces.Exists(piece => !piece.IsImage && !piece.IsTab && piece.Text.Length > 0 && !IsBlank(piece));
         for (int i = 0; i < pieces.Count; i++)
         {
-            if (pieces[i].IsTab && !tabsSized)
+            if ((pieces[i].IsTab && !tabsSized) || (blanksIgnored && IsBlank(pieces[i])))
             {
                 if (i >= first)
                     used += pieces[i].Width;
@@ -5306,7 +5669,15 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         // A body line on a page's text grid is as many rows tall as its text
         // needs, its text centred in them below the ruby, and only proportional
         // spacing past single changes that (SwTextFormatter::CalcRealHeight):
-        // an exact or at-least height is ignored there.
+        // an exact or at-least height is ignored there. On a grid in the
+        // squared page mode every line of tdf144450.fodt is its rows times the
+        // spacing (soffice 24.2). In the standard page mode of a DOCX Writer
+        // spaces every line but a paragraph's first so (CalcRealHeight skips
+        // IsParaLine), and SwFlowFrame::CalcUpperSpace opens the next
+        // paragraph by the last line's text height times the spacing past
+        // single (SwTextFrame::GetLineSpace), which is held below the last
+        // line here: chtoutline.docx's one-line 18 pt headings at triple
+        // spacing on an 18 pt grid stand 36 + 2 x 21.2 pt apart, not 108.
         if (BodyGrid is TextGrid grid && !style.IgnoresTextGrid)
         {
             double overhang = Math.Max(0, imageAscent - ascent);
@@ -5314,9 +5685,14 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             double rows = grid.RowsFor(text);
             double baseline = ascent + overhang +
                 ((rows - text + (grid.RubyBelow ? -grid.RubyHeight : grid.RubyHeight)) / 2);
-            double spaced = style.LineHeightRule == LineHeightRule.Proportional && style.LineSpacing > 1
-                ? rows * style.LineSpacing
-                : rows;
+            double spaced = rows;
+            if (style.LineHeightRule == LineHeightRule.Proportional && style.LineSpacing > 1)
+            {
+                if (grid.SnapsParagraphsToRows || !isFirstLine)
+                    spaced = rows * style.LineSpacing;
+                if (!grid.SnapsParagraphsToRows && isLastLine)
+                    spaced += natural * (style.LineSpacing - 1);
+            }
             return new LayoutLine(pieces, 0, spaced, baseline, paragraphIndex) { OnGrid = true };
         }
 
@@ -5338,11 +5714,31 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         double height = style.LineHeightRule == LineHeightRule.Proportional
             ? Math.Max(imageAscent, style.LineBoxHeight(natural) + objectOverhang)
             : style.LineBoxHeight(natural + objectOverhang);
+        // A line of nothing but pictures still takes the spacing past single
+        // the paragraph's own type would: Writer scales the line's font
+        // height, which an as-character picture leaves to the paragraph. A
+        // 526-point picture set 1.5 in 12-point type is 6.9 points taller in
+        // LibreOffice 24.2 than set single (tdf109137.docx's figure). Only
+        // outside text boxes, where it was measured: a text box's lines keep
+        // their height, as test_msword_hang.docx's frame, which its picture
+        // already overfills, then lost its text.
+        if (style.LineHeightRule == LineHeightRule.Proportional && style.LineSpacing > 1 && !_composingShapeText &&
+            pieces.Count > 0 && pieces.TrueForAll(piece => piece.IsImage))
+        {
+            var font = VerticalMetrics(defaultFont);
+            height = Math.Max(height, imageAscent + ((style.LineSpacing - 1) * (font.Ascent + font.Descent + font.LineGap)));
+        }
         // LibreOffice applies fixed leading above the baseline, including on the first line.
         double baselineOffset = style.LineHeightRule == LineHeightRule.Leading
             ? height - (natural + objectOverhang)
             : 0;
-        return new LayoutLine(pieces, 0, height, ascent + objectOverhang + baselineOffset, paragraphIndex);
+        double proportionalExtra = style.LineHeightRule == LineHeightRule.Proportional
+            ? Math.Max(0, height - Math.Max(imageAscent, natural + objectOverhang))
+            : 0;
+        return new LayoutLine(pieces, 0, height, ascent + objectOverhang + baselineOffset, paragraphIndex)
+        {
+            ProportionalExtra = proportionalExtra,
+        };
     }
 
     /// <summary>
@@ -5714,6 +6110,55 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
         return new LayoutPiece(string.Empty, font, LayoutColors.Or(style.Foreground, _settings.DefaultForeground), style.Background, underline: false,
             strikethrough: false, style.LinkHref, null, 0, ascent, descent, oblique: false, isTab: true, lineGap: lineGap);
+    }
+
+    /// <summary>
+    /// A page's line register measured in the fonts text is set in: the pitch
+    /// of its lines and the first baseline's distance below the top of the
+    /// body, as Writer works them out from the reference style
+    /// (<c>SwTextFrame::FillRegister</c>). The font's height and ascent hold its
+    /// line gap, which Writer counts above the text.
+    /// </summary>
+    private (double Pitch, double Ascent)? RegisterOf(LineRegister? register)
+    {
+        if (register is null)
+            return null;
+
+        var (ascent, descent, lineGap) = VerticalMetrics(FontFor(register.Text));
+        double height = ascent + descent + lineGap;
+        double above = ascent + lineGap;
+        (double pitch, double first) = register.Rule switch
+        {
+            LineHeightRule.Exact when register.LineHeight > 0 => (register.LineHeight, register.LineHeight * 0.8),
+            LineHeightRule.AtLeast => (Math.Max(height, register.LineHeight), Math.Max(height, register.LineHeight) - height + above),
+            LineHeightRule.Leading when float.IsFinite(register.LineHeight) => (height + register.LineHeight, above),
+            // Writer reads a proportion under half as half, and none as single.
+            _ => (height * (register.LineSpacing <= 0 ? 1 : Math.Max(0.5, register.LineSpacing)), above),
+        };
+        return double.IsFinite(pitch) && pitch >= 1 && double.IsFinite(first) ? (pitch, first) : null;
+    }
+
+    /// <summary>
+    /// Where a line of a register-true paragraph starts in the body, at or
+    /// below <paramref name="top"/>: moved down so its baseline falls on the
+    /// next line of the page's register, counted from <paramref name="bodyTop"/>
+    /// (<c>SwTextFormatter::CalcRealHeight</c>). Writer's baseline has the
+    /// text's line gap above it where this layout keeps it below, so the gap is
+    /// counted in, except on a line of exact height, whose baseline Writer sets
+    /// at four fifths of it as this layout does.
+    /// </summary>
+    private double OnRegister(LayoutLine line, ParagraphStyle style, double top, double bodyTop)
+    {
+        if (!style.RegisterTrue || _register is not (double pitch, double first) || _offBody > 0 || line.OnGrid)
+            return top;
+
+        bool exact = style.LineHeightRule == LineHeightRule.Exact && style.LineHeight > 0;
+        double gap = exact ? 0 : line.Pieces.Where(piece => !piece.IsImage).Select(piece => piece.LineGap).DefaultIfEmpty(0).Max();
+        double baseline = top + line.Baseline + gap;
+        // A baseline a hair past a register line, from rounding, stays on it.
+        double steps = Math.Ceiling(((baseline - (bodyTop + first)) / pitch) - 1e-3);
+        double target = bodyTop + first + (steps * pitch);
+        return top + Math.Max(0, target - baseline);
     }
 
     private (double Ascent, double Descent, double LineGap) VerticalMetrics(BFontStyle font)

@@ -83,7 +83,8 @@ internal static class OdtReader
 
         OdtStyles styles = OdtStyles.Load(archive, content, options.Limits, diagnostics);
         var resources = new DocumentConversionContextBuilder(options.ResourcePolicy);
-        var images = new OdtImageLoader(archive, manifest, options.Limits, resources);
+        var images = new OdtImageLoader(archive, manifest, options.Limits, resources,
+            (options as OdtReadOptions)?.ResolveLinkedImage);
         return ReadDocument(
             content,
             styles,
@@ -208,9 +209,12 @@ internal static class OdtReader
         XElement? master = ResolveMasterPage(content, styles);
         // A document with no master page at all is on Writer's default page
         // style: A4 with 2 cm margins (hiddenSectionsAroundPageBreak.fodt,
-        // bookmark_order.fodt). A master page whose layout says nothing usable
-        // keeps the caller's page fallback.
-        PageGeometry? page = ReadPageGeometry(master, styles, diagnostics) ?? (master is null ? WriterDefaultPage : null);
+        // bookmark_order.fodt), and so is one whose master page names no page
+        // layout the document defines: Writer leaves that page style at its
+        // pool defaults (tdf160253_outline_numbering.fodt). A master page whose
+        // layout says nothing usable keeps the caller's page fallback.
+        PageGeometry? page = ReadPageGeometry(master, styles, diagnostics) ??
+            (master is null || !NamesPageLayout(master, styles) ? WriterDefaultPage : null);
         RichTextDocument document = ReadContent(content, styles, images, page, options.Limits, diagnostics, master);
         document = document.WithRunningContent(
             ReadRunningContent(master, styles, images, options.Limits, diagnostics));
@@ -230,10 +234,24 @@ internal static class OdtReader
             // (SwFlowFrame::CalcUpperSpace; tdf133507_contextualSpacingSection.odt).
             PreserveOpeningParagraphSpacing = !OdtRevisions.ConfigFlagIsOff(settings, "AddParaTableSpacingAtStart"),
             CollapsesParagraphSpacing = OdtRevisions.ConfigFlagIsOff(settings, "AddParaTableSpacing"),
+            // Every page break ODT states is the page's own to Writer - a
+            // break before, one after the paragraph above, a page style - so
+            // the page it opens keeps the paragraph's space above
+            // (SwFlowFrame::IsPageBreak, HasParaSpaceAtPages).
+            PageBreaksKeepSpaceAbove = true,
         });
         document = document.WithPageBackground(
             ReadPageBackground(master, PageLayoutProperties(master, styles), styles));
-        document = document.WithNoteNumbering(ReadNoteNumbering(styles));
+        document = document.WithNoteNumbering(ReadNoteNumbering(styles, settings));
+        if (document.NoteNumbering.EndnotesStartOnNewPage && EndnoteMaster(styles) is XElement endnoteMaster &&
+            ReadPageGeometry(endnoteMaster, styles, diagnostics) is PageGeometry endnotePage)
+        {
+            document = document.WithNoteNumbering(document.NoteNumbering with
+            {
+                EndnotePage = endnotePage,
+                EndnoteRunningContent = ReadRunningContent(endnoteMaster, styles, images, options.Limits, diagnostics),
+            });
+        }
         document = document.WithShowsRevisions(OdtRevisions.Shown(settings));
         return new DocumentReadResult(
             document,
@@ -332,6 +350,7 @@ internal static class OdtReader
         OdtReadContext? context = null;
         context = new OdtReadContext(styles, images, builder, page)
         {
+            IsBody = true,
             Variables = ReadVariables(content),
             Regions = OdtRevisions.ReadRegions(body),
             UsesSoftPageBreaks = (string?)body.Attribute(OdtNamespaces.Text + "use-soft-page-breaks") == "true",
@@ -571,6 +590,18 @@ internal static class OdtReader
     {
         XElement? body = content.Root?.Element(OdtNamespaces.Office + "body");
         XElement? text = body?.Element(OdtNamespaces.Office + "text");
+
+        // ODF allows one office:text, but LibreOffice reads every one a body
+        // holds, one after the other (background-image-link.fodt has two), so
+        // the later ones' content is read on after the first's.
+        if (text is not null && text.ElementsAfterSelf(OdtNamespaces.Office + "text").Any())
+        {
+            var joined = new XElement(text.Name, text.Attributes(), text.Nodes());
+            foreach (XElement more in text.ElementsAfterSelf(OdtNamespaces.Office + "text"))
+                joined.Add(more.Nodes());
+            return joined;
+        }
+
         if (text is not null || body is null)
             return text;
 
@@ -582,6 +613,19 @@ internal static class OdtReader
 
         return candidate.Elements().Any(block => block.Name.Namespace == OdtNamespaces.Text &&
             block.Name.LocalName is "p" or "h" or "list" or "section") ? candidate : null;
+    }
+
+    /// <summary>The master page the endnotes' configuration names, or null.</summary>
+    private static XElement? EndnoteMaster(OdtStyles styles)
+    {
+        string? name = styles.NotesConfigurations
+            .Where(configuration => (string?)configuration.Attribute(OdtNamespaces.Text + "note-class") == "endnote")
+            .Select(configuration => (string?)configuration.Attribute(OdtNamespaces.Text + "master-page-name"))
+            .LastOrDefault(value => !string.IsNullOrEmpty(value));
+        return name is null
+            ? null
+            : styles.MasterStyles?.Elements(OdtNamespaces.Style + "master-page")
+                .LastOrDefault(master => (string?)master.Attribute(OdtNamespaces.Style + "name") == name);
     }
 
     /// <summary>
@@ -786,6 +830,17 @@ internal static class OdtReader
             _ => null,
         };
 
+    /// <summary>
+    /// Whether <paramref name="master"/> names a <c>style:page-layout</c> the
+    /// document defines.
+    /// </summary>
+    private static bool NamesPageLayout(XElement master, OdtStyles styles)
+    {
+        string? layoutName = (string?)master.Attribute(OdtNamespaces.Style + "page-layout-name");
+        return !string.IsNullOrWhiteSpace(layoutName) && styles.PageLayouts.Any(candidate =>
+            string.Equals((string?)candidate.Attribute(OdtNamespaces.Style + "name"), layoutName, StringComparison.Ordinal));
+    }
+
     private static XElement? PageLayoutProperties(XElement? master, OdtStyles styles)
     {
         string? layoutName = (string?)master?.Attribute(OdtNamespaces.Style + "page-layout-name");
@@ -831,9 +886,16 @@ internal static class OdtReader
             return null;
         }
 
-        double uniformMargin = Length(properties, "margin");
-        double Margin(string side) => OdtUnits.TryParseLength(
-            (string?)properties.Attribute(OdtNamespaces.Fo + side), out double value) ? value : uniformMargin;
+        // A margin the layout does not state keeps the 2 cm Writer gives a new
+        // page style (lcl_DefaultPageFormat), as the margins of its default
+        // page are (tdf134649_pageBreak.fodt states none at all). One stated
+        // without a unit, as C4_must_start_on_p1.fodt's "0", is no margin.
+        double uniformMargin = properties.Attribute(OdtNamespaces.Fo + "margin") is null
+            ? WriterDefaultPage.MarginTop
+            : Length(properties, "margin");
+        double Margin(string side) => properties.Attribute(OdtNamespaces.Fo + side) is null
+            ? uniformMargin
+            : Length(properties, side);
         double outerTop = Margin("margin-top");
         double outerBottom = Margin("margin-bottom");
         bool hasHeader = master?.Elements().Any(element =>
@@ -875,6 +937,7 @@ internal static class OdtReader
                 ? new TableCellPadding(left, outerTop, right, outerBottom) : default,
             BorderPadding = padding,
             TextGrid = ReadTextGrid(properties, styles.WordGridMetrics),
+            LineRegister = ReadLineRegister(properties, styles),
             HeaderSpacing = hasHeader && header is not null ? GrowingBandSpacing(header, "margin-bottom") : 0,
             FooterSpacing = hasFooter && footer is not null ? GrowingBandSpacing(footer, "margin-top") : 0,
         };
@@ -886,6 +949,29 @@ internal static class OdtReader
             "odt.page.geometry",
             "An ODT page layout gave a page with no room to write on; the page was not read."));
         return null;
+    }
+
+    /// <summary>
+    /// A page layout's line register: the paragraph style its
+    /// <c>style:register-truth-ref-style-name</c> names, resolved, or null when
+    /// it names none or one the document does not define, which Writer reads as
+    /// no register (<c>SwPageDesc::GetRegisterFormatColl</c>).
+    /// </summary>
+    private static LineRegister? ReadLineRegister(XElement properties, OdtStyles styles)
+    {
+        string? name = (string?)properties.Attribute(OdtNamespaces.Style + "register-truth-ref-style-name");
+        if (string.IsNullOrEmpty(name) || !styles.Defines(OdtStyles.ParagraphFamily, name))
+            return null;
+
+        // Diagnostics about the style are the paragraphs' to report.
+        var scratch = new OdtDocumentBuilder(DocumentLimits.Default, []);
+        ParagraphStyle spacing = ParagraphStyle.Default;
+        foreach (XElement paragraph in styles.ParagraphProperties(name))
+            spacing = ApplyParagraphProperties(paragraph, spacing, scratch, styles);
+        InlineStyle text = InlineStyle.Default;
+        foreach (XElement run in styles.TextPropertiesForParagraph(name))
+            text = ApplyTextProperties(run, text, styles, scratch);
+        return new LineRegister(text, spacing.LineHeightRule, spacing.LineSpacing, spacing.LineHeight);
     }
 
     /// <summary>
@@ -1152,6 +1238,11 @@ internal static class OdtReader
         XElement? groupPicture = drawing.Name == OdtNamespaces.Draw + "frame" && drawing.Parent?.Name == OdtNamespaces.Draw + "g"
             ? drawing.Element(OdtNamespaces.Draw + "image")
             : null;
+        // A frame in a group, or one whose automatic style has no parent,
+        // is a Draw object to Writer rather than a frame of its own.
+        bool drawObject = drawing.Name != OdtNamespaces.Draw + "frame" || groupPicture is not null ||
+            drawing.Parent?.Name == OdtNamespaces.Draw + "g" ||
+            context.Styles.IsDrawObjectStyle((string?)drawing.Attribute(OdtNamespaces.Draw + "style-name"));
         XElement textSource = textBox ?? groupPicture ?? drawing;
         TableCellPadding textPadding = ReadShapePadding(graphic);
         var pageRelativeShapes = new HashSet<DocumentShape>(ReferenceEqualityComparer.Instance);
@@ -1188,8 +1279,12 @@ internal static class OdtReader
             ? top
             : 0);
         double rotation = 0;
+        // A turned shape's translate is where it stood when saved, which for
+        // one set as a character its line decides instead.
         if (TryReadShapeRotation(drawing, out double angle, out double dx, out double dy))
-            (rotation, x, y) = (angle, offsetX + dx, offsetY + dy);
+            (rotation, x, y) = (string?)drawing.Attribute(OdtNamespaces.Text + "anchor-type") == "as-char"
+                ? (angle, x, y)
+                : (angle, offsetX + dx, offsetY + dy);
         (int anchorPage, x, y, bool fromPage) = PlaceOnPage(drawing, styleName, x, y, width, height, context, inheritedAnchor, inheritedAnchorPage);
 
         var shape = new DocumentShape(
@@ -1236,7 +1331,10 @@ internal static class OdtReader
             printable: Prints(graphic))
         {
             IsAsCharacter = ((string?)drawing.Attribute(OdtNamespaces.Text + "anchor-type") ?? inheritedAnchor) == "as-char",
-            IsCustomShape = drawing.Name != OdtNamespaces.Draw + "frame" || groupPicture is not null,
+            IsCustomShape = drawObject,
+            IsTextFrame = (!drawObject && textBox is not null) ||
+                (drawing.Name == OdtNamespaces.Draw + "custom-shape" &&
+                 context.Styles.IsFrameStyleChild((string?)drawing.Attribute(OdtNamespaces.Draw + "style-name"))),
             RotationRadians = rotation,
             // A text box keeps its width and grows down to its text, where a
             // drawn shape with words in it fits itself about them - unless its
@@ -1394,12 +1492,50 @@ internal static class OdtReader
     /// </summary>
     private static IReadOnlyList<IReadOnlyList<(double X, double Y)>>? ReadOutlinePaths(XElement drawing, double width, double height, double rotation)
     {
+        if (drawing.Name == OdtNamespaces.Draw + "polygon")
+            return ReadPolygon(drawing);
         if (drawing.Name != OdtNamespaces.Draw + "custom-shape" || ReadShapeGeometry(drawing) != ShapeGeometry.Rectangle)
             return null;
         XElement? geometry = drawing.Element(OdtNamespaces.Draw + "enhanced-geometry");
         return (string?)geometry?.Attribute(OdtNamespaces.Draw + "type") is "rectangle" or "rect"
             ? null
             : OdtCustomShapePath.Read(geometry, width, height, rotation);
+    }
+
+    /// <summary>
+    /// A <c>draw:polygon</c>'s corners (ODF 1.3 §10.3.5): its <c>draw:points</c>
+    /// in the units of its <c>svg:viewBox</c>, as fractions of the shape's box,
+    /// or null when either is missing or unreadable, to draw the box.
+    /// tdf138374.odt's bent arrow was not drawn at all.
+    /// </summary>
+    private static IReadOnlyList<IReadOnlyList<(double X, double Y)>>? ReadPolygon(XElement drawing)
+    {
+        string[] box = ((string?)drawing.Attribute(OdtNamespaces.Svg + "viewBox") ?? string.Empty)
+            .Split([' ', ','], StringSplitOptions.RemoveEmptyEntries);
+        if (box.Length != 4 ||
+            !double.TryParse(box[0], NumberStyles.Float, CultureInfo.InvariantCulture, out double left) ||
+            !double.TryParse(box[1], NumberStyles.Float, CultureInfo.InvariantCulture, out double top) ||
+            !double.TryParse(box[2], NumberStyles.Float, CultureInfo.InvariantCulture, out double boxWidth) ||
+            !double.TryParse(box[3], NumberStyles.Float, CultureInfo.InvariantCulture, out double boxHeight) ||
+            !(boxWidth > 0) || !(boxHeight > 0) || !double.IsFinite(left + top + boxWidth + boxHeight))
+            return null;
+
+        var corners = new List<(double X, double Y)>();
+        foreach (string pair in ((string?)drawing.Attribute(OdtNamespaces.Draw + "points") ?? string.Empty)
+            .Split([' ', '\t', '\n', '\r'], StringSplitOptions.RemoveEmptyEntries))
+        {
+            string[] xy = pair.Split(',');
+            if (xy.Length != 2 ||
+                !double.TryParse(xy[0], NumberStyles.Float, CultureInfo.InvariantCulture, out double x) ||
+                !double.TryParse(xy[1], NumberStyles.Float, CultureInfo.InvariantCulture, out double y) ||
+                !double.IsFinite(x) || !double.IsFinite(y))
+                return null;
+            corners.Add(((x - left) / boxWidth, (y - top) / boxHeight));
+            if (corners.Count > 4096)
+                return null;
+        }
+
+        return corners.Count >= 3 ? [corners] : null;
     }
 
     private static bool TryReadShapeRotation(XElement drawing, out double angle, out double x, out double y)
@@ -1409,14 +1545,20 @@ internal static class OdtReader
         if (value is null)
             return false;
 
+        // Writer writes a shear first, skewX, which is a rounding error's worth
+        // of nothing on a shape it never sheared (tdf70838.odt's
+        // "skewX (3.7E-017) rotate (...)"). A real shear is not modelled.
         var match = System.Text.RegularExpressions.Regex.Match(value,
-            @"^\s*rotate\s*\(\s*([^\s()]+)\s*\)\s*(?:translate\s*\(\s*([^\s(),]+)[\s,]+([^\s(),]+)\s*\))?\s*$",
+            @"^\s*(?:skewX\s*\(\s*([^\s()]+)\s*\)\s*)?rotate\s*\(\s*([^\s()]+)\s*\)\s*(?:translate\s*\(\s*([^\s(),]+)[\s,]+([^\s(),]+)\s*\))?\s*$",
             System.Text.RegularExpressions.RegexOptions.NonBacktracking | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
-        if (!match.Success || !double.TryParse(match.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out double radians) ||
+        if (!match.Success || !double.TryParse(match.Groups[2].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out double radians) ||
             !double.IsFinite(radians))
             return false;
-        if (match.Groups[2].Success && (!OdtUnits.TryParseLength(match.Groups[2].Value, out x) ||
-            !OdtUnits.TryParseLength(match.Groups[3].Value, out y)))
+        if (match.Groups[1].Success && !(double.TryParse(match.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out double shear) &&
+            Math.Abs(shear) < 1e-9))
+            return false;
+        if (match.Groups[3].Success && (!OdtUnits.TryParseLength(match.Groups[3].Value, out x) ||
+            !OdtUnits.TryParseLength(match.Groups[4].Value, out y)))
             return false;
 
         angle = -radians;
@@ -1560,6 +1702,15 @@ internal static class OdtReader
     /// objects with it, so the paragraph is left out whole. Fields in a frame
     /// anchored here belong to the frame's own paragraphs and are not counted.
     /// </summary>
+    /// <summary>
+    /// Whether <paramref name="blocks"/> are paragraphs, at least one, that
+    /// their own fields hide, which the block reader leaves out.
+    /// </summary>
+    internal static bool HidesEveryParagraph(IReadOnlyList<XElement> blocks, OdtReadContext context) =>
+        blocks.Count > 0 && blocks.All(block =>
+            (block.Name == OdtNamespaces.Text + "p" || block.Name == OdtNamespaces.Text + "h") &&
+            (HiddenByEmptyDatabaseField(block, context.Styles) || HiddenByParagraphField(block, context)));
+
     private static bool HiddenByParagraphField(XElement paragraph, OdtReadContext context)
     {
         bool any = false;
@@ -1695,6 +1846,10 @@ internal static class OdtReader
             printable: (string?)control.Attribute(OdtNamespaces.Form + "printable") != "false")
         {
             IsAsCharacter = (string?)drawing.Attribute(OdtNamespaces.Text + "anchor-type") == "as-char",
+
+            // A control is a drawing object (SdrUnoObj), not a text frame, so
+            // LibreOffice's text export never takes its label for a document's text.
+            IsCustomShape = true,
         });
     }
 
@@ -2622,7 +2777,7 @@ internal static class OdtReader
                 ReadDrawGroup(child, context, totalX, totalY, anchorType, anchorPage, depth + 1);
             }
             else if (child.Name == OdtNamespaces.Draw + "custom-shape" || child.Name == OdtNamespaces.Draw + "line" || child.Name == OdtNamespaces.Draw + "connector" ||
-                     child.Name == OdtNamespaces.Draw + "ellipse" || child.Name == OdtNamespaces.Draw + "rect")
+                     child.Name == OdtNamespaces.Draw + "ellipse" || child.Name == OdtNamespaces.Draw + "rect" || child.Name == OdtNamespaces.Draw + "polygon")
             {
                 ReadShape(child, context, depth, totalX, totalY, anchorType, anchorPage);
             }
@@ -2656,7 +2811,19 @@ internal static class OdtReader
             if (name == OdtNamespaces.Text + "p" || name == OdtNamespaces.Text + "h")
             {
                 if (!HiddenByEmptyDatabaseField(element, context.Styles) && !HiddenByParagraphField(element, context))
+                {
                     ReadParagraph(element, context, list, depth);
+                }
+                else if (context.IsBody && context.TableDepth == 0 &&
+                    !element.Descendants().Any(child => child.Name.Namespace == OdtNamespaces.Draw))
+                {
+                    // A hidden paragraph takes no room, but its text is the
+                    // document's: LibreOffice's text export writes it
+                    // (SwASCWriter::WriteStream includes hidden nodes). So it is
+                    // read as hidden text with a hidden mark. One that anchors
+                    // a drawing is left out whole, its drawings hidden with it.
+                    ReadHiddenParagraph(element, context, depth);
+                }
                 continue;
             }
 
@@ -2710,18 +2877,17 @@ internal static class OdtReader
                 bool hidden = IsSectionHidden(element, context);
                 string? sectionStyle = (string?)element.Attribute(OdtNamespaces.Text + "style-name");
                 XElement? sectionProperties = sectionStyle is null ? null : context.Styles.SectionProperties.GetValueOrDefault(sectionStyle);
-                XElement? noteConfiguration = sectionProperties?.Elements(OdtNamespaces.Text + "notes-configuration")
-                    .FirstOrDefault(configuration => (string?)configuration.Attribute(OdtNamespaces.Text + "note-class") == "footnote");
                 SectionFootnotes? previousFootnotes = context.SectionFootnotes;
-                SectionFootnotes? footnotes = null;
-                if (noteConfiguration is not null)
-                {
-                    int? start = int.TryParse((string?)noteConfiguration.Attribute(OdtNamespaces.Text + "start-value"),
-                        NumberStyles.Integer, CultureInfo.InvariantCulture, out int number) && number is > 0 and < 100000 ? number : null;
-                    string? format = (string?)noteConfiguration.Attribute(OdtNamespaces.Style + "num-format");
-                    footnotes = new SectionFootnotes(start, format is null ? null : OdtStyles.NumberFormat(format));
+                SectionFootnotes? previousEndnotes = context.SectionEndnotes;
+                SectionFootnotes? footnotes = SectionNoteCollection(sectionProperties, "footnote");
+                // A section's endnote configuration collects its endnotes at
+                // its end, as its footnote configuration does its footnotes
+                // (SwFormatEndAtTextEnd; tdf146704_EndnoteInSection.odt).
+                SectionFootnotes? endnotes = SectionNoteCollection(sectionProperties, "endnote");
+                if (footnotes is not null)
                     context.SectionFootnotes = footnotes;
-                }
+                if (endnotes is not null)
+                    context.SectionEndnotes = endnotes;
                 OdtBreak pending = hidden ? context.TakeBreak() : OdtBreak.None;
                 if (hidden) context.HiddenSectionDepth++;
                 try
@@ -2731,6 +2897,7 @@ internal static class OdtReader
                 finally
                 {
                     context.SectionFootnotes = previousFootnotes;
+                    context.SectionEndnotes = previousEndnotes;
                     if (hidden)
                     {
                         context.HiddenSectionDepth--;
@@ -2752,7 +2919,8 @@ internal static class OdtReader
                     double mr = OdtUnits.TryParseLength((string?)sectionProperties.Attribute(OdtNamespaces.Fo + "margin-right"), out double rightVal) ? rightVal : uniformMargin;
                     bool indented = ml > 0 || mr > 0;
 
-                    if (count > 1 || (!background.IsEmpty && background.A > 0) || indented || dontBalance || hidden || footnotes is not null)
+                    if (count > 1 || (!background.IsEmpty && background.A > 0) || indented || dontBalance || hidden || footnotes is not null ||
+                        endnotes is not null)
                     {
                         builder.AddSection(new DocumentSection(
                             sectionStart, builder.CurrentParagraphIndex - sectionStart, count, gap,
@@ -2762,7 +2930,7 @@ internal static class OdtReader
                             leftIndent: Math.Max(0, ml),
                             rightIndent: Math.Max(0, mr))
                         {
-                            FootnotesEnding = footnotes is null ? [] : [footnotes],
+                            FootnotesEnding = [.. new[] { footnotes, endnotes }.OfType<SectionFootnotes>()],
                         });
                     }
                 }
@@ -2817,7 +2985,7 @@ internal static class OdtReader
             }
 
             if (name == OdtNamespaces.Draw + "custom-shape" || name == OdtNamespaces.Draw + "line" || name == OdtNamespaces.Draw + "connector" ||
-                name == OdtNamespaces.Draw + "ellipse" || name == OdtNamespaces.Draw + "rect")
+                name == OdtNamespaces.Draw + "ellipse" || name == OdtNamespaces.Draw + "rect" || name == OdtNamespaces.Draw + "polygon")
             {
                 if (ReadShape(element, context, depth))
                     continue;
@@ -3008,13 +3176,42 @@ internal static class OdtReader
     /// <summary>True when a body child could contribute text, used to tell an empty document from a dropped one.</summary>
     private static bool IsContentBlock(XElement element) => !IsIgnorableBlock(element.Name);
 
+    /// <summary>
+    /// Reads a paragraph a field hides as text that is all hidden, mark and
+    /// all, so the layout gives it no room (a wholly hidden paragraph) while the
+    /// text stays the document's. It takes no part in the paragraphs around it:
+    /// no break, no page style, no list item, as when it was left out.
+    /// </summary>
+    private static void ReadHiddenParagraph(XElement paragraph, OdtReadContext context, int depth)
+    {
+        string? styleName = (string?)paragraph.Attribute(OdtNamespaces.Text + "style-name") ?? UnstyledHeadingStyle(paragraph, context.Styles);
+        InlineStyle inherited = InlineStyle.Default;
+        foreach (XElement properties in context.Styles.TextPropertiesForParagraph(styleName))
+            inherited = ApplyTextProperties(properties, inherited, context.Styles, context.Builder);
+        inherited = inherited with { Hidden = true };
+
+        context.Builder.StartParagraph(ParagraphStyle.Default, inherited);
+        context.Builder.HidesText = true;
+        try
+        {
+            ReadInlineContent(paragraph, context, inherited, depth + 1);
+        }
+        finally
+        {
+            context.Builder.HidesText = false;
+        }
+
+        context.Builder.FinishParagraph();
+    }
+
     private static void ReadParagraph(
         XElement paragraph,
         OdtReadContext context,
         OdtListContext? list,
         int depth)
     {
-        string? styleName = (string?)paragraph.Attribute(OdtNamespaces.Text + "style-name") ?? UnstyledHeadingStyle(paragraph, context.Styles);
+        string? styleName = (string?)paragraph.Attribute(OdtNamespaces.Text + "style-name") ?? UnstyledHeadingStyle(paragraph, context.Styles) ??
+            context.NoteParagraphStyle;
 
         ParagraphStyle paragraphStyle = ParagraphStyle.Default;
         string? breakAfter = null;
@@ -3105,8 +3302,10 @@ internal static class OdtReader
 
         // ODF has no paragraph mark of its own: what an empty paragraph is as
         // tall as is its paragraph style's text properties, the formatting every
-        // run in it starts from.
-        context.Builder.StartParagraph(paragraphStyle, inherited);
+        // run in it starts from - and those of a span with no text in it, which
+        // Writer keeps where the paragraph starts and sets the empty line in
+        // (tdf139638.odt: an empty 10.5 pt span in a 12 pt paragraph).
+        context.Builder.StartParagraph(paragraphStyle, EmptySpansMark(paragraph, inherited, context));
         bool contextual = false;
         foreach (XElement properties in context.Styles.ParagraphProperties(styleName))
         {
@@ -3116,6 +3315,43 @@ internal static class OdtReader
         context.Builder.SetSpacingContext(context.Styles.NamedParagraphStyle(styleName), contextual);
         ReadInlineContent(paragraph, context, inherited, depth + 1);
         context.Builder.FinishParagraph();
+    }
+
+    /// <summary>
+    /// The mark of a paragraph whose only content is spans with nothing in
+    /// them: <paramref name="inherited"/> with their character formatting,
+    /// outer to inner and in order. Any other paragraph keeps
+    /// <paramref name="inherited"/>.
+    /// </summary>
+    private static InlineStyle EmptySpansMark(XElement paragraph, InlineStyle inherited, OdtReadContext context)
+    {
+        InlineStyle mark = inherited;
+        bool spans = false;
+        return Apply(paragraph, inherited) && spans ? mark : inherited;
+
+        bool Apply(XElement parent, InlineStyle style)
+        {
+            foreach (XNode node in parent.Nodes())
+            {
+                if (node is XElement span && span.Name == OdtNamespaces.Text + "span")
+                {
+                    InlineStyle spanStyle = style;
+                    foreach (XElement properties in context.Styles.TextPropertiesForSpan((string?)span.Attribute(OdtNamespaces.Text + "style-name")))
+                        spanStyle = ApplyTextProperties(properties, spanStyle, context.Styles, context.Builder);
+                    spans = true;
+                    mark = spanStyle;
+                    if (!Apply(span, spanStyle))
+                        return false;
+                }
+                else if (node is not XComment && node is not XProcessingInstruction &&
+                    !(node is XText text && text.Value.Length == 0))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
     }
 
     /// <summary>
@@ -3147,7 +3383,8 @@ internal static class OdtReader
     private static ListReference? OutlineReference(XElement heading, OdtReadContext context)
     {
         if (context.Styles.OutlineDefinition is not ListDefinition outline ||
-            string.Equals((string?)heading.Attribute(OdtNamespaces.Text + "is-list-header"), "true", StringComparison.Ordinal))
+            string.Equals((string?)heading.Attribute(OdtNamespaces.Text + "is-list-header"), "true", StringComparison.Ordinal) ||
+            context.Styles.ClearsListStyle((string?)heading.Attribute(OdtNamespaces.Text + "style-name")))
         {
             return null;
         }
@@ -3254,25 +3491,33 @@ internal static class OdtReader
 
             if (name == OdtNamespaces.Draw + "g")
             {
+                if (context.IsBody && context.TableDepth == 0)
+                    builder.MarkObject();
                 ReadDrawGroup(element, context, parentX: 0, parentY: 0, inheritedAnchor: null, inheritedAnchorPage: 0, depth: 0);
                 continue;
             }
 
             if (name == OdtNamespaces.Draw + "custom-shape" || name == OdtNamespaces.Draw + "line" || name == OdtNamespaces.Draw + "connector" ||
-                name == OdtNamespaces.Draw + "ellipse" || name == OdtNamespaces.Draw + "rect")
+                name == OdtNamespaces.Draw + "ellipse" || name == OdtNamespaces.Draw + "rect" || name == OdtNamespaces.Draw + "polygon")
             {
+                if (context.IsBody && context.TableDepth == 0)
+                    builder.MarkObject();
                 ReadShape(element, context, depth: 0);
                 continue;
             }
 
             if (name == OdtNamespaces.Draw + "control")
             {
+                if (context.IsBody && context.TableDepth == 0)
+                    builder.MarkObject();
                 ReadControl(element, context);
                 continue;
             }
 
             if (name == OdtNamespaces.Draw + "frame")
             {
+                if (context.IsBody && context.TableDepth == 0)
+                    builder.MarkObject();
                 if (ReadFloatingTable(element, context, depth: 0))
                     continue;
 
@@ -3301,7 +3546,10 @@ internal static class OdtReader
                 continue;
             }
 
-            if (name == OdtNamespaces.Text + "page-number" || name == OdtNamespaces.Text + "page-count")
+            // loext:page-count-range is LibreOffice's count of the pages its
+            // section spans (tdf71583.odt, "Page count in section: i").
+            if (name == OdtNamespaces.Text + "page-number" || name == OdtNamespaces.Text + "page-count" ||
+                name == OdtNamespaces.LibreOffice + "page-count-range")
             {
                 ReadPageField(element, builder, style, context.Styles.PageNumberFormat);
                 continue;
@@ -3328,7 +3576,16 @@ internal static class OdtReader
                 continue;
             }
 
-            if (name == OdtNamespaces.Text + "script")
+            if (FixedTimeText(element) is string time)
+            {
+                builder.AppendLiteral(time, style);
+                continue;
+            }
+
+            // A page variable's setting shows nothing where it stands
+            // (SwRefPageSetField::ExpandImpl); only its text:page-variable-get
+            // shows a number. A document may still cache one inside it.
+            if (name == OdtNamespaces.Text + "script" || name == OdtNamespaces.Text + "page-variable-set")
                 continue;
 
             if (name == OdtNamespaces.Text + "ruby")
@@ -3400,6 +3657,43 @@ internal static class OdtReader
     }
 
     /// <summary>
+    /// The text of a fixed <c>text:time</c> that names no data style: its
+    /// <c>text:time-value</c> as hours, minutes and seconds, which is how
+    /// LibreOffice 24.2 shows it whatever the field caches (soffice writes
+    /// tdf111969_field.fodt's empty field as "12:34:56", and "15:04:05" for one
+    /// caching "cached"). Null where the cached text stands: a field that is not
+    /// fixed shows the time it is opened, and a data style formats the value
+    /// its own way.
+    /// </summary>
+    private static string? FixedTimeText(XElement field)
+    {
+        if (field.Name != OdtNamespaces.Text + "time" ||
+            (string?)field.Attribute(OdtNamespaces.Text + "fixed") != "true" ||
+            field.Attribute(OdtNamespaces.Style + "data-style-name") is not null ||
+            (string?)field.Attribute(OdtNamespaces.Text + "time-value") is not string value)
+            return null;
+
+        if (!OdtDataStyles.TryParseDateValue(value, out DateTime time) &&
+            !DateTime.TryParseExact(value.Trim(), ["HH:mm:ss", "HH:mm"], CultureInfo.InvariantCulture, DateTimeStyles.None, out time))
+        {
+            // ODF also allows a duration from midnight, PT12H34M56S.
+            try
+            {
+                TimeSpan span = System.Xml.XmlConvert.ToTimeSpan(value.Trim());
+                if (span < TimeSpan.Zero || span >= TimeSpan.FromDays(1))
+                    return null;
+                time = DateTime.MinValue + span;
+            }
+            catch (Exception exception) when (exception is FormatException or OverflowException)
+            {
+                return null;
+            }
+        }
+
+        return time.ToString("HH:mm:ss", CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>
     /// Reads a Word-style legacy form field LibreOffice keeps as a
     /// <c>field:fieldmark</c>: a check box as the ballot box it draws
     /// (<c>Checkbox_Checked</c> crossing it), a drop-down as its selected entry
@@ -3422,14 +3716,14 @@ internal static class OdtReader
             case "vnd.oasis.opendocument.field.FORMCHECKBOX":
                 bool isChecked = parameters.Any(param => param.Name == "Checkbox_Checked" &&
                     string.Equals(param.Value, "true", StringComparison.OrdinalIgnoreCase));
-                builder.AppendLiteral(isChecked ? "☒" : "☐", style with { FontFamily = "DejaVu Sans" });
+                builder.AppendLiteral(isChecked ? "☒" : "☐", style with { FontFamily = "DejaVu Sans", IsFormElement = true });
                 break;
             case "vnd.oasis.opendocument.field.FORMDROPDOWN":
                 string[] entries = [.. parameters.Where(param => param.Name == "Dropdown_ListEntry").Select(param => param.Value)];
                 int selected = parameters.LastOrDefault(param => param.Name == "Dropdown_Selected").Value is string stated &&
                     int.TryParse(stated, NumberStyles.Integer, CultureInfo.InvariantCulture, out int index) ? index : 0;
                 if (selected >= 0 && selected < entries.Length && entries[selected].Length > 0)
-                    builder.AppendLiteral(entries[selected], style);
+                    builder.AppendLiteral(entries[selected], style with { IsFormElement = true });
                 break;
         }
     }
@@ -3627,7 +3921,8 @@ internal static class OdtReader
         OdtListContext? list,
         OdtReadContext context)
     {
-        string? styleName = (string?)paragraph.Attribute(OdtNamespaces.Text + "style-name") ?? UnstyledHeadingStyle(paragraph, context.Styles);
+        string? styleName = (string?)paragraph.Attribute(OdtNamespaces.Text + "style-name") ?? UnstyledHeadingStyle(paragraph, context.Styles) ??
+            context.NoteParagraphStyle;
         ParagraphStyle style = ParagraphStyle.Default;
         foreach (XElement properties in context.Styles.ParagraphProperties(styleName))
             style = ApplyParagraphProperties(properties, style, context.Builder, context.Styles);
@@ -3692,7 +3987,13 @@ internal static class OdtReader
         {
             Revision = context.Builder.Revision,
         };
-        var nested = new OdtReadContext(context.Styles, context.Images, builder) { InNote = true, Regions = context.Regions, Variables = context.Variables };
+        var nested = new OdtReadContext(context.Styles, context.Images, builder)
+        {
+            InNote = true,
+            Regions = context.Regions,
+            Variables = context.Variables,
+            NoteParagraphStyle = context.Styles.NoteParagraphStyleName(kind == NoteKind.Endnote),
+        };
         XElement? body = note.Element(OdtNamespaces.Text + "note-body");
         if (body is not null)
             ReadBlockContent(body.Elements(), nested, list: null, depth + 1);
@@ -3708,9 +4009,28 @@ internal static class OdtReader
 
         var documentNote = new DocumentNote(kind, built.Paragraphs, label?.Trim())
         {
-            Section = kind == NoteKind.Footnote ? context.SectionFootnotes : null,
+            Section = kind == NoteKind.Footnote ? context.SectionFootnotes : context.SectionEndnotes,
         };
         context.Builder.AppendLiteral(DocumentNote.PlaceholderText, style with { Note = documentNote, Image = null });
+    }
+
+    /// <summary>
+    /// The notes a section collects at its end for its
+    /// <c>text:notes-configuration</c> of <paramref name="noteClass"/>, with
+    /// their own numbering where it states a <c>text:start-value</c>; null when
+    /// the section states none.
+    /// </summary>
+    private static SectionFootnotes? SectionNoteCollection(XElement? sectionProperties, string noteClass)
+    {
+        XElement? configuration = sectionProperties?.Elements(OdtNamespaces.Text + "notes-configuration")
+            .FirstOrDefault(candidate => (string?)candidate.Attribute(OdtNamespaces.Text + "note-class") == noteClass);
+        if (configuration is null)
+            return null;
+
+        int? start = int.TryParse((string?)configuration.Attribute(OdtNamespaces.Text + "start-value"),
+            NumberStyles.Integer, CultureInfo.InvariantCulture, out int number) && number is > 0 and < 100000 ? number : null;
+        string? format = (string?)configuration.Attribute(OdtNamespaces.Style + "num-format");
+        return new SectionFootnotes(start, format is null ? null : OdtStyles.NumberFormat(format));
     }
 
     /// <summary>
@@ -3720,10 +4040,21 @@ internal static class OdtReader
     /// <remarks>
     /// LibreOffice writes <c>text:start-value</c> counting from zero - the
     /// default first note is 1 and is written <c>0</c> - and reads it that way.
+    /// <para>
+    /// Writer sets a document's endnotes on pages of their own after its body,
+    /// in the <c>Endnote</c> page style, whether or not the configuration
+    /// names one: <c>SwEndNoteInfo</c> defaults to that pool page style, and
+    /// the import only replaces it with a page style the configuration names.
+    /// Only the <c>ContinuousEndnotes</c> setting (Word's layout, kept for
+    /// documents it opened) runs them on under the body instead.
+    /// </para>
     /// </remarks>
-    private static NoteNumbering ReadNoteNumbering(OdtStyles styles)
+    private static NoteNumbering ReadNoteNumbering(OdtStyles styles, XElement? settings)
     {
-        NoteNumbering numbering = NoteNumbering.Default;
+        NoteNumbering numbering = NoteNumbering.Default with
+        {
+            EndnotesStartOnNewPage = !OdtRevisions.ConfigFlag(settings, "ContinuousEndnotes"),
+        };
         foreach (XElement configuration in styles.NotesConfigurations)
         {
             string? numFormat = (string?)configuration.Attribute(OdtNamespaces.Style + "num-format");
@@ -3741,8 +4072,6 @@ internal static class OdtReader
                 {
                     EndnoteFormat = numFormat is null ? numbering.EndnoteFormat : OdtStyles.NumberFormat(numFormat),
                     EndnoteStart = start ?? numbering.EndnoteStart,
-                    EndnotesStartOnNewPage = !string.IsNullOrEmpty(
-                        (string?)configuration.Attribute(OdtNamespaces.Text + "master-page-name")),
                 };
             }
             else
@@ -3848,7 +4177,16 @@ internal static class OdtReader
         // draw:a is not listed: a clickable picture wraps its frame in one, and
         // skipping it would lose the picture rather than the link.
         if (name.Namespace == OdtNamespaces.Draw)
-            return name.LocalName is "g" or "custom-shape" or "rect" or "line" or "connector" or "polyline";
+            // The words a drawing holds are its own, not its paragraph's: a
+            // dimension line's measured value (fdo56272.odt) is drawn on the
+            // line and is no part of the heading it hangs from.
+            return name.LocalName is "g" or "custom-shape" or "rect" or "line" or "connector" or "polyline" or
+                "measure" or "polygon" or "path" or "circle" or "regular-polygon" or "caption";
+
+        // LibreOffice wrote text:sender-initials in its own namespace from 2013
+        // to 2017 and still reads it so (sender-initials.fodt), as the field it is.
+        if (name == OdtNamespaces.LibreOffice + "sender-initials")
+            return false;
 
         if (name.Namespace != OdtNamespaces.Text)
             return true;
@@ -3880,7 +4218,7 @@ internal static class OdtReader
     /// </remarks>
     private static void ReadPageField(XElement element, OdtDocumentBuilder builder, InlineStyle style, ListNumberFormat? pageFormat)
     {
-        bool count = element.Name.LocalName == "page-count";
+        bool count = element.Name.LocalName is "page-count" or "page-count-range";
         int adjust = 0;
         if (!count)
         {
@@ -3898,12 +4236,7 @@ internal static class OdtReader
         ListNumberFormat format = (string?)element.Attribute(OdtNamespaces.Style + "num-format") switch
         {
             null => pageFormat ?? ListNumberFormat.Decimal,
-            "" => ListNumberFormat.None,
-            "i" => ListNumberFormat.LowerRoman,
-            "I" => ListNumberFormat.UpperRoman,
-            "a" => ListNumberFormat.LowerLetter,
-            "A" => ListNumberFormat.UpperLetter,
-            _ => ListNumberFormat.Decimal,
+            string stated => OdtStyles.NumberFormat(stated),
         };
 
         // The run needs a character to exist; a field saved with no value
@@ -3914,7 +4247,9 @@ internal static class OdtReader
 
         builder.AppendLiteral(value, style with
         {
-            PageField = new PageField(count ? PageFieldKind.PageCount : PageFieldKind.PageNumber, format, adjust),
+            PageField = new PageField(
+                element.Name.LocalName == "page-count-range" ? PageFieldKind.SectionPageCount
+                    : count ? PageFieldKind.PageCount : PageFieldKind.PageNumber, format, adjust),
         });
     }
 
@@ -4306,6 +4641,8 @@ internal static class OdtReader
             style = style with { KeepWithNext = keepNext == "always" };
         if ((string?)properties.Attribute(OdtNamespaces.Style + "snap-to-layout-grid") is string snap)
             style = style with { IgnoresTextGrid = snap == "false" };
+        if ((string?)properties.Attribute(OdtNamespaces.Style + "register-true") is string registerTrue)
+            style = style with { RegisterTrue = registerTrue == "true" };
         if ((string?)properties.Attribute(OdtNamespaces.Fo + "keep-together") is string keepTogether)
             style = style with { KeepTogether = keepTogether == "always" };
         if (int.TryParse((string?)properties.Attribute(OdtNamespaces.Fo + "orphans"),
@@ -4475,6 +4812,7 @@ internal static class OdtReader
             // style nor Standard names one (bookmark_order.fodt).
             FontFamily = string.IsNullOrWhiteSpace(style.FontFamily) ? WriterDefaultFontFamily : style.FontFamily,
             RunningBandsEndAtLastLine = true,
+            ColumnBreaksNeedColumns = true,
         };
     }
 

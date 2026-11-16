@@ -93,20 +93,24 @@ internal static class OdsReader
                 DateTimeStyles.None, out DateTime dateBase))
                 dateBase = OdsNumberStyles.DefaultDateBase;
 
+            var cellStyles = new OdsCellStyles(shared, contentXml.Root, styles);
             bool unsupportedFormat = false;
             var sheets = new List<SpreadsheetWorksheet>();
+            var tableStyles = new List<XElement?>();
             foreach (XElement tableElem in spreadsheet.Elements(OdsNamespaces.Table + "table"))
             {
                 string sheetName = (string?)tableElem.Attribute(OdsNamespaces.Table + "name") ?? $"Sheet{sheets.Count + 1}";
-                SpreadsheetWorksheet sheet = ReadSheet(sheetName, tableElem, styles, numberStyles, dateBase, ref unsupportedFormat);
+                SpreadsheetWorksheet sheet = ReadSheet(sheetName, tableElem, styles, cellStyles, numberStyles, dateBase, ref unsupportedFormat);
                 sheets.Add(sheet);
+                tableStyles.Add(styles.GetValueOrDefault(("table", (string?)tableElem.Attribute(OdsNamespaces.Table + "style-name") ?? string.Empty)));
             }
 
             if (sheets.Count == 0)
                 sheets.Add(new SpreadsheetWorksheet("Sheet1", []));
 
             var workbook = new SpreadsheetWorkbook(sheets);
-            RichTextDocument document = workbook.ToRichTextDocument();
+            RichTextDocument document = Printed(workbook.ToRichTextDocument(), workbook, tableStyles,
+                new OdsPrintSetup(shared, contentXml.Root), cellStyles, ReadTitle(archive, options));
 
             if (unsupportedFormat)
                 diagnostics.Add(DocumentDiagnostic.Warning(OdsDiagnosticCodes.NumberFormatUnsupported,
@@ -116,6 +120,59 @@ internal static class OdsReader
         }
     }
 
+    /// <summary>
+    /// The projected workbook as Calc prints it: each sheet on the page its
+    /// page style states, with that style's header and footer, its text in the
+    /// cell defaults Calc's pool states (<c>style:default-style</c>, else
+    /// Liberation Sans at 10 pt), and its tables printed as sheets
+    /// (<see cref="DocumentStyleDefaults.PrintsSheets"/>). A sheet after the
+    /// first starts a page, as Calc starts one for every sheet.
+    /// </summary>
+    private static RichTextDocument Printed(RichTextDocument document, SpreadsheetWorkbook workbook,
+        IReadOnlyList<XElement?> tableStyles, OdsPrintSetup print, OdsCellStyles cellStyles, string? title)
+    {
+        var pages = new List<(PageGeometry Page, RunningContent Running)>();
+        for (int i = 0; i < workbook.Sheets.Count; i++)
+            pages.Add(print.For(i < tableStyles.Count ? tableStyles[i] : null, workbook.Sheets[i].Name, title));
+
+        document = document
+            .WithPageGeometry(pages[0].Page)
+            .WithRunningContent(pages[0].Running)
+            .WithStyleDefaults(document.StyleDefaults with
+            {
+                FontFamily = cellStyles.DefaultFontFamily,
+                FontSizePoints = cellStyles.DefaultFontSize,
+                PrintsSheets = true,
+            });
+
+        if (document.Tables.Count == workbook.Sheets.Count && workbook.Sheets.Count > 1)
+        {
+            var sections = new List<DocumentSection>(document.Tables.Count);
+            for (int i = 0; i < document.Tables.Count; i++)
+            {
+                DocumentTable table = document.Tables[i];
+                sections.Add(new DocumentSection(table.ParagraphIndex, table.ParagraphCount, 1, 0, pages[i].Page, pages[i].Running,
+                    breakType: i == 0 ? SectionBreakType.Continuous : SectionBreakType.NextPage));
+            }
+
+            document = document.WithSections(sections);
+        }
+
+        return document;
+    }
+
+    /// <summary>The document's title (<c>dc:title</c> in <c>meta.xml</c>), for the header field that shows it.</summary>
+    private static string? ReadTitle(ZipArchive archive, DocumentReadOptions options)
+    {
+        if (FindEntry(archive, "meta.xml") is not { } entry)
+            return null;
+
+        XDocument? meta = DocumentPackage.LoadEntryXml(entry, options.Limits.MaxBinBytes, [],
+            OdsDiagnosticCodes.StylesInvalid, "Meta XML");
+        XNamespace dc = "http://purl.org/dc/elements/1.1/";
+        return meta?.Root?.Descendants(dc + "title").FirstOrDefault()?.Value;
+    }
+
     private static double? ReadDimension(XElement? style, string family, string property)
     {
         string? length = (string?)style?.Element(OdsNamespaces.Style + (family + "-properties"))?
@@ -123,10 +180,17 @@ internal static class OdsReader
         return TryParseLength(length, out double points) && double.IsFinite(points) && points > 0 ? points : null;
     }
 
-    private static bool HasCellContent(SpreadsheetCell cell) =>
+    /// <summary>
+    /// Whether a cell widens the sheet's used range: a value, a formula, a span,
+    /// or a visible attribute (fill or border). A number format, font or
+    /// alignment alone does not, wherever it comes from: Calc writes every grid
+    /// column with the <c>Default</c> cell style, and LibreOffice prints and
+    /// exports only the range holding content or visible attributes
+    /// (<c>ScTable::GetPrintArea</c>, <c>ScPatternAttr::IsVisible</c>).
+    /// </summary>
+    private static bool MarksUsedRange(SpreadsheetCell cell) =>
         !cell.Value.IsEmpty || !string.IsNullOrEmpty(cell.Formula) || cell.Shading.A != 0 ||
-        cell.NumberFormat is not null || cell.Borders.IsVisible || cell.Font != InlineStyle.Default ||
-        cell.Alignment != TextAlignment.Left || cell.VerticalAlignment != CellVerticalAlignment.Top || cell.ColumnSpan > 1 || cell.RowSpan > 1;
+        cell.Borders.IsVisible || cell.ColumnSpan > 1 || cell.RowSpan > 1;
 
     /// <summary>An ODF length (in, cm, mm, pt, pc, px) in points.</summary>
     internal static bool TryParseLength(string? value, out double points)
@@ -160,7 +224,7 @@ internal static class OdsReader
     }
 
     private static SpreadsheetWorksheet ReadSheet(string sheetName, XElement tableElem,
-        Dictionary<(string Family, string Name), XElement> styles,
+        Dictionary<(string Family, string Name), XElement> styles, OdsCellStyles cellStyles,
         Dictionary<string, string?> numberStyles, DateTime dateBase, ref bool unsupportedFormat)
     {
         // Column widths, from each column's automatic style; a column whose style
@@ -292,7 +356,8 @@ internal static class OdsReader
                     {
                         int cIdx = currentColIndex++;
                         CellValue projectedValue = cellVal;
-                        string cellStyleName = (string?)cElem.Attribute(OdsNamespaces.Table + "style-name") ??
+                        string? ownStyleName = (string?)cElem.Attribute(OdsNamespaces.Table + "style-name");
+                        string cellStyleName = ownStyleName ??
                         (string?)rowElem.Attribute(OdsNamespaces.Table + "default-cell-style-name") ??
                         (cIdx < columnCellStyles.Count ? columnCellStyles[cIdx] : null) ?? string.Empty;
                         XElement? cellStyle = styles.GetValueOrDefault(("table-cell", cellStyleName));
@@ -313,13 +378,23 @@ internal static class OdsReader
                         }
                         }
 
-                        OdsCellAppearance appearance = OdsCellAppearance.Read(cellStyle);
-                        if (rep > 0 && cellVal.IsEmpty && string.IsNullOrEmpty(formula) &&
-                            appearance == default && numberFormat is null)
-                            continue; // Avoid storing thousands of repeated trailing empty cells
-
+                        // The cell's style with what its parents state beneath it,
+                        // and Calc's standard alignment where it states none:
+                        // numbers, dates and truth values to the right, text to
+                        // the left (ScOutputData's SvxCellHorJustify::Standard).
+                        XElement? resolvedStyle = cellStyles.Resolve(cellStyleName);
+                        OdsCellAppearance appearance = OdsCellAppearance.Read(resolvedStyle);
+                        if (!OdsCellStyles.StatesAlignment(resolvedStyle))
+                        {
+                            appearance = appearance with
+                            {
+                                Alignment = valueType is "float" or "percentage" or "currency" or "date" or "time" or "boolean"
+                                    ? TextAlignment.Right
+                                    : TextAlignment.Left,
+                            };
+                        }
                         var addr = new CellAddress(rIdx, cIdx);
-                        cells.Add(new SpreadsheetCell(
+                        var cell = new SpreadsheetCell(
                             addr,
                             projectedValue,
                             formula: formula,
@@ -331,12 +406,18 @@ internal static class OdsReader
                             VerticalAlignment = appearance.Vertical,
                             Alignment = appearance.Alignment,
                             Font = appearance.Font,
-                        });
+                        };
+                        // Avoid storing thousands of repeated empty cells; a
+                        // style of the cell's own is kept between other cells.
+                        if (rep > 0 && ownStyleName is null && !MarksUsedRange(cell))
+                            continue;
+
+                        cells.Add(cell);
                     }
                 }
 
                 int minCells = hasNonEmptyCell ? 0 : 1;
-                while (cells.Count > minCells && !HasCellContent(cells[^1]))
+                while (cells.Count > minCells && !MarksUsedRange(cells[^1]))
                     cells.RemoveAt(cells.Count - 1);
 
                 if (cells.Count > 0 || hasNonEmptyCell || height.HasValue)
@@ -344,7 +425,9 @@ internal static class OdsReader
             }
         }
 
-        while (rows.Count > 0 && rows[^1].Height is null && !rows[^1].Cells.Any(HasCellContent))
+        // A row height alone does not extend the used range either: Calc saves
+        // a row style for the rows past the data, and LibreOffice prints none.
+        while (rows.Count > 0 && !rows[^1].Cells.Any(MarksUsedRange))
             rows.RemoveAt(rows.Count - 1);
 
         var sheet = new SpreadsheetWorksheet(sheetName, rows, columnWidths);

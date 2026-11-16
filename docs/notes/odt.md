@@ -284,14 +284,20 @@ toolkit behind it.
   `office:binary-data`, and whether or not a `draw:a` wraps it. Display size is
   `svg:width`/`svg:height`, alternative text `svg:title` (falling back to
   `svg:desc`). Raster formats are carried as they are: PNG, JPEG, GIF, BMP,
-  TIFF, WebP, and ICO. A StarView metafile, an EMF and an SVG are rasterized
-  to a PNG (`SvmRasterizer`, `EmfRasterizer`, `SvgRasterizer`), each for the
-  subset it understands; the SVG one draws plain geometry (paths, basic shapes,
-  groups, transforms, solid fills and strokes) and declines anything with text,
-  images, gradients, filters, masks, clip paths, dashes or stylesheets. One
-  that draws nothing at all is an unmarked empty frame. WMF, and anything a
-  rasterizer declines, is reported as `odt.image.format` rather than kept as a
-  picture that draws nothing. A write
+  TIFF, WebP, and ICO. A StarView metafile, a WMF, an EMF and an SVG are
+  rasterized to a PNG (`SvmRasterizer`, `WmfRasterizer`, `EmfRasterizer`,
+  `SvgRasterizer`), each for the subset it understands. The SVM one draws
+  text (FONT, TEXTCOLOR, TEXTALIGN, TEXT, TEXTARRAY, STRETCHTEXT) and scaled
+  bitmaps (BMPSCALE, and BMPEXSCALE without transparency, plain or
+  ZCOMPRESS) as well as geometry; the EMF one arcs, chords and pies. The SVG
+  one draws plain geometry (paths, basic shapes, groups, transforms, solid
+  fills and strokes) and declines anything with text, images, gradients,
+  filters, masks, clip paths, dashes or stylesheets; an SVG that states no
+  size and no view box is as big as what it draws. One that draws nothing at
+  all is an unmarked empty frame. Anything a rasterizer declines is reported
+  as `odt.image.format` rather than kept as a picture that draws nothing.
+  Metafile text is drawn as the document is read, through the render's font
+  mapping, which `broilerdoc render` therefore installs before it reads. A write
   stores each distinct image once under `Pictures`, declares it in the manifest,
   and anchors the frame `as-char`.
 - A frame's alternative `draw:image` representations, including those inside
@@ -303,6 +309,20 @@ toolkit behind it.
   before the first readable one keep their diagnostics; alternatives read after
   it report nothing. Resource policy denial stops extraction rather than trying
   another representation.
+- A picture linked outside the package is never fetched by default (ADR 0004).
+  With `broilerdoc render --allow-local-images`, a package's link of exactly
+  the form `../<name>` - which by ODF 1.2 part 3, §3.7 names a file in the
+  document's own directory - is read through the host's `OdtReadOptions`
+  resolver, under the same name rules and byte limits as HTML's sibling
+  images (`globalfilter/data/document_with_linked_graphic.odt`). Deeper or
+  other relative links, URLs and every link in a flat document are not asked
+  for; a link the resolver cannot answer reads as it does without the flag.
+- An embedded formula (`draw:object` naming a folder the manifest declares
+  `application/vnd.oasis.opendocument.formula`) whose replacement picture is
+  missing prints LibreOffice's object placeholder icon, as LibreOffice 24.2
+  does instead of laying the formula out. A formula written into the frame as
+  MathML (a flat document's `draw:object` with no `xlink:href`) is an empty
+  frame: LibreOffice 24.2 prints neither it nor the replacement beside it.
 - An embedded chart (`draw:object` naming a package folder whose `content.xml`
   is an `office:chart`) with no readable replacement picture is drawn from its
   own data when it is a flat column chart (`OdtChartPreview`): wall, value grid,
@@ -569,7 +589,9 @@ toolkit behind it.
   over what it merged.
 - A linked (not embedded) image or other external resource is never fetched;
   that would be a network or file request driven by document content
-  (ADR 0004).
+  (ADR 0004). The one exception is a host's explicit opt-in: a package's
+  `../<name>` picture link, through `OdtReadOptions`, which only
+  `broilerdoc render --allow-local-images` supplies (see Pictures).
 - Packages above `DocumentLimits.MaxDocumentBytes` are not parsed. XML parts and
   pictures above `DocumentLimits.MaxBinBytes` are skipped, the limit applied to
   what actually decompresses rather than to the size the ZIP header claims.
@@ -622,11 +644,11 @@ problem document lost.
 | `odt.styles.list-unknown` | Warning | A `text:list` named an undefined list style; it was read as a bullet list. |
 | `odt.image.missing` | Warning | A picture referenced a package entry that is not there. |
 | `odt.image.external` | Warning | A picture linked to an image outside the package, which is not fetched. |
-| `odt.image.format` | Warning | A picture used an image format this codec does not carry (SVG, EMF, WMF and the like). |
+| `odt.image.format` | Warning | A picture used an image format this codec does not carry, or a metafile or SVG that draws something its rasterizer declines. |
 | `odt.image.limit` | Warning | A picture exceeded `MaxBinBytes` and was skipped. |
 | `odt.image.binary` | Warning | An inline picture payload was not valid base64. |
 | `odt.image.shape` | Warning | A frame held no embedded picture. |
-| `odt.image.object` | Warning | An OLE object (`draw:object`/`draw:object-ole` with an `xlink:href`) had no replacement picture and is shown with a static puzzle-piece icon, as LibreOffice shows one it cannot load (`linked_ole.fodt`). |
+| `odt.image.object` | Warning | An OLE object (`draw:object`/`draw:object-ole` with an `xlink:href`) had no replacement picture, or an embedded formula's replacement is missing, and is shown with a static puzzle-piece icon, as LibreOffice shows one it cannot load (`linked_ole.fodt`, `tdf144319.odt`). |
 | `odt.media.audio` | Warning | An audio frame is shown with a static icon. |
 | `odt.image.anchored` | Warning | A floating picture was anchored to its paragraph. |
 | `odt.image.denied` | Warning | The caller's resource policy did not permit reading a picture; the message names the denial. |

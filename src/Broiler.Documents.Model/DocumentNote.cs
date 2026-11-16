@@ -86,7 +86,7 @@ public sealed class DocumentNote
     /// </summary>
     public IReadOnlyList<DocumentTable> Tables { get; init; } = [];
 
-    /// <summary>The section collecting this footnote, or null for ordinary placement.</summary>
+    /// <summary>The section collecting this note at its end, or null for ordinary placement.</summary>
     public SectionFootnotes? Section { get; init; }
 
     /// <summary>The note's paragraphs joined with newlines.</summary>
@@ -179,6 +179,27 @@ public sealed record NoteNumbering(
     /// <summary>Lay out the endnote block on a separate page in paginated output.</summary>
     public bool EndnotesStartOnNewPage { get; init; }
 
+    /// <summary>
+    /// Whether the line above a page's footnotes is drawn. Its room is kept
+    /// either way. writerfilter hides the line (a relative width of 0) in a
+    /// document that has no footnote separator, which in RTF is a
+    /// <c>\chftnsep</c>.
+    /// </summary>
+    public bool DrawsSeparatorLine { get; init; } = true;
+
+    /// <summary>
+    /// The page the endnotes are set on where they start a page of their own
+    /// (<see cref="EndnotesStartOnNewPage"/>), or null for the body's page.
+    /// ODF names it as the endnotes' <c>text:master-page-name</c>, and Writer
+    /// gives the pages it collects its endnotes on that page style
+    /// (<c>SwEndNoteInfo::GetPageDesc</c>): tdf108448_endNote.odt's are
+    /// upright where its body is landscape.
+    /// </summary>
+    public PageGeometry? EndnotePage { get; init; }
+
+    /// <summary>The header and footer of <see cref="EndnotePage"/>.</summary>
+    public RunningContent? EndnoteRunningContent { get; init; }
+
     /// <summary>The numbering a document that states none takes.</summary>
     public static NoteNumbering Default { get; } = new();
 }
@@ -226,6 +247,12 @@ public sealed class NoteNumberer
         if (note.CustomMark is string mark)
         {
             label = mark;
+        }
+        else if (note.Kind == NoteKind.Endnote && note.Section is { Start: int endnoteStart } endnoteSection)
+        {
+            int offset = _sectionCounts.GetValueOrDefault(endnoteSection);
+            label = ListNumberer.Format(endnoteStart + offset, endnoteSection.Format ?? _numbering.EndnoteFormat);
+            _sectionCounts[endnoteSection] = offset + 1;
         }
         else if (note.Kind == NoteKind.Endnote)
         {

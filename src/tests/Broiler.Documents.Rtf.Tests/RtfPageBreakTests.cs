@@ -315,6 +315,9 @@ public sealed class RtfPageBreakTests
             RichTextParagraph.Plain("second").WithParagraphStyle(ParagraphStyle.Default with
             {
                 PageBreakBefore = true,
+                // An RTF break before a paragraph keeps its space above at the
+                // top of the page, as LibreOffice reads it (RtfIssue249Tests).
+                PageBreakKeepsSpaceAbove = true,
                 Alignment = TextAlignment.Center,
                 IndentLevel = 2,
                 SpacingBefore = 6f,

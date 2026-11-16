@@ -109,26 +109,8 @@ internal sealed class OdtStyles : IOdtImageDiagnostics
 
         string size = level switch { 1 => "130%", 2 => "115%", 3 => "101%", 4 => "95%", _ => "85%" };
         string above = level switch { 1 => "12pt", 2 => "10pt", 3 => "7pt", _ => "6pt" };
-        // Its parent is Writer's built-in Heading where the document has none:
-        // the default heading face, Liberation Sans, at 14 pt, kept with the
-        // next paragraph (IndexElementsInHiddenSections.fodt).
-        var heading = new StyleKey(ParagraphFamily, "Heading");
-        if (!_styles.ContainsKey(heading))
-        {
-            _styles[heading] = new StyleDefinition(
-                "Heading",
-                _styles.ContainsKey(new StyleKey(ParagraphFamily, DefaultParagraphStyleName)) ? DefaultParagraphStyleName : null,
-                new XElement(OdtNamespaces.Style + "paragraph-properties",
-                    new XAttribute(OdtNamespaces.Fo + "margin-top", "12pt"),
-                    new XAttribute(OdtNamespaces.Fo + "margin-bottom", "6pt"),
-                    new XAttribute(OdtNamespaces.Fo + "keep-with-next", "always")),
-                new XElement(OdtNamespaces.Style + "text-properties",
-                    new XAttribute(OdtNamespaces.Fo + "font-family", "Liberation Sans"),
-                    new XAttribute(OdtNamespaces.Fo + "font-size", "14pt")),
-                null,
-                null);
-            _builtInHeadings++;
-        }
+        // Its parent is Writer's built-in Heading where the document has none.
+        AddBuiltInHeading();
         _styles[key] = new StyleDefinition(
             name,
             "Heading",
@@ -142,6 +124,76 @@ internal sealed class OdtStyles : IOdtImageDiagnostics
             null);
         _builtInHeadings++;
         return name;
+    }
+
+    /// <summary>
+    /// Adds Writer's built-in <c>Heading</c> paragraph style when the document
+    /// does not define one (DocumentStylePoolManager,
+    /// <c>RES_POOLCOLL_HEADLINE_BASE</c>): a child of <c>Standard</c> in the
+    /// default heading face, Liberation Sans, at 14 pt, 12 pt above and 6 pt
+    /// below, kept with the next paragraph (IndexElementsInHiddenSections.fodt).
+    /// </summary>
+    private void AddBuiltInHeading()
+    {
+        var heading = new StyleKey(ParagraphFamily, "Heading");
+        if (_styles.ContainsKey(heading))
+            return;
+
+        _styles[heading] = new StyleDefinition(
+            "Heading",
+            _styles.ContainsKey(new StyleKey(ParagraphFamily, DefaultParagraphStyleName)) ? DefaultParagraphStyleName : null,
+            new XElement(OdtNamespaces.Style + "paragraph-properties",
+                new XAttribute(OdtNamespaces.Fo + "margin-top", "12pt"),
+                new XAttribute(OdtNamespaces.Fo + "margin-bottom", "6pt"),
+                new XAttribute(OdtNamespaces.Fo + "keep-with-next", "always")),
+            new XElement(OdtNamespaces.Style + "text-properties",
+                new XAttribute(OdtNamespaces.Fo + "font-family", "Liberation Sans"),
+                new XAttribute(OdtNamespaces.Fo + "font-size", "14pt")),
+            null,
+            null);
+        _builtInHeadings++;
+    }
+
+    /// <summary>
+    /// The paragraph style a note's paragraph that names none is in:
+    /// <c>Footnote</c> or <c>Endnote</c>, which Writer gives the paragraph it
+    /// opens a note with (<c>SwFootnoteInfo::GetFootnoteTextColl</c>), and an
+    /// imported paragraph naming no style keeps. A document that does not
+    /// define it gets Writer's built-in one.
+    /// </summary>
+    public string NoteParagraphStyleName(bool endnote)
+    {
+        string name = endnote ? "Endnote" : "Footnote";
+        AddBuiltInNoteStyle(name);
+        return name;
+    }
+
+    /// <summary>
+    /// Adds Writer's built-in <c>Footnote</c> or <c>Endnote</c> paragraph style
+    /// when the document does not define it (DocumentStylePoolManager,
+    /// <c>RES_POOLCOLL_FOOTNOTE</c> and <c>RES_POOLCOLL_ENDNOTE</c>): a child of
+    /// <c>Standard</c> at 10 pt, its text 6 mm in with the first line hanging
+    /// back to the margin for the label. ergo_sum_footnote.fodt's unstyled
+    /// note lines are 11.5 pt apart, their label at the margin and its text
+    /// 17 pt in.
+    /// </summary>
+    private void AddBuiltInNoteStyle(string name)
+    {
+        var key = new StyleKey(ParagraphFamily, name);
+        if (_styles.ContainsKey(key))
+            return;
+
+        _styles[key] = new StyleDefinition(
+            name,
+            _styles.ContainsKey(new StyleKey(ParagraphFamily, DefaultParagraphStyleName)) ? DefaultParagraphStyleName : null,
+            new XElement(OdtNamespaces.Style + "paragraph-properties",
+                new XAttribute(OdtNamespaces.Fo + "margin-left", "6mm"),
+                new XAttribute(OdtNamespaces.Fo + "text-indent", "-6mm")),
+            new XElement(OdtNamespaces.Style + "text-properties",
+                new XAttribute(OdtNamespaces.Fo + "font-size", "10pt")),
+            null,
+            null);
+        _builtInHeadings++;
     }
 
     /// <summary>The number of list styles that were loaded.</summary>
@@ -195,7 +247,18 @@ internal sealed class OdtStyles : IOdtImageDiagnostics
 
     public const string OldHungarianNumberFormat = "\U00010CFA, \U00010CFA\U00010CFA, \U00010CFA\U00010CFA\U00010CFA, ...";
 
-    /// <summary>Resolves a supported ODF numbering format, with decimal as the fallback.</summary>
+    /// <summary>
+    /// Resolves a supported ODF numbering format, with decimal as the fallback,
+    /// as LibreOffice does (<c>SvXMLUnitConverter::convertNumFormat</c>).
+    /// </summary>
+    /// <remarks>
+    /// A value of more than one character names one of LibreOffice's numbering
+    /// types by the identifier its numbering provider gives it
+    /// (<c>DefaultNumberingProvider::makeNumberingIdentifier</c>): the type's
+    /// own name, or its first three numbers. "Native Numbering" writes the
+    /// document language's digits, which are ASCII ones in the languages this
+    /// reads.
+    /// </remarks>
     public static ListNumberFormat NumberFormat(string? value) => value switch
     {
         null or "" => ListNumberFormat.None,
@@ -205,6 +268,46 @@ internal sealed class OdtStyles : IOdtImageDiagnostics
         "i" => ListNumberFormat.LowerRoman,
         "I" => ListNumberFormat.UpperRoman,
         OldHungarianNumberFormat => ListNumberFormat.OldHungarian,
+        "aaa" => ListNumberFormat.LowerLetter,
+        "AAA" => ListNumberFormat.UpperLetter,
+        "1st" => ListNumberFormat.Ordinal,
+        "One" => ListNumberFormat.CardinalText,
+        "First" => ListNumberFormat.OrdinalText,
+        "*, †, ‡, §, **, ††, ..." => ListNumberFormat.Chicago,
+        "01, 02, 03, ..." => ListNumberFormat.DecimalZero,
+        "001, 002, 003, ..." => ListNumberFormat.DecimalZero3,
+        "0001, 0002, 0003, ..." => ListNumberFormat.DecimalZero4,
+        "00001, 00002, 00003, ..." => ListNumberFormat.DecimalZero5,
+        "①, ②, ③, ..." => ListNumberFormat.CircledNumber,
+        "一, 二, 三, ..." => ListNumberFormat.IdeographCounting,
+        "甲, 乙, 丙, ..." => ListNumberFormat.TianGan,
+        "子, 丑, 寅, ..." => ListNumberFormat.DiZi,
+        "㉠, ㉡, ㉢, ..." => ListNumberFormat.HangulCircledJamo,
+        "㉮, ㉯, ㉰, ..." => ListNumberFormat.HangulCircledSyllable,
+        "أ, ب, ت, ..." => ListNumberFormat.ArabicAlpha,
+        "ا, ب, ج, ..." => ListNumberFormat.ArabicAbjad,
+        "آ, ب, پ, ..." => ListNumberFormat.Persian,
+        "ก, ข, ค, ..." => ListNumberFormat.Thai,
+        "א, ב, ג, ..." => ListNumberFormat.HebrewAlphabetic,
+        "א, י, ק, ..." => ListNumberFormat.HebrewNumber,
+        "Α, Β, ... (gr)" => ListNumberFormat.GreekUpper,
+        "α, β, ... (gr)" => ListNumberFormat.GreekLower,
+        "А, Б, .., Аа, Аб, ... (bg)" => ListNumberFormat.CyrillicUpperBulgarian,
+        "а, б, .., аа, аб, ... (bg)" => ListNumberFormat.CyrillicLowerBulgarian,
+        "А, Б, .., Аа, Бб, ... (bg)" => ListNumberFormat.CyrillicUpperBulgarianRepeated,
+        "а, б, .., аа, бб, ... (bg)" => ListNumberFormat.CyrillicLowerBulgarianRepeated,
+        "А, Б, .., Аа, Аб, ... (ru)" => ListNumberFormat.CyrillicUpperRussian,
+        "а, б, .., аа, аб, ... (ru)" => ListNumberFormat.CyrillicLowerRussian,
+        "А, Б, .., Аа, Бб, ... (ru)" => ListNumberFormat.CyrillicUpperRussianRepeated,
+        "а, б, .., аа, бб, ... (ru)" => ListNumberFormat.CyrillicLowerRussianRepeated,
+        "А, Б, .., Аа, Аб, ... (sr)" => ListNumberFormat.CyrillicUpperSerbian,
+        "а, б, .., аа, аб, ... (sr)" => ListNumberFormat.CyrillicLowerSerbian,
+        "А, Б, .., Аа, Бб, ... (sr)" => ListNumberFormat.CyrillicUpperSerbianRepeated,
+        "а, б, .., аа, бб, ... (sr)" => ListNumberFormat.CyrillicLowerSerbianRepeated,
+        "А, Б, .., Аа, Аб, ... (uk)" => ListNumberFormat.CyrillicUpperUkrainian,
+        "а, б, .., аа, аб, ... (uk)" => ListNumberFormat.CyrillicLowerUkrainian,
+        "А, Б, .., Аа, Бб, ... (uk)" => ListNumberFormat.CyrillicUpperUkrainianRepeated,
+        "а, б, .., аа, бб, ... (uk)" => ListNumberFormat.CyrillicLowerUkrainianRepeated,
         _ => ListNumberFormat.Decimal,
     };
 
@@ -609,7 +712,10 @@ internal sealed class OdtStyles : IOdtImageDiagnostics
                 style.Element(OdtNamespaces.Style + "text-properties"),
                 (string?)style.Attribute(OdtNamespaces.Style + "master-page-name"),
                 (string?)style.Attribute(OdtNamespaces.Style + "data-style-name"),
-                style.Parent?.Name == OdtNamespaces.Office + "automatic-styles");
+                style.Parent?.Name == OdtNamespaces.Office + "automatic-styles")
+            {
+                ListStyleName = (string?)style.Attribute(OdtNamespaces.Style + "list-style-name"),
+            };
 
             XElement? graphic = style.Element(OdtNamespaces.Style + "graphic-properties");
             if (graphic is not null)
@@ -919,6 +1025,20 @@ internal sealed class OdtStyles : IOdtImageDiagnostics
         string? current = styleName;
         while (!string.IsNullOrEmpty(current))
         {
+            // A parent named Writer's Heading, Footnote or Endnote that the
+            // document does not define is the built-in one: Writer creates the
+            // pool style a parent name stands for on demand
+            // (SwDocStyleSheet::SetParent, lcl_FindParaFormat with bCreate).
+            // tdf160518_*.fodt's Heading 1 is drawn in Liberation Sans Bold,
+            // 12 pt above and 6 pt below.
+            if (chain.Count > 0 && string.Equals(family, ParagraphFamily, StringComparison.Ordinal))
+            {
+                if (string.Equals(current, "Heading", StringComparison.Ordinal))
+                    AddBuiltInHeading();
+                else if (current is "Footnote" or "Endnote")
+                    AddBuiltInNoteStyle(current);
+            }
+
             if (!_styles.TryGetValue(new StyleKey(family, current), out StyleDefinition? style))
             {
                 // Only the name the content actually referenced is worth
@@ -972,6 +1092,57 @@ internal sealed class OdtStyles : IOdtImageDiagnostics
     private readonly record struct StyleKey(string Family, string Name);
 
     /// <summary>
+    /// True when the paragraph style <paramref name="styleName"/>, or the
+    /// nearest style it inherits from that says anything about lists, states
+    /// an empty <c>style:list-style-name</c>: the style takes the paragraph
+    /// out of every list, the outline's included.
+    /// </summary>
+    /// <remarks>
+    /// LibreOffice gives a heading outside a list the outline numbering only
+    /// where neither its automatic style nor its paragraph style (or the
+    /// nearest parent that states one) sets a list style other than the
+    /// outline's (<c>XMLTextImportHelper::SetStyleAndAttrs</c>,
+    /// <c>lcl_HasListStyle</c>). A style that empties the list style so
+    /// leaves its headings unnumbered: tdf106541's "inheritFromHeading1".
+    /// </remarks>
+    public bool ClearsListStyle(string? styleName)
+    {
+        List<StyleDefinition> chain = Chain(ParagraphFamily, styleName);
+        for (int i = chain.Count - 1; i >= 0; i--)
+        {
+            if (chain[i].ListStyleName is string stated)
+                return stated.Length == 0;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// True when <paramref name="styleName"/> is an automatic graphic style
+    /// with no parent style, which is how Writer tells a Draw object from one
+    /// of its own frames: "Draw objects have an automatic style without a
+    /// parent style" (#i51726#, <c>XMLTextFrameContext</c>). A
+    /// <c>draw:frame</c> so styled is a drawing, not a text frame.
+    /// </summary>
+    public bool IsDrawObjectStyle(string? styleName) =>
+        !string.IsNullOrEmpty(styleName) &&
+        _styles.TryGetValue(new StyleKey("graphic", styleName), out StyleDefinition? style) &&
+        style.Automatic && string.IsNullOrEmpty(style.ParentStyleName);
+
+    /// <summary>
+    /// True when <paramref name="styleName"/> is an automatic graphic style
+    /// derived from Writer's "Frame" style. LibreOffice 24.2 gives a custom
+    /// shape so styled a text frame for its words: its text export writes
+    /// them where the shape is the document's first object (soffice:
+    /// fdo82860.odt's "hello"; the same shape styled with no parent, or with
+    /// another, writes nothing).
+    /// </summary>
+    public bool IsFrameStyleChild(string? styleName) =>
+        !string.IsNullOrEmpty(styleName) &&
+        _styles.TryGetValue(new StyleKey("graphic", styleName), out StyleDefinition? style) &&
+        style.Automatic && style.ParentStyleName == "Frame";
+
+    /// <summary>
     /// The named paragraph style a paragraph styled <paramref name="styleName"/>
     /// is in: the style itself, or for an automatic style the named style it
     /// derives from, as Writer holds a paragraph's automatic attributes over its
@@ -1012,7 +1183,11 @@ internal sealed class OdtStyles : IOdtImageDiagnostics
         XElement? TextProperties,
         string? MasterPageName,
         string? DataStyleName,
-        bool Automatic = false);
+        bool Automatic = false)
+    {
+        /// <summary>The style's own <c>style:list-style-name</c>, empty where it states none, null where it is silent.</summary>
+        public string? ListStyleName { get; init; }
+    }
 
     private sealed record DefaultStyle(XElement? ParagraphProperties, XElement? TextProperties);
 
@@ -1180,7 +1355,34 @@ internal sealed class OdtStyles : IOdtImageDiagnostics
             }
 
             template.Append((string?)level.Attribute(OdtNamespaces.Style + "num-suffix"));
-            return new ListLevel { Format = format, Template = template.ToString(), Start = start };
+
+            // LibreOffice's own list format, where it wrote one, states the
+            // whole label - "(%)%1%[%]" - and is what it draws, in place of the
+            // prefix, the levels shown and the suffix (SwNumRule::MakeNumString).
+            // A level's number is "%N%" there; any other "%" is text.
+            if ((string?)level.Attribute(OdtNamespaces.LibreOffice + "num-list-format") is string listFormat)
+            {
+                template.Clear();
+                for (int i = 0; i < listFormat.Length; i++)
+                {
+                    if (listFormat[i] == '%' && i + 2 < listFormat.Length && listFormat[i + 1] is >= '1' and <= '9' && listFormat[i + 2] == '%')
+                    {
+                        template.Append('%').Append(listFormat[i + 1]);
+                        i += 2;
+                        continue;
+                    }
+
+                    template.Append(listFormat[i]);
+                }
+            }
+
+            return new ListLevel
+            {
+                Format = format,
+                Template = template.ToString(),
+                Start = start,
+                Legal = (string?)level.Attribute(OdtNamespaces.LibreOffice + "is-legal") == "true",
+            };
         }
 
         public (float? Left, float? First) IndentsAt(int level)

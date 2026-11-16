@@ -27,7 +27,15 @@ public sealed class OdtIssue238FrameTests
             "<text:p>stored<text:hidden-paragraph text:condition='ooow:Unknown==1' text:is-hidden='true'/></text:p>" +
             "<text:p>Bar</text:p>").Document;
 
-        Assert.Equal("Foo\nkept\nBar", document.PlainText);
+        // A hidden paragraph stays in the document as wholly hidden text, the
+        // way LibreOffice keeps it (its text export writes it), and only the
+        // others are shown.
+        Assert.Equal("Foo\nkept\nBar", string.Join("\n", document.Paragraphs
+            .Where(paragraph => !paragraph.MarkStyle.Hidden || !paragraph.Runs.All(run => run.Style.Hidden))
+            .Select(paragraph => paragraph.Text)));
+        Assert.Equal("Foo\ngone\nkept\nstored\nBar", document.PlainText);
+        Assert.All(document.Paragraphs.Where(paragraph => paragraph.Text is "gone" or "stored"),
+            paragraph => Assert.True(paragraph.MarkStyle.Hidden && paragraph.Runs.All(run => run.Style.Hidden)));
     }
 
     [Fact]

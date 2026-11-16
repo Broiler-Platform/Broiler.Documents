@@ -94,6 +94,28 @@ public sealed class DocumentLayoutBlockedLineTests
     }
 
     [Fact]
+    public void A_Top_And_Bottom_Frame_Is_Drawn_Once_When_Widow_Control_Moves_Its_Empty_Anchor_On()
+    {
+        // tdf138039.odt (issue 249): the anchor follows a page of other content
+        // and keeps two lines together, as ODT paragraphs do. The frame moves
+        // to page 2 with it, the line it pushes off that page goes on to page
+        // 3, and the frame stays on page 2. It was anchored again on page 3,
+        // drawn there too, and pushed the line on to a fourth page.
+        var widowed = ParagraphStyle.Default with { OrphanLines = 2, WidowLines = 2 };
+        var document = RichTextDocument.FromParagraphs(
+            [RichTextParagraph.Plain("first"), RichTextParagraph.Plain(string.Empty).WithParagraphStyle(widowed)])
+            .WithShapes([new DocumentShape(1, 0, 0, 180, 85, wrap: ShapeWrap.TopAndBottom)]);
+
+        IReadOnlyList<LayoutPage> pages = Layout(document);
+        Assert.Equal(3, pages.Count);
+        Assert.Empty(pages[0].Shapes);
+        Assert.Single(pages[1].Shapes);
+        Assert.Empty(pages[1].Lines);
+        Assert.Empty(pages[2].Shapes);
+        Assert.Single(pages[2].Lines);
+    }
+
+    [Fact]
     public void A_Paragraph_With_Text_Still_Moves_On()
     {
         var document = RichTextDocument.FromParagraphs([RichTextParagraph.Plain("text")])

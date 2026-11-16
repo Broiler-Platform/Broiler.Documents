@@ -9,6 +9,7 @@ using Broiler.Documents.Cli.Documents;
 using Broiler.Documents.Cli.Infrastructure;
 using Broiler.Documents.Cli.Rendering;
 using Broiler.Documents.Html;
+using Broiler.Documents.Odt;
 
 namespace Broiler.Documents.Cli.Commands;
 
@@ -23,7 +24,7 @@ public static class RenderCommand
             [
                 OptionSpec.Value("out", "path", "Output image path. {page} in the path is replaced with the page number."),
                 OptionSpec.Value("manifest", "path", "Write a JSON description of the render, for a harness to keep."),
-                OptionSpec.Flag("allow-local-images", "Allow HTML to load image files from the input file's own directory."),
+                OptionSpec.Flag("allow-local-images", "Allow HTML, and ODT pictures linked as ../<name>, to load image files from the input file's own directory."),
                 .. RenderPipeline.Specs,
                 .. DocumentOptions.Specs,
             ],
@@ -54,13 +55,14 @@ public static class RenderCommand
 
         DocumentCodecCatalog catalog = DocumentOptions.CreateCatalogFrom(context.Line);
         DocumentReadOptions readOptions = DocumentOptions.ReadOptionsFrom(context.Line);
+        Func<DocumentCodec, DocumentReadOptions>? optionsFor = null;
         if (context.Line.Has("allow-local-images") && source != "-")
         {
             string directory = Path.GetDirectoryName(Path.GetFullPath(source))!;
             long perImageLimit = readOptions.Limits.MaxBinBytes;
             long remaining = readOptions.Limits.MaxDocumentBytes;
             var cache = new Dictionary<string, ReadOnlyMemory<byte>?>(StringComparer.Ordinal);
-            readOptions = new HtmlReadOptions(readOptions, name =>
+            ReadOnlyMemory<byte>? Resolve(string name)
             {
                 if (cache.TryGetValue(name, out ReadOnlyMemory<byte>? cached))
                     return cached;
@@ -68,11 +70,25 @@ public static class RenderCommand
                 remaining -= bytes?.Length ?? 0;
                 cache.Add(name, bytes);
                 return bytes;
-            });
-        }
-        LoadedDocument loaded = DocumentIo.LoadOrThrow(source, catalog, readOptions, context.Line.Get("from"));
+            }
 
+            // Each codec takes only its own option type. An ODT package names a
+            // file beside itself as ../<name> (the package is the folder its
+            // relative links resolve against), and only that form reaches here.
+            DocumentReadOptions defaults = readOptions;
+            optionsFor = codec => codec.Descriptor.Name switch
+            {
+                "HTML" => new HtmlReadOptions(defaults, Resolve),
+                "ODT" => new OdtReadOptions(defaults, Resolve),
+                _ => defaults,
+            };
+        }
+        // The pipeline installs the font mapping, which must come before the
+        // read: a reader draws a metafile picture's text (EMF, SVM) as it
+        // reads, and the graphics layer caches the face it resolves per family.
         RenderPipeline pipeline = RenderPipeline.Create(context.Line);
+        LoadedDocument loaded = DocumentIo.LoadOrThrow(source, catalog, readOptions, context.Line.Get("from"), optionsFor);
+
         using RenderOutcome outcome = pipeline.Render(loaded.Document);
         pipeline.Write(outcome, destination);
 

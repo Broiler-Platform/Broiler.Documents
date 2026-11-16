@@ -1,6 +1,8 @@
+using Broiler.Documents.Cli.Composition;
 using Broiler.Documents.Cli.Rendering;
 using Broiler.Graphics.Color;
 using Broiler.Graphics.Imaging;
+using Broiler.Media.Image;
 
 namespace Broiler.Documents.Cli.Tests;
 
@@ -83,6 +85,29 @@ public sealed class ImageStoreTests
         Assert.True(image.Resource.TryGetPixels(out BPixelBuffer? pixels));
         Assert.Equal(0, pixels!.Rgba[0]);
         Assert.Equal(0, pixels.Rgba[1]);
+    }
+
+    [Fact]
+    public void An_Encoded_Picture_That_States_One_Side_Keeps_Its_Aspect_Ratio()
+    {
+        // tdf142781.html: <img width="672"> on a 1344 x 960 PNG whose resource
+        // was not inspected for its pixels. The stated width holds and the
+        // height follows from the decoded pixels, rather than both falling back
+        // to the pixel size.
+        CodecComposition.RegisterImageCodecs();
+        using var source = new BBitmap(1344, 960);
+        byte[] png = source.Encode(ImageEncodeFormat.Png);
+        var byWidth = new InlineImage(BImageResource.FromEncoded(png, "image/png"), width: 504);
+        var byHeight = new InlineImage(BImageResource.FromEncoded(png, "image/png"), height: 360);
+        using var store = new ImageStore();
+
+        (double width, double height) = store.MeasurePoints(byWidth);
+        Assert.Equal(504, width, 3);
+        Assert.Equal(360, height, 3);
+
+        (width, height) = store.MeasurePoints(byHeight);
+        Assert.Equal(504, width, 3);
+        Assert.Equal(360, height, 3);
     }
 
     [Fact]

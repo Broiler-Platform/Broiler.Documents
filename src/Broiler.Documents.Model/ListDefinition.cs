@@ -74,8 +74,113 @@ public enum ListNumberFormat
     /// <summary>子, 丑, 寅 ... 亥 (Di Zi).</summary>
     DiZi,
 
-    /// <summary>〇, 一, 二 ... 一〇, 一一 ... 二〇 (Korean Hanja digital).</summary>
+    /// <summary>一, 二 ... 一零, 一一 ... 二零 (Korean Hanja digital), as LibreOffice writes it.</summary>
     KoreanDigital2,
+
+    /// <summary>ｱ, ｲ, ｳ ... ﾝ, then ｱ again: the 46 half-width katakana in gojūon order.</summary>
+    AiueoHalfWidth,
+
+    /// <summary>ア, イ, ウ ... ン, then ア again: the 46 katakana in gojūon order.</summary>
+    AiueoFullWidth,
+
+    /// <summary>ｲ, ﾛ, ﾊ ... ﾝ, then ｲ again: the 48 half-width katakana in iroha order.</summary>
+    IrohaHalfWidth,
+
+    /// <summary>イ, ロ, ハ ... ン, then イ again: the 48 katakana in iroha order.</summary>
+    IrohaFullWidth,
+
+    /// <summary>壱, 弐, 参 ... 九, 壱零, 壱壱: Japanese legal digits, one per decimal digit.</summary>
+    JapaneseLegal,
+
+    /// <summary>壹, 贰, 叁 ... 壹拾, 壹拾壹: simplified Chinese financial numerals.</summary>
+    ChineseLegalSimplified,
+
+    /// <summary>가, 나, 다 ... 하, then 가 again: the 14 Hangul syllables.</summary>
+    HangulSyllable,
+
+    /// <summary>ㄱ, ㄴ, ㄷ ... ㅎ, then ㄱ again: the 14 Hangul consonants.</summary>
+    HangulJamo,
+
+    /// <summary>001, 002 ... 999, 1000: decimal padded to three digits.</summary>
+    DecimalZero3,
+
+    /// <summary>0001, 0002: decimal padded to four digits.</summary>
+    DecimalZero4,
+
+    /// <summary>00001, 00002: decimal padded to five digits.</summary>
+    DecimalZero5,
+
+    /// <summary>①, ② ... ㊿, then 51: LibreOffice's <c>CIRCLE_NUMBER</c>.</summary>
+    CircledNumber,
+
+    /// <summary>Α, Β, Γ: Greek numerals in capitals (LibreOffice's <c>CHARS_GREEK_UPPER_LETTER</c>).</summary>
+    GreekUpper,
+
+    /// <summary>α, β, γ: Greek numerals in small letters (<c>CHARS_GREEK_LOWER_LETTER</c>).</summary>
+    GreekLower,
+
+    /// <summary>Thai consonants: ก, ข, ค (<c>CHARS_THAI</c>).</summary>
+    Thai,
+
+    /// <summary>Persian letters: آ, ب, پ (<c>CHARS_PERSIAN</c>).</summary>
+    Persian,
+
+    /// <summary>Hebrew numerals: א, ב ... י, יא ... טו (<c>NUMBER_HEBREW</c>).</summary>
+    HebrewNumber,
+
+    /// <summary>㉠, ㉡, ㉢ ... ㉭, then round again (<c>HANGUL_CIRCLED_JAMO_KO</c>).</summary>
+    HangulCircledJamo,
+
+    /// <summary>㉮, ㉯, ㉰ ... ㉻, then round again (<c>HANGUL_CIRCLED_SYLLABLE_KO</c>).</summary>
+    HangulCircledSyllable,
+
+    /// <summary>А, Б ... Я, Аа, Аб: Bulgarian capitals (<c>CHARS_CYRILLIC_UPPER_LETTER_BG</c>).</summary>
+    CyrillicUpperBulgarian,
+
+    /// <summary>а, б ... я, аа, аб: Bulgarian small letters.</summary>
+    CyrillicLowerBulgarian,
+
+    /// <summary>А, Б ... Я, Аа, Бб: Bulgarian capitals repeated past the alphabet.</summary>
+    CyrillicUpperBulgarianRepeated,
+
+    /// <summary>а, б ... я, аа, бб: Bulgarian small letters repeated past the alphabet.</summary>
+    CyrillicLowerBulgarianRepeated,
+
+    /// <summary>А, Б ... Я, Аа, Аб: Russian capitals.</summary>
+    CyrillicUpperRussian,
+
+    /// <summary>а, б ... я, аа, аб: Russian small letters.</summary>
+    CyrillicLowerRussian,
+
+    /// <summary>А, Б ... Я, Аа, Бб: Russian capitals repeated past the alphabet.</summary>
+    CyrillicUpperRussianRepeated,
+
+    /// <summary>а, б ... я, аа, бб: Russian small letters repeated past the alphabet.</summary>
+    CyrillicLowerRussianRepeated,
+
+    /// <summary>А, Б ... Ш, Аа, Аб: Serbian capitals.</summary>
+    CyrillicUpperSerbian,
+
+    /// <summary>а, б ... ш, аа, аб: Serbian small letters.</summary>
+    CyrillicLowerSerbian,
+
+    /// <summary>А, Б ... Ш, Аа, Бб: Serbian capitals repeated past the alphabet.</summary>
+    CyrillicUpperSerbianRepeated,
+
+    /// <summary>а, б ... ш, аа, бб: Serbian small letters repeated past the alphabet.</summary>
+    CyrillicLowerSerbianRepeated,
+
+    /// <summary>А, Б ... Я, Аа, Аб: Ukrainian capitals.</summary>
+    CyrillicUpperUkrainian,
+
+    /// <summary>а, б ... я, аа, аб: Ukrainian small letters.</summary>
+    CyrillicLowerUkrainian,
+
+    /// <summary>А, Б ... Я, Аа, Бб: Ukrainian capitals repeated past the alphabet.</summary>
+    CyrillicUpperUkrainianRepeated,
+
+    /// <summary>а, б ... я, аа, бб: Ukrainian small letters repeated past the alphabet.</summary>
+    CyrillicLowerUkrainianRepeated,
 }
 
 /// <summary>One level of a <see cref="ListDefinition"/>.</summary>
@@ -105,7 +210,8 @@ public sealed record ListLevel
     /// <summary>
     /// True when every number in the label is written in decimal, whatever its
     /// own level's format: DOCX's <c>w:isLgl</c>, so a legal heading reads
-    /// "1.1" under a chapter numbered "I".
+    /// "1.1" under a chapter numbered "I". A level padded with zeros keeps its
+    /// padding, as LibreOffice draws it: "1.01" for a <c>decimalZero</c> level.
     /// </summary>
     public bool Legal { get; init; }
 

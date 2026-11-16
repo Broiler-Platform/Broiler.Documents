@@ -20,8 +20,9 @@ public sealed class RtfDefaultFontTests
         DocumentAssert.Equivalent(document, restored);
     }
 
+    // A document without \deff is not one that names no family: LibreOffice
+    // sets it in Times New Roman (RtfIssue249Tests).
     [Theory]
-    [InlineData(@"{\rtf1{\fonttbl{\f0 Arial;}}text\par}")]
     [InlineData(@"{\rtf1\deff9{\fonttbl{\f0 Arial;}}text\par}")]
     [InlineData(@"{\rtf1\deff0{\fonttbl{\f0 ;}}text\par}")]
     public void Missing_Unknown_Or_Blank_Default_Font_Does_Not_Invent_A_Family(string rtf)
@@ -32,7 +33,13 @@ public sealed class RtfDefaultFontTests
     [Fact]
     public void Export_Preserves_An_Unspecified_Default_Despite_Explicit_Run_Fonts()
     {
-        RichTextDocument document = Read(@"{\rtf1{\fonttbl{\f1 Arial;}}{\f1 explicit} inherited\par}");
+        // Built as a model: an RTF document without \deff states Times New Roman.
+        RichTextDocument document = RichTextDocument.FromParagraphs(
+        [
+            RichTextParagraph.Create("explicit", InlineStyle.Default with { FontFamily = "Arial" })
+                .InsertText(8, " inherited", InlineStyle.Default),
+        ]);
+        Assert.Null(document.StyleDefaults.FontFamily);
         Assert.Null(RtfReader.Read(RtfWriter.WriteToArray(document)).Document.StyleDefaults.FontFamily);
     }
 }

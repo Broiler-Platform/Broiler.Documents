@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using System.Text.Json.Nodes;
 
 namespace Broiler.Documents.Cli.Tests;
@@ -31,6 +32,76 @@ public sealed class ImageAndDiffTests : IDisposable
         File.WriteAllText(html, "<p><img src='../dot.png'></p>");
         var escaped = CliHarness.RunExpecting(ExitCode.Ok, "render", html, "--out", output, "--json", "--allow-local-images").Json();
         Assert.Contains("html.skip.external", escaped["diagnostics"]!.ToJsonString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Odt_Render_Only_Loads_Pictures_Linked_Beside_The_Package_With_Explicit_Opt_In()
+    {
+        // A package's relative link resolves against the package as a folder,
+        // so ../dot.png is the file beside the document (globalfilter's
+        // document_with_linked_graphic.odt, office issue #249). It is read only
+        // with --allow-local-images, under the same name rules as HTML.
+        string parentImage = WriteCheckerboard("dot.png", 32);
+        Directory.CreateDirectory(_cli.Path("assets"));
+        File.Copy(parentImage, _cli.Path("assets/dot.png"));
+        string odt = _cli.Path("assets/linked.odt");
+        string output = _cli.Path("linked.png");
+        string optedInOutput = _cli.Path("linked-opted-in.png");
+
+        WriteOdtLinking(odt, "../dot.png");
+        var defaultRun = CliHarness.RunExpecting(ExitCode.Ok, "render", odt, "--out", output, "--json").Json();
+        Assert.Contains("odt.image.missing", defaultRun["diagnostics"]!.ToJsonString(), StringComparison.Ordinal);
+
+        var optedIn = CliHarness.RunExpecting(ExitCode.Ok, "render", odt, "--out", optedInOutput, "--json", "--allow-local-images").Json();
+        Assert.DoesNotContain("odt.image.missing", optedIn["diagnostics"]!.ToJsonString(), StringComparison.Ordinal);
+        Assert.NotEqual(File.ReadAllBytes(output), File.ReadAllBytes(optedInOutput));
+
+        // Nothing deeper, no further out, and no other traversal: each still
+        // reads as a link the package does not hold.
+        foreach (string link in new[] { "../../dot.png", "../assets/dot.png", "../%2E%2E/dot.png", "./../dot.png", "dot.png" })
+        {
+            WriteOdtLinking(odt, link);
+            var escaped = CliHarness.RunExpecting(ExitCode.Ok, "render", odt, "--out", output, "--json", "--allow-local-images").Json();
+            Assert.Contains("odt.image.missing", escaped["diagnostics"]!.ToJsonString(), StringComparison.Ordinal);
+        }
+
+        // A sibling the host cannot read keeps today's empty frame.
+        WriteOdtLinking(odt, "../absent.png");
+        var absent = CliHarness.RunExpecting(ExitCode.Ok, "render", odt, "--out", output, "--json", "--allow-local-images").Json();
+        Assert.Contains("odt.image.missing", absent["diagnostics"]!.ToJsonString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Allow_Local_Images_Leaves_Other_Formats_Their_Own_Options()
+    {
+        // The flag once handed HTML's option type to every codec, and a codec
+        // that checks its options (CSV) refused the read.
+        string csv = _cli.Path("table.csv");
+        File.WriteAllText(csv, "a,b\n1,2\n");
+
+        CliHarness.RunExpecting(ExitCode.Ok, "render", csv, "--out", _cli.Path("table.png"), "--json", "--allow-local-images");
+    }
+
+    private static void WriteOdtLinking(string path, string href)
+    {
+        const string content =
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" +
+            "<office:document-content xmlns:office=\"urn:oasis:names:tc:opendocument:xmlns:office:1.0\" " +
+            "xmlns:text=\"urn:oasis:names:tc:opendocument:xmlns:text:1.0\" " +
+            "xmlns:draw=\"urn:oasis:names:tc:opendocument:xmlns:drawing:1.0\" " +
+            "xmlns:svg=\"urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0\" " +
+            "xmlns:xlink=\"http://www.w3.org/1999/xlink\" office:version=\"1.3\">" +
+            "<office:body><office:text><text:p>" +
+            "<draw:frame draw:name=\"Image1\" text:anchor-type=\"as-char\" svg:width=\"2cm\" svg:height=\"2cm\">" +
+            "<draw:image xlink:href=\"{0}\" xlink:type=\"simple\" xlink:show=\"embed\" xlink:actuate=\"onLoad\"/>" +
+            "</draw:frame></text:p></office:text></office:body></office:document-content>";
+
+        File.Delete(path);
+        using ZipArchive archive = ZipFile.Open(path, ZipArchiveMode.Create);
+        using (var writer = new StreamWriter(archive.CreateEntry("mimetype", CompressionLevel.NoCompression).Open()))
+            writer.Write("application/vnd.oasis.opendocument.text");
+        using (var writer = new StreamWriter(archive.CreateEntry("content.xml").Open()))
+            writer.Write(string.Format(System.Globalization.CultureInfo.InvariantCulture, content, System.Security.SecurityElement.Escape(href)));
     }
 
     [Fact]

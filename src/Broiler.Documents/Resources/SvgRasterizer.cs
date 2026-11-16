@@ -124,6 +124,9 @@ internal static class SvgRasterizer
     private static byte[]? Render(XElement root)
     {
         var viewBox = ViewBox(root);
+        if (viewBox is null && Length(root, "width") is null && Length(root, "height") is null)
+            return RenderContentBounds(root);
+
         double width = Length(root, "width") ?? viewBox?.Width ?? 0;
         double height = Length(root, "height") ?? viewBox?.Height ?? 0;
         if (!(width > 0) || !(height > 0) || !double.IsFinite(width) || !double.IsFinite(height))
@@ -147,6 +150,53 @@ internal static class SvgRasterizer
         {
             foreach (Op op in ops)
                 canvas.FillGlyphContours(op.Contours, op.Color);
+        }
+        return EmfRasterizer.EncodePng(bitmap);
+    }
+
+    /// <summary>
+    /// An SVG that states no size and no view box is as big as what it draws:
+    /// LibreOffice takes the picture's range from its content, strokes
+    /// included (VectorGraphicData's range is the decomposed primitives'), and
+    /// stretches that to the frame (fdo68839.odt's circle).
+    /// </summary>
+    private static byte[]? RenderContentBounds(XElement root)
+    {
+        var paint = new Paint(new BColor(0, 0, 0), null, 1, 1, 1, false, "butt", "miter", 4, new BColor(0, 0, 0), true);
+        var ops = new List<Op>();
+        int elements = 0, points = 0;
+        Walk(root, Matrix.Identity, paint, ops, ref elements, ref points, isRoot: true);
+        if (ops.Count == 0)
+            return null;
+
+        double left = double.MaxValue, top = double.MaxValue, right = double.MinValue, bottom = double.MinValue;
+        foreach (PointF point in ops.SelectMany(op => op.Contours).SelectMany(contour => contour))
+        {
+            left = Math.Min(left, point.X);
+            top = Math.Min(top, point.Y);
+            right = Math.Max(right, point.X);
+            bottom = Math.Max(bottom, point.Y);
+        }
+
+        double width = right - left, height = bottom - top;
+        if (!(width > 0) || !(height > 0) || !double.IsFinite(width) || !double.IsFinite(height))
+            return null;
+
+        double scale = MaxPixels / Math.Max(width, height);
+        int pixelsWide = Math.Max(1, (int)Math.Ceiling(width * scale));
+        int pixelsHigh = Math.Max(1, (int)Math.Ceiling(height * scale));
+        Matrix device = new Matrix(1, 0, 0, 1, -left, -top).Then(new Matrix(pixelsWide / width, 0, 0, pixelsHigh / height, 0, 0));
+
+        using var bitmap = new BBitmap(pixelsWide, pixelsHigh);
+        using (var canvas = bitmap.OpenCanvas())
+        {
+            foreach (Op op in ops)
+            {
+                PointF[][] contours = op.Contours
+                    .Select(contour => contour.Select(point => device.Apply(point.X, point.Y)).ToArray())
+                    .ToArray();
+                canvas.FillGlyphContours(contours, op.Color);
+            }
         }
         return EmfRasterizer.EncodePng(bitmap);
     }

@@ -167,11 +167,70 @@ public sealed record DocumentStyleDefaults
     /// </remarks>
     public bool LaysOutBodyParagraphBorders { get; init; }
 
+    /// <summary>
+    /// Whether the space proportional line spacing adds below a line's text may
+    /// run past the bottom of the page or column the line ends, as the space
+    /// below a paragraph may: only the text itself has to fit there.
+    /// </summary>
+    /// <remarks>
+    /// Set by the DOCX reader, as LibreOffice 24.2 lays a DOCX out: a page
+    /// 197.65 points tall holds three lines set double in 32 point type, the
+    /// last one's text ending at 245 points. An ODT LibreOffice wrote before
+    /// it put that space below every line can carry it above the text of a
+    /// paragraph's later lines (tdf172233_linespacingGap.odt), where it has to
+    /// fit, so ODT keeps the whole line.
+    /// </remarks>
+    public bool ProportionalSpacingRunsPastBottom { get; init; }
+
+    /// <summary>
+    /// Whether a run of spaces leaves its line's height alone where the line
+    /// holds anything but spaces and tabs, as a tab already does: Word sizes
+    /// such a line by its other text.
+    /// </summary>
+    /// <remarks>
+    /// Set by the DOCX reader for Word 2010 and earlier (<c>compatibilityMode</c>
+    /// 14 or below, or none), as LibreOffice 24.2 lays such a document out
+    /// (tdf#117988): tdf117988.docx's 72 point spaces between 12 point words
+    /// leave its line 12 points tall, and only its "Proof line", whose 72 point
+    /// run starts with an "h", is tall. In a Word 2013 document 24.2 still
+    /// sizes the line by its spaces: tdf137335_whitespaceLineHeight2.docx's
+    /// lines of words and 72 point spaces are 72 points tall in its reference.
+    /// </remarks>
+    public bool IgnoresBlanksInLineHeight { get; init; }
+
+    /// <summary>
+    /// Whether a table's horizontal border lines take room in its rows, as
+    /// Writer lays out a table with collapsing borders: a row's text starts
+    /// below the wider of its cells' top lines (or of the row above's bottom
+    /// lines) and their distance, and the table ends below its last row's
+    /// bottom line.
+    /// </summary>
+    /// <remarks>
+    /// Set by the DOCX reader, from what soffice 24.2 does with a DOCX table:
+    /// a 3 pt rule between two rows of 12 pt Liberation Serif puts them
+    /// 16.8 pt apart, not 13.8 pt; 0.5 pt rules, 14.3 pt; 3 pt outer rules and
+    /// no inside rule, 13.8 pt, with 3 pt above the first row and below the
+    /// last. A rule between two rows takes its width once, which is the row
+    /// model of Writer's collapsing borders (<c>SwRowFrame::Format</c>:
+    /// <c>lcl_GetTopSpace</c>, or the row above's <c>lcl_GetBottomLineSize</c>
+    /// plus <c>lcl_GetTopLineDist</c>, above each row's text).
+    /// </remarks>
+    public bool CollapsingTableBorders { get; init; }
+
     /// <summary>Keep a heading with the opening lines of its splittable successor.</summary>
     public bool KeepWithNextOpeningLines { get; init; }
 
     /// <summary>Whether to honor space before the document's opening paragraph.</summary>
     public bool PreserveOpeningParagraphSpacing { get; init; }
+
+    /// <summary>
+    /// Whether every page break a paragraph states keeps the paragraph's space
+    /// above at the top of the page it opens, as
+    /// <see cref="ParagraphStyle.PageBreakKeepsSpaceAbove"/> says for one
+    /// paragraph. Set by the ODT reader: Writer counts each break ODT can state
+    /// as the page's own (<c>SwFlowFrame::IsPageBreak</c>).
+    /// </summary>
+    public bool PageBreaksKeepSpaceAbove { get; init; }
 
     /// <summary>
     /// Whether the space between two paragraphs is the larger of the first's
@@ -202,6 +261,39 @@ public sealed record DocumentStyleDefaults
     public bool RunningBandsEndAtLastLine { get; init; }
 
     /// <summary>
+    /// Whether the document's tables are spreadsheet sheets, printed as Calc
+    /// prints a sheet rather than set as a word processor sets a table.
+    /// </summary>
+    /// <remarks>
+    /// Calc pages a sheet by its column widths: the columns that fit across the
+    /// page's text width go on its pages, and the rest continue on the pages
+    /// after, the whole sheet down before the next columns (the default
+    /// top-to-bottom page order; <c>ScPrintFunc::CalcPages</c>). Pages whose
+    /// cells are all empty are left out. Text that does not fit its cell runs
+    /// on over the empty cells beside it instead of wrapping (rightwards from
+    /// a left-aligned cell, leftwards from a right-aligned one), and a cell's
+    /// text keeps one point from its edges (<c>SvxMarginItem</c>'s 20 twips).
+    /// A layout applies this to the document's tables; the model keeps each
+    /// sheet as one table, so its cells and values are unchanged.
+    /// </remarks>
+    public bool PrintsSheets { get; init; }
+
+    /// <summary>
+    /// Whether a column break needs columns to break: where the text it is in
+    /// has a single column, it does nothing.
+    /// </summary>
+    /// <remarks>
+    /// Writer takes a column break only inside a column frame
+    /// (<c>SwFlowFrame::IsColBreak</c> looks for one with <c>FindColFrame</c>),
+    /// so an ODT's column break on a page or in a section of one column
+    /// leaves the paragraph where it is (tdf76349_1columnBreak.odt,
+    /// tdf133370_columnBreak.odt). Word breaks the page there, and its import
+    /// keeps the column break for the layout to treat so; this is set by the
+    /// ODT reader only.
+    /// </remarks>
+    public bool ColumnBreaksNeedColumns { get; init; }
+
+    /// <summary>
     /// The space a block that asks for <paramref name="spaceAbove"/> opens
     /// with below one that left <paramref name="spaceBelowPrevious"/> beneath
     /// it, which the caller has already added.
@@ -224,7 +316,9 @@ public sealed record DocumentStyleDefaults
     public bool IsDefault =>
         FontSizePoints == FallbackFontSizePoints && FontFamily is null && !WidensSpaceRuns && !ShrinksJustifiedLines &&
         !TabsOverMargin && !UndecoratedLinks && WidowOrphanLines == 0 && !PreserveOpeningParagraphSpacing &&
-        !KeepWithNextOpeningLines && !CollapsesParagraphSpacing && !LaysOutBodyParagraphBorders;
+        !KeepWithNextOpeningLines && !CollapsesParagraphSpacing && !LaysOutBodyParagraphBorders && !PrintsSheets &&
+        !PageBreaksKeepSpaceAbove && !ProportionalSpacingRunsPastBottom && !IgnoresBlanksInLineHeight &&
+        !CollapsingTableBorders;
 
     /// <summary>
     /// What <see cref="WidensSpaceRuns"/> adds to the width of

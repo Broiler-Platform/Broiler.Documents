@@ -68,11 +68,14 @@ internal static class DocxReader
             // model anchors against needs the margins first. The sections come
             // first of all, because a section's properties follow its content.
             DocxSettings settings = ReadSettings(archive, documentRelationships, baseDirectory, options.Limits, diagnostics);
-            DocxSections sections = DocxSections.Read(documentXml.Root?.Element(DocxNamespaces.Wordprocessing + "body"));
-            PageGeometry? page = ReadPageGeometry(documentXml, sections, diagnostics);
+            DocxDocumentVariables.Apply(documentXml, settings.Root, options.Limits);
+            bool gutterAtTop = settings.Root?.Element(DocxNamespaces.Wordprocessing + "gutterAtTop") is XElement atTop && ReadOnOff(atTop);
+            DocxSections sections = DocxSections.Read(documentXml.Root?.Element(DocxNamespaces.Wordprocessing + "body"), gutterAtTop);
+            PageGeometry? page = ReadPageGeometry(documentXml, sections, diagnostics, gutterAtTop);
             int compatibilityMode = WordCompatibilityMode(settings.Root);
             bool splitPgBreakAndParaMark = HasSplitPgBreakAndParaMark(settings.Root);
             styles.HtmlParagraphAutoSpacing = !HasCompatFlag(settings.Root, "doNotUseHTMLParagraphAutoSpacing");
+            styles.UpdatesStylesFromWordDefaults = UpdatesStylesFromWordDefaults(settings.Root);
             DocxNotes notes = DocxNotes.Load(
                 archive,
                 documentRelationships,
@@ -108,10 +111,12 @@ internal static class DocxReader
                 page,
                 settings.EvenAndOddHeaders,
                 compatibilityMode,
-                splitPgBreakAndParaMark);
+                splitPgBreakAndParaMark,
+                gutterAtTop);
             document = document.WithRunningContent(running[^1]);
             document = document.WithPageGeometry(page);
-            document = document.WithSections(sections.ToModel(document.ParagraphCount, page, running));
+            document = document.WithSections(sections.ToModel(document.ParagraphCount, page, running,
+                HasCompatFlag(settings.Root, "noColumnBalance")));
             document = document.WithStyleDefaults(ReadStyleDefaults(styles) with
             {
                 ShrinksJustifiedLines = compatibilityMode >= 15,
@@ -122,6 +127,9 @@ internal static class DocxReader
                 KeepWithNextOpeningLines = true,
                 CollapsesParagraphSpacing = styles.HtmlParagraphAutoSpacing,
                 LaysOutBodyParagraphBorders = true,
+                ProportionalSpacingRunsPastBottom = true,
+                IgnoresBlanksInLineHeight = compatibilityMode <= 14,
+                CollapsingTableBorders = true,
             });
             document = document.WithNoteNumbering(notes.Numbering with { RaisedLabels = notes.LabelsRaised ?? false });
             document = document.WithShowsRevisions(DocxRevisions.Shown(settings.Root));
@@ -372,14 +380,15 @@ internal static class DocxReader
         PageGeometry? page,
         bool evenAndOddHeaders,
         int compatibilityMode,
-        bool splitPgBreakAndParaMark)
+        bool splitPgBreakAndParaMark,
+        bool gutterAtTop)
     {
         XElement? body = documentXml.Root?.Element(DocxNamespaces.Wordprocessing + "body");
         if (body?.Elements(DocxNamespaces.Wordprocessing + "sectPr").LastOrDefault() is null)
             return [RunningContent.Empty];
 
         IReadOnlyList<XElement> sections = DocxSections.Properties(body);
-        var parts = new Dictionary<(string Id, bool IsHeader), (IReadOnlyList<RichTextParagraph> Paragraphs, IReadOnlyList<DocumentShape> Shapes, IReadOnlyList<DocumentTable> Tables)?>();
+        var parts = new Dictionary<(string Id, bool IsHeader, PageGeometry? Page), (IReadOnlyList<RichTextParagraph> Paragraphs, IReadOnlyList<DocumentShape> Shapes, IReadOnlyList<DocumentTable> Tables)?>();
         var contents = new List<RunningContent>(sections.Count);
         for (int index = 0; index < sections.Count; index++)
         {
@@ -410,6 +419,12 @@ internal static class DocxReader
             }
 
             RunningContent content = RunningContent.Empty.WithDifferentFirstPage(differentFirstPage);
+
+            // A band's shapes are placed on the page of the section that shows
+            // it: watermark-shapetype.docx's portrait first section centres its
+            // watermark in a portrait margin, where the last section's
+            // landscape page put it 108 points right and 130 points up.
+            PageGeometry? sectionPage = DocxSections.ReadPage(sections[index], gutterAtTop) ?? page;
 
             foreach (XElement reference in ContinuedReferences(sections, index))
             {
@@ -452,15 +467,15 @@ internal static class DocxReader
                     continue;
                 }
 
-                if (!parts.TryGetValue((relationshipId, isHeader), out var part))
+                if (!parts.TryGetValue((relationshipId, isHeader, sectionPage), out var part))
                 {
                     part = ReadPart(
                         archive, relationship.Target, numbering, styles, images, limits, diagnostics, reported,
                         isHeader ? RunningBand.Header : RunningBand.Footer,
-                        page,
+                        sectionPage,
                         compatibilityMode,
                         splitPgBreakAndParaMark);
-                    parts.Add((relationshipId, isHeader), part);
+                    parts.Add((relationshipId, isHeader, sectionPage), part);
                 }
 
                 if (part is not var (paragraphs, shapes, tables) || (paragraphs.Count == 0 && shapes.Count == 0))
@@ -644,16 +659,35 @@ internal static class DocxReader
             root);
     }
 
+    /// <summary>
+    /// Whether the settings turn <c>w:linkStyles</c> on without naming a
+    /// template in <c>w:attachedTemplate</c>. With no template to update the
+    /// styles from, LibreOffice updates them from Word's defaults
+    /// (tdf166141_linkedStyles2.docx, ten points under every paragraph in
+    /// 24.2.7.2's PDF). With a template it does not have, the fix of tdf#166141
+    /// leaves the styles alone; 24.2 applied the defaults there too.
+    /// </summary>
+    private static bool UpdatesStylesFromWordDefaults(XElement? settings) =>
+        settings?.Element(DocxNamespaces.Wordprocessing + "linkStyles") is XElement link && ReadOnOff(link) &&
+        settings.Element(DocxNamespaces.Wordprocessing + "attachedTemplate") is null;
+
     private static bool HasSplitPgBreakAndParaMark(XElement? settings) =>
-        settings?.Element(DocxNamespaces.Wordprocessing + "compat")
-            ?.Element(DocxNamespaces.Wordprocessing + "splitPgBreakAndParaMark") is XElement split &&
-        ReadOnOff(split);
+        HasCompatFlag(settings, "splitPgBreakAndParaMark");
 
     /// <summary>Whether the settings' <c>w:compat</c> turns <paramref name="name"/> on.</summary>
     private static bool HasCompatFlag(XElement? settings, string name) =>
-        settings?.Element(DocxNamespaces.Wordprocessing + "compat")
-            ?.Element(DocxNamespaces.Wordprocessing + name) is XElement flag &&
+        CompatElements(settings).Elements(DocxNamespaces.Wordprocessing + name).FirstOrDefault() is XElement flag &&
         ReadOnOff(flag);
+
+    /// <summary>
+    /// Every <c>w:compat</c> of the settings. A part may hold more than one:
+    /// LibreOffice writes its own flags in one and Word's
+    /// <c>compatibilityMode</c> in another (tdf142404_tabSpacing.docx), and
+    /// writerfilter's <c>SettingsTable</c> reads them all, so that document
+    /// is a Word 2013 one whose tabs do not go over the margin.
+    /// </summary>
+    private static IEnumerable<XElement> CompatElements(XElement? settings) =>
+        settings?.Elements(DocxNamespaces.Wordprocessing + "compat") ?? [];
 
     /// <summary>
     /// The Word version whose layout the document asks for: the highest
@@ -666,11 +700,7 @@ internal static class DocxReader
     private static int WordCompatibilityMode(XElement? settings)
     {
         int mode = -1;
-        XElement? compat = settings?.Element(DocxNamespaces.Wordprocessing + "compat");
-        if (compat is null)
-            return mode;
-
-        foreach (XElement setting in compat.Elements(DocxNamespaces.Wordprocessing + "compatSetting"))
+        foreach (XElement setting in CompatElements(settings).Elements(DocxNamespaces.Wordprocessing + "compatSetting"))
         {
             if ((string?)setting.Attribute(DocxNamespaces.Wordprocessing + "name") != "compatibilityMode" ||
                 (string?)setting.Attribute(DocxNamespaces.Wordprocessing + "uri") != WordCompatibilityUri ||
@@ -696,10 +726,10 @@ internal static class DocxReader
     /// <remarks>
     /// <para>
     /// The body-level w:sectPr is the document's final section. A document split
-    /// into several can give each its own page; the last one is the document's -
-    /// the same choice the header and footer reader makes, and for the same
-    /// reason: it is the section the running content belongs to - and a section
-    /// that states another keeps it as its own <see cref="DocumentSection.Page"/>.
+    /// into several can give each its own page; the last one is the document's,
+    /// the section the document's running content belongs to, and a section
+    /// that states another keeps it as its own <see cref="DocumentSection.Page"/>
+    /// (the header and footer reader places each section's bands on that page).
     /// Geometry a producer states nonsensically is dropped rather than honoured.
     /// </para>
     /// <para>
@@ -710,7 +740,8 @@ internal static class DocxReader
     private static PageGeometry? ReadPageGeometry(
         XDocument documentXml,
         DocxSections sections,
-        List<DocumentDiagnostic> diagnostics)
+        List<DocumentDiagnostic> diagnostics,
+        bool gutterAtTop = false)
     {
         XElement? sectPr = documentXml.Root
             ?.Element(DocxNamespaces.Wordprocessing + "body")
@@ -724,7 +755,7 @@ internal static class DocxReader
         // where leaving the page unstated let the renderer's A4 stand in.
         sectPr ??= new XElement(DocxNamespaces.Wordprocessing + "sectPr");
 
-        if (DocxSections.ReadPage(sectPr) is not PageGeometry geometry)
+        if (DocxSections.ReadPage(sectPr, gutterAtTop) is not PageGeometry geometry)
         {
             diagnostics.Add(DocumentDiagnostic.Warning(
                 "docx.section.geometry",
@@ -975,17 +1006,34 @@ internal static class DocxReader
                 context.Builder.SetDropCap(DocxFrameAccumulator.ReadDropCap(dropPPr, dropStyleId, context, length));
         }
         ReadParagraphChildren(paragraph.Elements(), context, inherited);
-        if (context.Sections is not null && DocxSections.EndsSection(paragraph))
+        bool endsSection = context.Sections is not null && DocxSections.EndsSection(paragraph);
+        if (endsSection)
             context.Builder.TrimSectionParagraphEnd();
         else if (context.Builder.JoinsFieldCodeParagraph())
             return;
+        else if (NextBlockIsParagraph(paragraph))
+            context.Builder.CarryReferenceResult();
         context.Builder.ApplyContextualSpacing(
             (string.IsNullOrEmpty(paragraphStyleId) ? context.Styles.DefaultParagraphStyleId : paragraphStyleId) ?? string.Empty,
             HasContextualSpacing(pPr, paragraphStyleId, context));
         if (context.Band == RunningBand.Body && context.PlacementPage is PageGeometry placement)
             context.Builder.ApplyIncreasedAnchoredObjectSpacing(placement.ContentWidth);
+        if (context.Sections is not null)
+            context.Builder.SplitPageBreakFromParagraphMark(
+                firstInSection: !context.Sections.CurrentHasParagraphs(context.Builder.CurrentParagraphIndex), endsSection);
         context.Builder.FinishParagraph();
     }
+
+    /// <summary>
+    /// Whether the block after <paramref name="paragraph"/> in its own container
+    /// (the body, a cell, a text box) is a paragraph rather than a table, a
+    /// content control or the end of the container. Range marks between them,
+    /// such as bookmarks, are not blocks.
+    /// </summary>
+    private static bool NextBlockIsParagraph(XElement paragraph) =>
+        paragraph.ElementsAfterSelf().FirstOrDefault(element => element.Name.Namespace != DocxNamespaces.Wordprocessing ||
+            element.Name.LocalName is not ("bookmarkStart" or "bookmarkEnd" or "proofErr" or "permStart" or "permEnd" or
+                "commentRangeStart" or "commentRangeEnd"))?.Name == DocxNamespaces.Wordprocessing + "p";
 
     /// <summary>
     /// Whether <c>w:contextualSpacing</c> is on for the paragraph: its own
@@ -1023,7 +1071,9 @@ internal static class DocxReader
     /// </remarks>
     private static void EndSection(DocxReadContext context, bool markKept)
     {
-        context.Sections!.Advance(context.Builder.CurrentParagraphIndex);
+        if (context.Sections!.CurrentColumnCount > 1)
+            context.Builder.DropHeldColumnBreakAtSectionEnd();
+        context.Sections.Advance(context.Builder.CurrentParagraphIndex);
         if (context.Sections.CurrentStartsPage)
             context.Builder.HoldPageBreak(keepsSpaceAbove: markKept || context.Builder.WordCompatibilityMode < 15);
     }
@@ -1117,6 +1167,41 @@ internal static class DocxReader
         foreach (XElement rPr in context.Styles.RunPropertiesForParagraph(paragraphStyleId, context.TableStyle, context.TableConditions))
             style = ApplyRunProperties(rPr, style, context.Styles.Theme);
 
+        if ((style.FontSize is null || string.IsNullOrWhiteSpace(style.FontFamily)) &&
+            context.Styles.IsDetachedFromDefaultParagraphStyle(paragraphStyleId))
+            style = WithDetachedStyleDefaults(style, context.Styles);
+
+        return style;
+    }
+
+    /// <summary>
+    /// Gives a run whose paragraph style is not based on the default paragraph
+    /// style the size and family <c>w:docDefaults</c> gives it, where neither
+    /// it nor its chain states one. The document's defaults
+    /// (<see cref="ReadStyleDefaults"/>) include the default paragraph style,
+    /// which such a paragraph does not inherit: LibreOffice sets
+    /// tdf108350_noFontdefaults.docx's "NoParent" paragraph in 10 point Times
+    /// New Roman, its fallback for a document with an empty <c>w:rPrDefault</c>,
+    /// beside "Normal" text in 32 point Calibri.
+    /// </summary>
+    private static InlineStyle WithDetachedStyleDefaults(InlineStyle style, DocxStyles styles)
+    {
+        InlineStyle own = ApplyRunProperties(styles.DefaultRunProperties, InlineStyle.Default, styles.Theme);
+        float size = own.FontSize is float stated && stated > 0
+            ? stated
+            : styles.HasRunDefaults ? StatedDefaultsFontSize : UnstatedDefaultsFontSize;
+        string family = string.IsNullOrWhiteSpace(own.FontFamily)
+            ? styles.HasRunDefaults ? StatedDefaultsFontFamily : UnstatedDefaultsFontFamily
+            : own.FontFamily;
+
+        // Only what differs from the document's defaults is stated, so a
+        // style that happens to agree with them reads as before.
+        DocumentStyleDefaults document = ReadStyleDefaults(styles);
+        if (style.FontSize is null && Math.Abs(size - document.FontSizePoints) > 0.001f)
+            style = style with { FontSize = size };
+        if (string.IsNullOrWhiteSpace(style.FontFamily) &&
+            !string.Equals(family, document.FontFamily, StringComparison.OrdinalIgnoreCase))
+            style = style with { FontFamily = family };
         return style;
     }
 
@@ -1281,7 +1366,12 @@ internal static class DocxReader
             if (child.Name == DocxNamespaces.Wordprocessing + "fldChar")
             {
                 // A page field Word saved no result for still shows a number.
+                bool inReference = builder.Fields.InReferenceResult;
                 (PageField? empty, string? fallbackText, bool ruby) = builder.Fields.Read(child, context.Styles, runStyle);
+                if (!builder.Fields.InReferenceResult)
+                    builder.EndReferenceResult();
+                else if (!inReference)
+                    builder.StartReferenceResult();
                 if (builder.Fields.SuppressesResult)
                     continue;
                 if (empty is not null)
@@ -1437,6 +1527,22 @@ internal static class DocxReader
                     !char.IsSurrogate((char)symbol) && !char.IsControl((char)symbol))
                 {
                     string? font = (string?)child.Attribute(DocxNamespaces.Wordprocessing + "font");
+                    if (awaitingMark is not null)
+                    {
+                        // w:customMarkFollows with a symbol: the symbol is the
+                        // note's label, as LibreOffice 24.2 reads it
+                        // (tdf121441.docx's Wingdings mark, written once).
+                        var marked = new DocumentNote(awaitingMark.Kind, awaitingMark.Paragraphs, ((char)symbol).ToString())
+                        {
+                            Tables = awaitingMark.Tables,
+                        };
+                        builder.AppendText(DocumentNote.PlaceholderText, (string.IsNullOrWhiteSpace(font)
+                            ? awaitingStyle with { IsSymbolCharacter = true }
+                            : awaitingStyle with { FontFamily = font, IsSymbolCharacter = true }) with { Note = marked });
+                        awaitingMark = null;
+                        continue;
+                    }
+
                     builder.AppendText(((char)symbol).ToString(),
                         string.IsNullOrWhiteSpace(font)
                             ? style with { IsSymbolCharacter = true }
@@ -1497,9 +1603,9 @@ internal static class DocxReader
                     context.Images.ReadControl(control, context.Relationships) is { } activeX)
                 {
                     // The glyph is drawn in the face LibreOffice falls back to for it.
-                    builder.AppendText(activeX.Glyph, style with { FontFamily = "DejaVu Sans" });
+                    builder.AppendText(activeX.Glyph, style with { FontFamily = "DejaVu Sans", IsFormControl = true });
                     if (activeX.Caption.Length > 0)
-                        builder.AppendText(" " + activeX.Caption, style);
+                        builder.AppendText(" " + activeX.Caption, style with { IsFormControl = true });
                 }
                 else if (child.Element(DocxNamespaces.Wordprocessing + "drawing") is { } drawing)
                     ReadPicture(drawing, context, style);
@@ -1665,6 +1771,7 @@ internal static class DocxReader
         context.Builder.AppendText(string.Join((char)0x2028, wordArt.Lines), wordArt.Style with
         {
             Foreground = DocxVml.TryColor((string?)shape.Attribute("fillcolor"), out BColor color) ? color : style.Foreground,
+            IsShapeText = true,
         });
         context.Builder.AddDiagnosticOnce("docx.shape.wordart",
             "A VML WordArt shape was drawn as plain text in its box; its glyphs are not fitted to the text path.");
@@ -1740,7 +1847,7 @@ internal static class DocxReader
             return;
 
         XElement? anchor = picture.Element(DocxNamespaces.WordDrawing + "anchor");
-        if (anchor is not null && ReadFloatingPicture(anchor, image, context))
+        if (anchor is not null && ReadFloatingPicture(anchor, image, context, style))
             return;
 
         context.Builder.AppendText(InlineImage.PlaceholderText, style with { Image = image });
@@ -1853,7 +1960,7 @@ internal static class DocxReader
     /// answer this reader gave every anchored picture before floats existed.
     /// Returns false in that case, and the caller appends it inline.
     /// </remarks>
-    private static bool ReadFloatingPicture(XElement anchor, InlineImage image, DocxReadContext context)
+    private static bool ReadFloatingPicture(XElement anchor, InlineImage image, DocxReadContext context, InlineStyle? style = null)
     {
         // Said whether it floats or not. Position, stacking and wrapping are all
         // kept now, so the note names what is still approximate rather than
@@ -1869,10 +1976,50 @@ internal static class DocxReader
             return false;
 
         (ShapeWrap Wrap, WrapSide Side, TableCellPadding Margins) = ReadWrap(anchor);
-        (double offsetY, bool fromPage) = VerticalOffset(anchor, context, picture: true);
+        (double offsetY, bool fromPage) = VerticalOffset(anchor, context, picture: true, lineStyle: style);
+        double offsetX = HorizontalOffset(anchor, context);
+        IReadOnlyList<(double X, double Y)>? wrapPolygon = Wrap == ShapeWrap.None ? null : ReadWrapPolygon(anchor);
+        double? bandOffset = BandParagraphOffset(anchor, context);
+
+        // A turned picture (pic:spPr/a:xfrm rot): its offsets place the
+        // unturned extent, and LibreOffice draws it turned about that box's
+        // centre in a frame as large as the turned picture's bounding box,
+        // which the text wraps around. position-and-rotation.docx's picture,
+        // turned 110 degrees, was drawn unturned.
+        if (anchor.Descendants(DocxNamespaces.Picture + "spPr").FirstOrDefault()?.Element(DocxNamespaces.Drawing + "xfrm") is XElement turn &&
+            long.TryParse((string?)turn.Attribute("rot"), NumberStyles.Integer, CultureInfo.InvariantCulture, out long sixtieths) &&
+            sixtieths % 21600000 != 0 && boxWidth > 0 && boxHeight > 0)
+        {
+            ImagePresentation turned = (image.Presentation ?? ImagePresentation.Default) with
+            {
+                Rotation = ((sixtieths % 21600000 / 60000.0) + 360) % 360,
+                UnrotatedWidth = boxWidth,
+                UnrotatedHeight = boxHeight,
+            };
+            if (turned.TurnedBounds is (double turnedWidth, double turnedHeight))
+            {
+                double grownX = (turnedWidth - boxWidth) / 2, grownY = (turnedHeight - boxHeight) / 2;
+                // Word states the wrap polygon in the unturned picture's box;
+                // it turns with the picture about the centre.
+                double angle = turned.RotationRadians, cos = Math.Cos(angle), sin = Math.Sin(angle);
+                double width = boxWidth, height = boxHeight;
+                wrapPolygon = wrapPolygon is null ? null : [.. wrapPolygon.Select(point =>
+                {
+                    double across = (point.X - 0.5) * width, down = (point.Y - 0.5) * height;
+                    return ((across * cos - down * sin) / turnedWidth + 0.5, (across * sin + down * cos) / turnedHeight + 0.5);
+                })];
+                offsetX -= grownX;
+                offsetY -= grownY;
+                // The offset from a band's paragraph places the same box.
+                bandOffset -= grownY;
+                (boxWidth, boxHeight) = (turnedWidth, turnedHeight);
+                image = image.WithSize(boxWidth, boxHeight).WithPresentation(turned);
+            }
+        }
+
         context.Builder.AddShape(new DocumentShape(
             AnchorParagraph(anchor, context, picture: true),
-            HorizontalOffset(anchor, context),
+            offsetX,
             offsetY,
             boxWidth,
             boxHeight,
@@ -1889,9 +2036,11 @@ internal static class DocxReader
             offsetXFromCell: context.Builder.InTableCell && RelativeFrom(anchor, "positionH") == "column" && LaysOutInCell(anchor))
         {
             WrapMargins = Wrap == ShapeWrap.None ? null : Margins,
-            WrapPolygon = Wrap == ShapeWrap.None ? null : ReadWrapPolygon(anchor),
+            WrapPolygon = wrapPolygon,
             BoundedByPage = !context.Builder.InTableCell,
             OffsetXFromColumn = FromColumn(anchor, context),
+            OffsetFromBandParagraph = bandOffset,
+            DrawsInFront = BehindDocButWrapped(anchor),
         });
         return true;
     }
@@ -2059,7 +2208,8 @@ internal static class DocxReader
             childY);
 
         int read = 0;
-        ReadGroupChildren(group, frame, anchor, context, ref read, depth: 0);
+        ReadGroupChildren(group, frame, anchor, context.GroupNumber > 0 ? context : context with { GroupNumber = context.Builder.NextGroupNumber() },
+            ref read, depth: 0);
         return read > 0;
     }
 
@@ -2109,6 +2259,11 @@ internal static class DocxReader
                     WrapMargins = Wrap == ShapeWrap.None ? null : Margins,
                     BoundedByPage = !context.Builder.InTableCell,
                     OffsetXFromColumn = FromColumn(anchor, context),
+                    OffsetFromBandParagraph = BandParagraphOffset(anchor, context) + y,
+                    DrawsInFront = BehindDocButWrapped(anchor),
+                    // A group's pictures are members of the drawing as its
+                    // drawn shapes are (DumpFirstFrameTextTests).
+                    GroupNumber = context.GroupNumber,
                 });
             }
             else if (child.Name == DocxNamespaces.WordGroup + "grpSp" && depth < MaxGroupDepth)
@@ -2245,16 +2400,37 @@ internal static class DocxReader
             geometry: geometry,
             outlineWidth: long.TryParse((string?)spPr?.Element(DocxNamespaces.Drawing + "ln")?.Attribute("w"), out long lineWidth) && lineWidth >= 0 ? lineWidth / 12700d : 0.75,
             offsetXFromCell: context.Builder.InTableCell && RelativeFrom(anchor, "positionH") == "column" &&
-                (geometry is ShapeGeometry.Line or ShapeGeometry.LineAscending || LaysOutInCell(anchor)))
+                (geometry is ShapeGeometry.Line or ShapeGeometry.LineAscending || LaysOutInCell(anchor)),
+            printable: !IsHiddenDrawing(anchor))
         {
-            IsCustomShape = context.InDiagram,
+            // A shape with no text box is a drawing to LibreOffice; one with a
+            // text box, even an empty one, has a text frame attached.
+            IsCustomShape = context.InDiagram ||
+                (wsp.Element(DocxNamespaces.WordShape + "txbx") is null && wsp.Element(DocxNamespaces.WordShape + "linkedTxbx") is null),
+            InlineInSource = anchor.Name == DocxNamespaces.WordDrawing + "inline",
+            GroupNumber = context.GroupNumber,
             TextFlow = ReadShapeTextFlow(wsp.Element(DocxNamespaces.WordShape + "bodyPr")),
+            OutlinePaths = image is null && geometry == ShapeGeometry.Rectangle
+                ? DocxPresetGeometry.Outline(preset, spPr?.Element(DocxNamespaces.Drawing + "prstGeom"), width, height, transform)
+                : null,
             WrapMargins = Wrap == ShapeWrap.None ? null : Margins,
             BoundedByPage = !context.Builder.InTableCell,
             OffsetXFromColumn = FromColumn(anchor, context),
+            OffsetFromBandParagraph = BandParagraphOffset(anchor, context) + top,
+            DrawsInFront = BehindDocButWrapped(anchor),
         });
         return true;
     }
+
+    /// <summary>
+    /// Whether the drawing's <c>wp:docPr</c> hides it (<c>hidden</c>, ECMA-376
+    /// §20.4.2.5). LibreOffice imports such a shape invisible
+    /// (writerfilter's <c>GraphicImport</c>, tdf#156484): laid out and wrapped
+    /// around, but not drawn, which <see cref="DocumentShape.Printable"/> says.
+    /// </summary>
+    private static bool IsHiddenDrawing(XElement anchor) =>
+        anchor.Element(DocxNamespaces.WordDrawing + "docPr")?.Attribute("hidden") is XAttribute hidden &&
+        (string)hidden is "1" or "true" or "on";
 
     /// <summary>
     /// Whether an anchored object outside a table is placed across from the left
@@ -2468,6 +2644,23 @@ internal static class DocxReader
             (code, message) => context.Builder.AddDiagnosticOnce(code, message),
             "docx.shape.fill",
             "shape");
+        // A picture fill (v:fill type="tile" or "frame" with r:id): the
+        // picture tiled at its own size or stretched over the box, as the page
+        // background's (DocxVml.ReadBackground). tdf78749.docx's text box is
+        // tiled with water drops in LibreOffice; it was drawn in one colour.
+        if (fill is not null && shape.Element(DocxNamespaces.Vml + "fill") is XElement pictureFill &&
+            ((string?)pictureFill.Attribute("type"))?.Trim() is "tile" or "frame" &&
+            pictureFill.Attribute(DocxNamespaces.Relationships + "id") is not null &&
+            !pictureFill.Attributes().Any(attribute => attribute.Name.LocalName is
+                "size" or "origin" or "position" or "aspect" or "angle" or "alignshape" or "rotate" or
+                "opacity" or "opacity2" or "recolortarget") &&
+            context.Images.ReadFillPicture(pictureFill, context.Relationships, context.Builder.AddDiagnosticOnce) is InlineImage tiled)
+        {
+            fill = fill with
+            {
+                Image = new ImageFill(tiled, (string?)pictureFill.Attribute("type") == "frame" ? ImageFillRepeat.Stretch : ImageFillRepeat.Tile),
+            };
+        }
         RichTextDocument shapeContent = ReadShapeText(shape, context);
         IReadOnlyList<RichTextParagraph> paragraphs = ShapeParagraphs(shapeContent);
         BColor outline = ReadVmlOutline(shape);
@@ -2597,10 +2790,19 @@ internal static class DocxReader
                 offsetX = frameStart + (horizontal == "center" ? (frameWidth - width) / 2 : horizontal == "right" ? frameWidth - width : 0);
             string? vertical = style.GetValueOrDefault("mso-position-vertical");
             string? verticalFrame = style.GetValueOrDefault("mso-position-vertical-relative");
-            if (vertical is "top" or "center" or "bottom" && verticalFrame is "page" or "margin")
+            // The frame the shape is aligned in, from the page's top: the page,
+            // its margins, or the band above or below them.
+            (double Top, double Height)? alignFrame = verticalFrame switch
             {
-                double frameHeight = verticalFrame == "page" ? alignmentPage.Height : alignmentPage.Height - alignmentPage.MarginTop - alignmentPage.MarginBottom;
-                offsetY = (verticalFrame == "page" ? 0 : alignmentPage.MarginTop) +
+                "page" => (0, alignmentPage.Height),
+                "margin" => (alignmentPage.MarginTop, alignmentPage.Height - alignmentPage.MarginTop - alignmentPage.MarginBottom),
+                "top-margin-area" => (0, alignmentPage.MarginTop),
+                "bottom-margin-area" => (alignmentPage.Height - alignmentPage.MarginBottom, alignmentPage.MarginBottom),
+                _ => null,
+            };
+            if (vertical is "top" or "center" or "bottom" && alignFrame is (double frameTop, double frameHeight))
+            {
+                offsetY = frameTop +
                     (vertical == "center" ? (frameHeight - height) / 2 : vertical == "bottom" ? frameHeight - height : 0);
                 fromPage = true;
             }
@@ -2654,9 +2856,16 @@ internal static class DocxReader
             RotationRadians = rotation,
             TextFlow = ReadVmlTextFlow(shape.Element(DocxNamespaces.Vml + "textbox")),
             IsCustomShape = shape.Attribute(DocxVmlShapeWalker.Grouped) is not null,
+            InlineInSource = shape.Attribute(DocxVmlShapeWalker.Grouped) is null &&
+                !string.Equals(style.GetValueOrDefault("position"), "absolute", StringComparison.OrdinalIgnoreCase),
             StretchesTextToBox = wordArtText,
             TextOutline = textOutline,
             TextOutlineWidth = outlineWidth,
+            // No vertical frame, "text" or "line": the header paragraph, as a
+            // DrawingML anchor's (BandParagraphOffset). LibreOffice ignores
+            // w10:wrap's anchory here (n779834.docx, measured).
+            OffsetFromBandParagraph = context.Band == RunningBand.Header && verticalFrom is null && !fromPage &&
+                !context.Builder.InTableCell ? offsetY : null,
         });
         return true;
     }
@@ -2744,6 +2953,22 @@ internal static class DocxReader
             "0" or "false" => false,
             _ => true,
         };
+
+    /// <summary>
+    /// True for an object <c>behindDoc</c> puts behind the text that is drawn
+    /// in front all the same, because the text wraps around it
+    /// (<see cref="DocumentShape.DrawsInFront"/>).
+    /// </summary>
+    /// <remarks>
+    /// LibreOffice 24.2 sends an anchored object behind the text only when the
+    /// text runs through it (<c>wp:wrapNone</c>, Word's "Behind Text").
+    /// <c>tdf60351.docx</c>'s tightly wrapped picture is drawn over its
+    /// paragraph's white shading, and so is the same picture wrapped square,
+    /// while with <c>wp:wrapNone</c> the shading covers it (measured).
+    /// broilerdoc painted the shading over the wrapped picture.
+    /// </remarks>
+    private static bool BehindDocButWrapped(XElement anchor) =>
+        BehindDoc(anchor) && ReadWrap(anchor).Wrap != ShapeWrap.None;
 
     /// <summary>
     /// The <c>wp:anchor</c> attribute ordering one anchored object against
@@ -2944,7 +3169,8 @@ internal static class DocxReader
     /// whose side depends on the page's parity, and a margin with no page to
     /// measure it on are kept as stated and reported.
     /// </remarks>
-    private static (double Offset, bool FromPage) VerticalOffset(XElement anchor, DocxReadContext context, bool picture = false)
+    private static (double Offset, bool FromPage) VerticalOffset(XElement anchor, DocxReadContext context, bool picture = false,
+        InlineStyle? lineStyle = null)
     {
         if (SimplePosition(anchor) is XElement simple)
             return (SimpleCoordinate(simple, "y"), true);
@@ -2971,10 +3197,25 @@ internal static class DocxReader
                 "bottomMargin" => offset + running.Height - running.MarginBottom,
                 _ when context.Band == RunningBand.Footer && from is null or "paragraph" or "line" =>
                     offset + running.Height - running.MarginBottom,
+                _ when context.Band == RunningBand.Header && !context.Builder.InTableCell && from is null or "paragraph" or "line" =>
+                    offset + running.HeaderDistance,
                 // "page" and "topMargin" both measure from the page's top edge,
                 // and a header's own band starts there too.
                 _ => offset,
             }, false);
+        }
+
+        // Centred on its line (wp:align under relativeFrom="line"): LibreOffice
+        // centres the object on the line it is anchored in, the line's height
+        // here being its run's single-spaced height, 1.15 times the type size
+        // (tdf162551_notLayoutInCell_charLeft_fromTop.docx's picture stands
+        // half above and half below "-anchor point-").
+        if (from == "line" && lineStyle is InlineStyle runStyle &&
+            (string?)PositionElement(anchor, "positionV")?.Element(DocxNamespaces.WordDrawing + "align") is string lineAlign &&
+            lineAlign.Trim() == "center")
+        {
+            double lineHeight = 1.15 * (runStyle.FontSize ?? 12f);
+            return ((lineHeight - AnchorExtent(anchor).Height) / 2, false);
         }
 
         if (from is null or "paragraph" or "line")
@@ -3003,6 +3244,38 @@ internal static class DocxReader
             "A floating DOCX object stated its vertical position against a margin this reader could not place " +
             "on the page; the offset was kept as stated and is measured from its paragraph instead.");
         return (offset, false);
+    }
+
+    /// <summary>
+    /// The offset in points a header or footer object states from the top of
+    /// its paragraph or line (<c>wp:positionV relativeFrom</c> <c>paragraph</c>,
+    /// <c>line</c> or none), for the layout to measure from where the band puts
+    /// that paragraph (<see cref="DocumentShape.OffsetFromBandParagraph"/>);
+    /// null in the body and for any other frame.
+    /// </summary>
+    /// <remarks>
+    /// The reader can only estimate where the paragraph is. LibreOffice stacks a
+    /// footer's paragraphs up from its distance above the page's foot, so a
+    /// one-line footer's paragraph starts a line above that, not at the bottom
+    /// margin: fdo80895.docx's oval, 8.55 points above its footer paragraph,
+    /// is drawn 784 points down an A4 page, not 761.
+    /// </remarks>
+    private static double? BandParagraphOffset(XElement anchor, DocxReadContext context)
+    {
+        // An inline drawing has no offset of its own; one in a table cell is
+        // measured from a cell the band lays out in its flow, where a
+        // floating table is not (tdf105688.docx).
+        if (context.Band == RunningBand.Body || anchor.Name != DocxNamespaces.WordDrawing + "anchor" ||
+            context.Builder.InTableCell || SimplePosition(anchor) is not null)
+            return null;
+
+        string? from = RelativeFrom(anchor, "positionV");
+        if (from is not (null or "paragraph" or "line"))
+            return null;
+        if (context.Page is PageGeometry page && AlignedOrRelativeV(anchor, from, page) is not null)
+            return null;
+
+        return EmuToPoints(PositionOffset(anchor, "positionV"));
     }
 
     /// <summary>
@@ -3365,9 +3638,9 @@ internal static class DocxReader
             style = ApplyParagraphProperties(styleParagraphProperties, context.Numbering, style, context.Styles.Theme);
 
         style = ApplyParagraphProperties(pPr, context.Numbering, style, context.Styles.Theme);
-        style = ApplyAutoSpacing(style, chain, pPr, paragraph, context.Styles.HtmlParagraphAutoSpacing);
         style = style with { Border = ReadParagraphBorder(chain, pPr, context.Styles.Theme) };
         style = ApplyList(style, chain, pPr, paragraphStyleId, context.Numbering);
+        style = ApplyAutoSpacing(style, chain, pPr, paragraph, context.Styles.HtmlParagraphAutoSpacing);
         return context.Styles.HtmlParagraphAutoSpacing && style.ListKind != ListKind.None && paragraph is not null
             ? TrimListAutoSpacing(style, chain, pPr, paragraph, paragraphStyleId)
             : style;
@@ -3541,9 +3814,11 @@ internal static class DocxReader
     /// <c>w:before</c> and <c>w:after</c>: 14 pt where the settings leave HTML
     /// paragraph auto spacing on, 5 pt where they turn it off. With it on, the
     /// first paragraph of a cell, of a text box and of the document has no
-    /// automatic space above, and the last of a cell none below
-    /// (writerfilter's <c>DomainMapper_Impl::finishParagraph</c> and its table
-    /// handler). cell-grid-span.docx's HTML-born paragraphs stand 14 pt apart.
+    /// automatic space above, and the last of a cell none below unless it is
+    /// numbered (writerfilter's <c>DomainMapper_Impl::finishParagraph</c>, and
+    /// <c>ClearPreviousParagraph</c>, which keeps the space under a cell's last
+    /// paragraph when it has numbering rules: tdf#132802).
+    /// cell-grid-span.docx's HTML-born paragraphs stand 14 pt apart.
     /// </summary>
     private static ParagraphStyle ApplyAutoSpacing(
         ParagraphStyle style, IReadOnlyList<XElement> chain, XElement? pPr, XElement? paragraph, bool html)
@@ -3565,7 +3840,7 @@ internal static class DocxReader
 
         if (after == true)
         {
-            bool lastInCell = html && paragraph?.Parent is { Name.LocalName: "tc" } cell &&
+            bool lastInCell = html && style.ListKind == ListKind.None && paragraph?.Parent is { Name.LocalName: "tc" } cell &&
                 cell.Elements(DocxNamespaces.Wordprocessing + "p").LastOrDefault() == paragraph &&
                 !paragraph.ElementsAfterSelf().Any(e => e.Name.LocalName == "tbl");
             style = style with { SpacingAfter = lastInCell ? 0 : amount };
@@ -3657,6 +3932,9 @@ internal static class DocxReader
             style = style with { RightToLeft = ReadOnOff(bidi) };
         if (pPr.Element(DocxNamespaces.Wordprocessing + "keepLines") is XElement keepLines)
             style = style with { KeepTogether = ReadOnOff(keepLines) };
+        // writerfilter's ParaSnapToGrid: off keeps the paragraph's lines off the page's text grid.
+        if (pPr.Element(DocxNamespaces.Wordprocessing + "snapToGrid") is XElement snapToGrid)
+            style = style with { IgnoresTextGrid = !ReadOnOff(snapToGrid) };
         if (pPr.Element(DocxNamespaces.Wordprocessing + "widowControl") is XElement widowControl)
         {
             int count = ReadOnOff(widowControl) ? 2 : 0;

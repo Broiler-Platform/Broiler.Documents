@@ -163,6 +163,32 @@ public sealed class DocumentShape(
     /// <summary>True when this shape is a custom drawing shape rather than a text frame.</summary>
     public bool IsCustomShape { get; init; }
 
+    /// <summary>
+    /// True when the source states this shape is a word processor's own text
+    /// frame - ODF's <c>draw:frame</c> holding a <c>draw:text-box</c> that is
+    /// not a Draw object - rather than a drawing that holds text. False where
+    /// the source does not say.
+    /// </summary>
+    public bool IsTextFrame { get; init; }
+
+    /// <summary>
+    /// True when the source sets the shape in its paragraph's line, as one of
+    /// its characters (DOCX <c>wp:inline</c>, a VML shape without
+    /// <c>position:absolute</c>), though the layout may place it as a block of
+    /// its own. Unlike <see cref="IsAsCharacter"/> it does not change where the
+    /// shape is laid out; it says the paragraph is not empty.
+    /// </summary>
+    public bool InlineInSource { get; init; }
+
+    /// <summary>
+    /// The drawn group the shape is a member of, numbered from one in reading
+    /// order, or nought for a shape drawn on its own: the members of one DOCX
+    /// <c>wpg:wgp</c> group share the number.
+    /// </summary>
+    public int GroupNumber { get => _groupNumber; init => _groupNumber = value; }
+
+    private int _groupNumber;
+
     /// <summary>True when this shape's box shrinks/fits to its text content centered in the declared bounds.</summary>
     public bool FitsText { get; init; }
 
@@ -263,6 +289,34 @@ public sealed class DocumentShape(
     /// second column of a two-column section is that column's left edge.
     /// </summary>
     public bool OffsetXFromColumn { get; init; }
+
+    /// <summary>
+    /// For a header or footer shape placed against its paragraph, the offset
+    /// the document states from the top of that paragraph, which the layout
+    /// measures from where it lays the paragraph out in the band; null for any
+    /// other shape. <see cref="OffsetY"/> still holds the reader's estimate of
+    /// the offset from the page's top, for whatever needs it before the band
+    /// is laid out.
+    /// </summary>
+    public double? OffsetFromBandParagraph { get; init; }
+
+    /// <summary>Creates a copy of this shape as a member of the drawn group <paramref name="groupNumber"/> (<see cref="GroupNumber"/>).</summary>
+    public DocumentShape InDrawingGroup(int groupNumber)
+    {
+        DocumentShape copy = WithParagraphIndex(ParagraphIndex);
+        copy._groupNumber = groupNumber;
+        return copy;
+    }
+
+    /// <summary>
+    /// True for a shape <see cref="BehindText"/> stacks behind the text that a
+    /// renderer draws in front of it all the same: DOCX's <c>behindDoc</c> on
+    /// an object the text wraps around, which LibreOffice 24.2 keeps in front
+    /// of the paragraphs and their shading (<c>tdf60351.docx</c>, measured).
+    /// <see cref="BehindText"/> keeps what the document says, so it is written
+    /// back as it was read.
+    /// </summary>
+    public bool DrawsInFront { get; init; }
 
     /// <summary>
     /// Where the shape sits among the other shapes: a higher number draws later,
@@ -375,7 +429,21 @@ public sealed class DocumentShape(
     /// hangs from there, in the same coordinates.
     /// </summary>
     public double TopOnPage(double paragraphTop) =>
-        IsPageAnchored || OffsetFromPage ? OffsetY : paragraphTop + OffsetY;
+        IsPageAnchored || OffsetFromPage ? OffsetY :
+        KeptBelowPageTop ? Math.Max(0, paragraphTop + OffsetY) : paragraphTop + OffsetY;
+
+    /// <summary>
+    /// True when a box its paragraph would put above the page starts at the
+    /// page's top edge instead.
+    /// </summary>
+    /// <remarks>
+    /// Writer keeps an RTF shape anchored to a paragraph on the page so (soffice
+    /// 24.2: a <c>\shp</c> text box or rectangle 50 points above a first
+    /// paragraph 28 points down starts at the top edge; fdo66040.rtf's frames).
+    /// A DOCX drawing is not kept so: tdf78902.docx and tdf106153.docx draw
+    /// theirs above the page's top.
+    /// </remarks>
+    public bool KeptBelowPageTop { get; init; }
 
     /// <summary>Creates a copy of this shape anchored to a different paragraph.</summary>
     public DocumentShape WithParagraphIndex(int paragraphIndex) =>
@@ -399,6 +467,9 @@ public sealed class DocumentShape(
         {
             IsAsCharacter = IsAsCharacter,
             IsCustomShape = IsCustomShape,
+            IsTextFrame = IsTextFrame,
+            InlineInSource = InlineInSource,
+            GroupNumber = GroupNumber,
             FitsText = FitsText,
             ShrinksWidthToText = ShrinksWidthToText,
             RotationRadians = RotationRadians,
@@ -412,6 +483,9 @@ public sealed class DocumentShape(
             MinimumWrapRoom = MinimumWrapRoom,
             BoundedByPage = BoundedByPage,
             OffsetXFromColumn = OffsetXFromColumn,
+            KeptBelowPageTop = KeptBelowPageTop,
+            OffsetFromBandParagraph = OffsetFromBandParagraph,
+            DrawsInFront = DrawsInFront,
         };
 
     /// <summary>The shape's own text, empty when it holds none.</summary>

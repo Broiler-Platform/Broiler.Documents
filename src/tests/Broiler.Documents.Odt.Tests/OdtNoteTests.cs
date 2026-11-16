@@ -130,7 +130,8 @@ public sealed class OdtNoteTests
     {
         DocumentReadResult result = OdtTestPackage.ReadBody("<text:p>x" + Note("n") + "</text:p>");
 
-        Assert.Equal(NoteNumbering.Default, result.Document.NoteNumbering);
+        // Writer's endnotes default to their own Endnote page style.
+        Assert.Equal(NoteNumbering.Default with { EndnotesStartOnNewPage = true }, result.Document.NoteNumbering);
     }
 
     [Fact]

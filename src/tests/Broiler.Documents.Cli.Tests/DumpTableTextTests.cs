@@ -87,7 +87,124 @@ public sealed class DumpTableTextTests
         Assert.Equal("A\tB", DocumentCommands.LabelledText(document));
     }
 
+    [Fact]
+    public void A_Drawing_With_No_Text_Before_The_Text_Box_Leaves_The_Export_Empty()
+    {
+        // LibreOffice exports only the first of the document's frames and
+        // drawings; a rectangle or a line before the text frame has no text to
+        // give (n825305.rtf, tdf88811.rtf, tdf104936.rtf).
+        RichTextDocument document = RichTextDocument.FromParagraphs([RichTextParagraph.Plain("")])
+            .WithShapes(
+            [
+                new DocumentShape(0, 0, 0, 100, 80),
+                new DocumentShape(0, 0, 100, 100, 80, paragraphs: [RichTextParagraph.Plain("Frame1")]),
+            ]);
+        Assert.Equal(string.Empty, DocumentCommands.LabelledText(document));
+    }
+
+    [Fact]
+    public void A_Groups_Text_Box_Is_Exported_With_The_Group()
+    {
+        // Shapes that share a stated stacking order, as a group's do, are one
+        // drawing to LibreOffice, whose text boxes it makes, and exports, before
+        // the group's own drawing (dml-groupshape-runfonts.docx).
+        RichTextDocument document = RichTextDocument.FromParagraphs([RichTextParagraph.Plain("")])
+            .WithShapes(
+            [
+                new DocumentShape(0, 0, 0, 100, 80, zOrder: 251660288) { IsCustomShape = true },
+                new DocumentShape(0, 10, 10, 80, 60, paragraphs: [RichTextParagraph.Plain("grouped")], zOrder: 251660288),
+            ]);
+        Assert.Equal("grouped", DocumentCommands.LabelledText(document));
+    }
+
     private static readonly TablePosition Floating = new(TableAnchor.Page, 0, TableAnchor.Page, 100, TableAlignment.Center);
+
+    private static DocumentShape Box(string? text, bool drawing = false, bool inline = false, int group = 0) =>
+        new(0, 0, 0, 100, 80, paragraphs: text is null ? null : [RichTextParagraph.Plain(text)])
+        {
+            IsCustomShape = drawing,
+            InlineInSource = inline,
+            GroupNumber = group,
+        };
+
+    [Fact]
+    public void A_Form_Controls_Characters_Are_Not_Text()
+    {
+        // tdf126626.docx: an ActiveX check box drawn as its box and caption.
+        RichTextParagraph paragraph = RichTextParagraph.Plain("before after")
+            .InsertText(7, "☐ Check Box ", InlineStyle.Default with { IsFormControl = true });
+
+        Assert.Equal("before after", DocumentCommands.LabelledText(RichTextDocument.FromParagraphs([paragraph])));
+    }
+
+    [Fact]
+    public void A_Paragraph_Holding_A_Shape_As_A_Character_Is_Not_Empty()
+    {
+        // inline-textbox-position.docx, tdf117188.docx: LibreOffice anchors the
+        // text box as a character, so the body is not one empty paragraph and
+        // its text export writes nothing.
+        RichTextDocument document = RichTextDocument.FromParagraphs([RichTextParagraph.Plain("")])
+            .WithShapes([Box("SHORT BOX TEXT", inline: true)]);
+
+        Assert.Equal("", DocumentCommands.LabelledText(document));
+    }
+
+    [Fact]
+    public void A_Drawing_Before_A_Text_Box_Leaves_The_Export_Empty()
+    {
+        // tdf117028.docx: a rounded rectangle, then a text box. The first frame
+        // LibreOffice's export finds is the rectangle's drawing, which has no
+        // text of its own.
+        RichTextDocument document = RichTextDocument.FromParagraphs([RichTextParagraph.Plain("")])
+            .WithShapes([Box(null, drawing: true), Box("Hello")]);
+
+        Assert.Equal("", DocumentCommands.LabelledText(document));
+    }
+
+    [Theory]
+    [InlineData("member", "member")]
+    [InlineData(null, "")]
+    public void A_Groups_First_Text_Box_Comes_Before_Its_Drawing(string? firstBox, string expected)
+    {
+        // dml-groupshape-capitalization.docx: a plain member, then a text box;
+        // the box is the first frame. dml-groupshape-sdt.docx: the first text
+        // box is empty, so nothing is written.
+        RichTextDocument document = RichTextDocument.FromParagraphs([RichTextParagraph.Plain("")])
+            .WithShapes([Box(null, drawing: true, group: 1), Box(firstBox, group: 1), Box("second", group: 1)]);
+
+        Assert.Equal(expected, DocumentCommands.LabelledText(document));
+    }
+
+    [Theory]
+    [InlineData(false, "1")]
+    [InlineData(true, "0")]
+    public void A_Page_Number_In_A_Footer_Frame_Is_The_First_Pages_Or_Nought(bool differentFirstPage, string expected)
+    {
+        // tdf112446_frameStyle.docx writes 1 for its footer frame's PAGE field,
+        // tdf112443.docx, whose first page has a footer of its own, 0; the
+        // saved results are 1 and 2.
+        RichTextParagraph number = RichTextParagraph.Plain("").InsertText(0, "2",
+            InlineStyle.Default with { PageField = new PageField(PageFieldKind.PageNumber) });
+        RichTextDocument document = RichTextDocument.FromParagraphs([RichTextParagraph.Plain("")])
+            .WithRunningContent(RunningContent.Empty
+                .WithFooter(PageSelection.Default, null, [new DocumentShape(0, 0, 0, 20, 20, paragraphs: [number])])
+                .WithDifferentFirstPage(differentFirstPage));
+
+        Assert.Equal(expected, DocumentCommands.LabelledText(document));
+    }
+
+    [Fact]
+    public void A_Header_Text_Box_Is_Exported_When_The_Body_Has_No_Frame()
+    {
+        // n773061.docx: the only frame is a text box in the header. (A text
+        // watermark ahead of it would be the first frame instead, a drawing:
+        // DumpFirstFrameTextTests.A_Text_Watermark_In_The_Header_Is_A_Drawing.)
+        RichTextDocument document = RichTextDocument.FromParagraphs([RichTextParagraph.Plain("")])
+            .WithRunningContent(RunningContent.Empty.WithHeader(PageSelection.Default, null,
+                [new DocumentShape(0, 0, 0, 100, 80, paragraphs: [RichTextParagraph.Plain("Line1"), RichTextParagraph.Plain("Line2")])]));
+
+        Assert.Equal("Line1\nLine2", DocumentCommands.LabelledText(document));
+    }
 
     [Fact]
     public void Image_object_markers_are_omitted_but_literal_replacement_characters_are_kept()
