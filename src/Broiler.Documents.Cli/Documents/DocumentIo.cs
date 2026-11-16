@@ -61,7 +61,14 @@ public static class DocumentIo
     /// still runs and is still reported, so a mismatch between what the caller
     /// declared and what the bytes look like is visible rather than silent.
     /// </remarks>
-    public static LoadedDocument Load(string source, DocumentCodecCatalog catalog, DocumentReadOptions options, string? formatOverride = null)
+    /// <param name="optionsFor">
+    /// Gives the options for the codec that will read the source, for a caller
+    /// whose options are format-specific. A codec is handed only its own option
+    /// type, so it is asked once the codec is known. Null reads with
+    /// <paramref name="options"/> whatever the codec.
+    /// </param>
+    public static LoadedDocument Load(string source, DocumentCodecCatalog catalog, DocumentReadOptions options, string? formatOverride = null,
+        Func<DocumentCodec, DocumentReadOptions>? optionsFor = null)
     {
         ArgumentNullException.ThrowIfNull(catalog);
         ArgumentNullException.ThrowIfNull(options);
@@ -74,6 +81,10 @@ public static class DocumentIo
 
         if (string.IsNullOrEmpty(formatOverride))
         {
+            if (optionsFor is not null &&
+                catalog.Select(input.Peek(options.Limits.MaxProbeBytes), hints, options.Limits) is DocumentCodecMatch chosen)
+                options = optionsFor(chosen.Codec);
+
             DocumentCodecSelection selection = catalog.SelectAndRead(input, options, hints);
             if (selection.Match is null)
             {
@@ -95,15 +106,18 @@ public static class DocumentIo
             throw new DocumentIoException(ExitCode.Read, "The " + codec.Name + " codec does not implement reading.");
 
         DocumentProbeResult probe = codec.Probe(new DocumentProbeRequest(input.Peek(options.Limits.MaxProbeBytes), hints, options.Limits));
+        if (optionsFor is not null)
+            options = optionsFor(codec);
 
         DocumentReadResult result = codec.Read(new DocumentReadRequest(input, options, hints: hints));
         return new LoadedDocument(source, codec, probe, result);
     }
 
     /// <summary>Reads a document and fails the run when the result is unusable.</summary>
-    public static LoadedDocument LoadOrThrow(string source, DocumentCodecCatalog catalog, DocumentReadOptions options, string? formatOverride = null)
+    public static LoadedDocument LoadOrThrow(string source, DocumentCodecCatalog catalog, DocumentReadOptions options, string? formatOverride = null,
+        Func<DocumentCodec, DocumentReadOptions>? optionsFor = null)
     {
-        LoadedDocument loaded = Load(source, catalog, options, formatOverride);
+        LoadedDocument loaded = Load(source, catalog, options, formatOverride, optionsFor);
         if (loaded.Result.Status == DocumentResultStatus.Rejected)
         {
             string reason = loaded.Diagnostics.Count > 0

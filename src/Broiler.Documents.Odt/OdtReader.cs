@@ -83,7 +83,8 @@ internal static class OdtReader
 
         OdtStyles styles = OdtStyles.Load(archive, content, options.Limits, diagnostics);
         var resources = new DocumentConversionContextBuilder(options.ResourcePolicy);
-        var images = new OdtImageLoader(archive, manifest, options.Limits, resources);
+        var images = new OdtImageLoader(archive, manifest, options.Limits, resources,
+            (options as OdtReadOptions)?.ResolveLinkedImage);
         return ReadDocument(
             content,
             styles,

@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using System.IO.Compression;
+using System.Linq;
 using System.Xml.Linq;
 using Broiler.Documents.Model;
 using Broiler.Graphics.Color;
@@ -28,9 +29,11 @@ internal sealed class OdtImageLoader(
     ZipArchive? archive,
     OdtManifest manifest,
     DocumentLimits limits,
-    DocumentConversionContextBuilder resources)
+    DocumentConversionContextBuilder resources,
+    Func<string, ReadOnlyMemory<byte>?>? resolveLinkedImage = null)
 {
     private readonly ZipArchive? _archive = archive;
+    private readonly Func<string, ReadOnlyMemory<byte>?>? _resolveLinkedImage = resolveLinkedImage;
     private readonly OdtManifest _manifest = manifest;
     private readonly DocumentLimits _limits = limits;
     private readonly DocumentConversionContextBuilder _resources = resources;
@@ -56,7 +59,18 @@ internal sealed class OdtImageLoader(
         PicturePart? part = null;
         bool foundImage = false;
         LoadResult lastResult = LoadResult.Missing;
-        foreach (XElement image in ImageAlternatives(frame))
+        // A formula written into the frame itself (a flat document's
+        // draw:object holding MathML, not naming a package folder) prints as
+        // an empty frame in LibreOffice 24.2: the replacement picture beside it
+        // is not drawn (math-bold-italic-export.fodt, tdf157533.fodt). One
+        // with no replacement at all is skipped as before.
+        bool inlineFormula = IsInlineFormula(frame) && ImageAlternatives(frame).Any();
+        if (inlineFormula)
+        {
+            foundImage = true;
+            lastResult = LoadResult.Blank;
+        }
+        foreach (XElement image in inlineFormula ? [] : ImageAlternatives(frame))
         {
             foundImage = true;
             // An alternative read only to see whether it outranks the one in
@@ -102,6 +116,18 @@ internal sealed class OdtImageLoader(
                         "An ODT frame held no embedded picture and was skipped.");
                     return null;
                 }
+            }
+
+            // LibreOffice draws a chart or an embedded document whose replacement
+            // picture is missing afresh, but not a formula: it prints the object's
+            // placeholder icon (tdf144319.odt's Formula-14, and tdf96113.odt with
+            // its formula's replacement removed, on LibreOffice 24.2).
+            if (lastResult is LoadResult.Missing && width > 0 && height > 0 && IsFormulaObject(frame))
+            {
+                diagnostics.AddDiagnosticOnce(
+                    "odt.image.object",
+                    "An ODT embedded object without a replacement picture was drawn as a placeholder icon.");
+                return ReadGeneratedPreview(ObjectPreview.Value, width, height, altText, name);
             }
 
             if (lastResult is LoadResult.Missing or LoadResult.External or LoadResult.Format or LoadResult.Blank && width > 0 && height > 0)
@@ -190,6 +216,24 @@ internal sealed class OdtImageLoader(
             return null;
         return new PicturePart(png, "image/png", Path.GetFileName(folder));
     }
+
+    /// <summary>True when the frame's <c>draw:object</c> names a package folder the manifest declares a formula.</summary>
+    private bool IsFormulaObject(XElement frame)
+    {
+        string? href = (string?)frame.Element(OdtNamespaces.Draw + "object")?.Attribute(OdtNamespaces.XLink + "href");
+        return !string.IsNullOrWhiteSpace(href) && !LinksOutsidePackage(href) &&
+            string.Equals(_manifest.MediaTypeFor(href), FormulaMediaType, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private const string FormulaMediaType = "application/vnd.oasis.opendocument.formula";
+
+    private static readonly XNamespace MathMl = "http://www.w3.org/1998/Math/MathML";
+
+    /// <summary>True when the frame's <c>draw:object</c> holds its formula as MathML rather than naming a folder.</summary>
+    private static bool IsInlineFormula(XElement frame) =>
+        frame.Element(OdtNamespaces.Draw + "object") is XElement inline &&
+        inline.Attribute(OdtNamespaces.XLink + "href") is null &&
+        inline.Element(MathMl + "math") is not null;
 
     private static bool IsAudio(XElement plugin) =>
         ((string?)plugin.Attribute(OdtNamespaces.Draw + "mime-type"))?.StartsWith("audio/", StringComparison.OrdinalIgnoreCase) == true;
@@ -324,6 +368,26 @@ internal sealed class OdtImageLoader(
             return null;
         }
 
+        // A relative link resolves against the package as a folder (ODF 1.2
+        // part 3, section 3.7), so "../name" is a file beside the document, as
+        // LibreOffice finds it. Only a host that opted in is asked for it, by
+        // its bare name; one it cannot answer reads as it always has.
+        if (_resolveLinkedImage is not null && SiblingFileName(href) is string sibling)
+        {
+            string key = "../" + sibling;
+            if (!_parts.TryGetValue(key, out (PicturePart? Part, LoadResult Result) linked))
+            {
+                linked = (ReadSibling(sibling, diagnostics, out LoadResult linkedResult), linkedResult);
+                _parts[key] = linked;
+            }
+
+            if (linked.Part is not null || linked.Result is not LoadResult.Missing)
+            {
+                result = linked.Result;
+                return linked.Part;
+            }
+        }
+
         string path = OdtPackage.NormalizePath(href);
         if (path.Length == 0)
         {
@@ -343,6 +407,60 @@ internal sealed class OdtImageLoader(
         PicturePart? part = ReadPackageEntry(_archive, path, diagnostics, out result);
         _parts[path] = (part, result);
         return part;
+    }
+
+    /// <summary>
+    /// The file name in a link of exactly the form <c>../name</c>: one step out
+    /// of the package and no further, and no folder in the name. Percent
+    /// escapes are decoded, as an IRI's are, before the name is checked.
+    /// </summary>
+    internal static string? SiblingFileName(string href)
+    {
+        string value = href.Trim();
+        if (!value.StartsWith("../", StringComparison.Ordinal))
+            return null;
+
+        string name;
+        try
+        {
+            name = Uri.UnescapeDataString(value[3..]);
+        }
+        catch (UriFormatException)
+        {
+            return null;
+        }
+
+        return name.Length == 0 || name is "." or ".." ||
+            name.IndexOfAny(['/', '\\', ':', '?', '#']) >= 0 || name.Any(char.IsControl)
+            ? null
+            : name;
+    }
+
+    /// <summary>
+    /// Reads a picture linked beside the document through the host's resolver.
+    /// Missing means the host had nothing for it, so the link reads as it does
+    /// without a resolver.
+    /// </summary>
+    private PicturePart? ReadSibling(string name, IOdtImageDiagnostics diagnostics, out LoadResult result)
+    {
+        if (_resolveLinkedImage!(name) is not ReadOnlyMemory<byte> bytes || bytes.IsEmpty)
+        {
+            result = LoadResult.Missing;
+            return null;
+        }
+
+        if (bytes.Length > _limits.MaxBinBytes)
+        {
+            diagnostics.AddDiagnosticOnce(
+                "odt.image.limit",
+                "An ODT picture exceeded MaxBinBytes and was skipped.");
+            result = LoadResult.Limit;
+            return null;
+        }
+
+        byte[] data = bytes.ToArray();
+        return Decode(data, DocumentImageFormats.ContentTypeForSignature(data),
+            Path.GetFileNameWithoutExtension(name), diagnostics, out result);
     }
 
     private PicturePart? ReadPackageEntry(ZipArchive archive, string path, IOdtImageDiagnostics diagnostics, out LoadResult result)
@@ -376,10 +494,10 @@ internal sealed class OdtImageLoader(
 
     /// <summary>
     /// Turns a picture's bytes into something the model carries: a bitmap as
-    /// it is, or a metafile or SVG rasterized to a PNG. WMF lands in the
-    /// format failure, as do metafiles and SVGs that draw something the
-    /// rasterizers do not understand and anything stored under an extension
-    /// this codec does not decode. One that draws nothing at all is blank.
+    /// it is, or a metafile (SVM, WMF, EMF) or SVG rasterized to a PNG.
+    /// Metafiles and SVGs that draw something the rasterizers do not
+    /// understand land in the format failure, as does anything stored under an
+    /// extension this codec does not decode. One that draws nothing at all is blank.
     /// </summary>
     private static PicturePart? Decode(byte[] data, string? contentType, string name, IOdtImageDiagnostics diagnostics, out LoadResult result)
     {
@@ -388,6 +506,8 @@ internal sealed class OdtImageLoader(
         {
             if (SvmRasterizer.IsSvm(data))
                 quality = 1000;
+            else if (WmfRasterizer.IsWmf(data))
+                quality = 1010;
             else if (EmfRasterizer.IsEmf(data))
                 quality = 1020;
             else if (SvgRasterizer.IsSvg(data))
@@ -428,14 +548,16 @@ internal sealed class OdtImageLoader(
     /// <summary>
     /// Rasterizes the replacement picture LibreOffice stores for a chart or OLE
     /// object (an <c>ObjectReplacements/</c> entry, which has no extension and a
-    /// GDI-metafile media type): its own StarView metafile, or an EMF for a
-    /// Windows OLE object. Null for anything else, or a metafile that draws
-    /// nothing the rasterizers understand.
+    /// GDI-metafile media type): its own StarView metafile, or an EMF or WMF
+    /// for a Windows OLE object or a picture. Null for anything else, or a
+    /// metafile that draws nothing the rasterizers understand.
     /// </summary>
     internal static byte[]? RasterizeMetafile(byte[] data)
     {
         if (SvmRasterizer.IsSvm(data))
             return SvmRasterizer.RenderPng(data);
+        if (WmfRasterizer.IsWmf(data))
+            return WmfRasterizer.RenderPng(data);
         if (EmfRasterizer.IsEmf(data))
             return EmfRasterizer.RenderPng(data);
         if (SvgRasterizer.IsSvg(data))

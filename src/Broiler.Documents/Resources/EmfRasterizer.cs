@@ -41,6 +41,7 @@ internal static class EmfRasterizer
         public BColor TextColor = new(0, 0, 0);
         public BColor BackColor = new(255, 255, 255);
         public uint TextAlign;
+        public int ArcDirection = ArcCounterClockwise;
 
         public Dc Clone() => (Dc)MemberwiseClone();
     }
@@ -148,6 +149,36 @@ internal static class EmfRasterizer
                 double px = shortPoints ? BinaryPrimitives.ReadInt16LittleEndian(r[(at + i * 4)..]) : I32(r, at + i * 8);
                 double py = shortPoints ? BinaryPrimitives.ReadInt16LittleEndian(r[(at + 2 + i * 4)..]) : I32(r, at + 4 + i * 8);
                 points[i] = Map(px, py);
+            }
+            return points;
+        }
+
+        // The elliptical arc in the box from the radial through (xs, ys) to the
+        // radial through (xe, ye), counterclockwise unless SETARCDIRECTION says
+        // otherwise. Logical y runs down the page, so counterclockwise is the
+        // way of decreasing angle. Equal radials make the whole ellipse.
+        PointF[] Arc(double l, double t, double rr, double b, double xs, double ys, double xe, double ye)
+        {
+            double cx = (l + rr) / 2, cy = (t + b) / 2, rx = Math.Abs(rr - l) / 2, ry = Math.Abs(b - t) / 2;
+            double start = Math.Atan2((ys - cy) * Math.Max(rx, 1e-9), (xs - cx) * Math.Max(ry, 1e-9));
+            double end = Math.Atan2((ye - cy) * Math.Max(rx, 1e-9), (xe - cx) * Math.Max(ry, 1e-9));
+            double sweep = end - start;
+            if (dc.ArcDirection == ArcClockwise)
+            {
+                while (sweep <= 0)
+                    sweep += 2 * Math.PI;
+            }
+            else
+            {
+                while (sweep >= 0)
+                    sweep -= 2 * Math.PI;
+            }
+            int steps = Math.Max(4, (int)Math.Ceiling(Math.Abs(sweep) / (Math.PI / 32)));
+            var points = new PointF[steps + 1];
+            for (int i = 0; i <= steps; i++)
+            {
+                double angle = start + sweep * i / steps;
+                points[i] = Map(cx + Math.Cos(angle) * rx, cy + Math.Sin(angle) * ry);
             }
             return points;
         }
@@ -312,6 +343,38 @@ internal static class EmfRasterizer
                     Emit([shape], fill: true, stroke: true);
                     break;
                 }
+                case 57 when size >= 12: dc.ArcDirection = I32(r, 8); break; // SETARCDIRECTION
+                case 45 or 46 or 47 or 55 when size >= 40: // ARC, CHORD, PIE, ARCTO
+                {
+                    PointF[] arc = Arc(I32(r, 8), I32(r, 12), I32(r, 16), I32(r, 20), I32(r, 24), I32(r, 28), I32(r, 32), I32(r, 36));
+                    if (type == 55)
+                    {
+                        // ARCTO draws a line from the current position to the arc's start, then the arc.
+                        foreach (PointF point in arc)
+                            LineTo(point);
+                        break;
+                    }
+                    if (type == 45)
+                    {
+                        if (inPath)
+                        {
+                            MoveTo(arc[0]);
+                            for (int i = 1; i < arc.Length; i++)
+                                LineTo(arc[i]);
+                        }
+                        else
+                        {
+                            Emit([arc], fill: false, stroke: true);
+                        }
+                        break;
+                    }
+                    // A chord closes the arc with a straight line; a pie through the centre.
+                    PointF[] closed = type == 47
+                        ? [.. arc, Map((I32(r, 8) + I32(r, 16)) / 2.0, (I32(r, 12) + I32(r, 20)) / 2.0), arc[0]]
+                        : [.. arc, arc[0]];
+                    Emit([closed], fill: true, stroke: true);
+                    break;
+                }
                 case 59: // BEGINPATH
                     inPath = true;
                     figures.Clear();
@@ -344,10 +407,13 @@ internal static class EmfRasterizer
                     AddText(r, wide: type == 84);
                     break;
                 case 81 when size >= 80: // STRETCHDIBITS
-                    if (U32(r, 68) == SrcCopy)
+                {
+                    uint rop = U32(r, 68);
+                    if (rop is SrcCopy or SrcAnd or SrcInvert or SrcPaint)
                         AddBlit(r, I32(r, 24), I32(r, 28), I32(r, 72), I32(r, 76), I32(r, 32), I32(r, 36), I32(r, 40), I32(r, 44),
-                            I32(r, 48), I32(r, 52), I32(r, 56), I32(r, 60), sourceAlpha: false, constantAlpha: 255);
+                            I32(r, 48), I32(r, 52), I32(r, 56), I32(r, 60), sourceAlpha: false, constantAlpha: 255, rop);
                     break;
+                }
                 case 76 or 77 when size >= 100: // BITBLT, STRETCHBLT
                     if (U32(r, 40) == SrcCopy && I32(r, 88) > 0)
                     {
@@ -410,15 +476,29 @@ internal static class EmfRasterizer
         return EncodePng(bitmap);
 
         void AddBlit(ReadOnlySpan<byte> r, int xDest, int yDest, int cxDest, int cyDest, int xSrc, int ySrc, int cxSrc, int cySrc,
-            int offBmi, int cbBmi, int offBits, int cbBits, bool sourceAlpha, byte constantAlpha)
+            int offBmi, int cbBmi, int offBits, int cbBits, bool sourceAlpha, byte constantAlpha, uint rop = SrcCopy)
         {
             if (cxDest == 0 || cyDest == 0 || cxSrc <= 0 || cySrc <= 0 || offBmi < 0 || cbBmi < 40 || offBits < 0 || cbBits <= 0 ||
                 offBmi > r.Length - cbBmi || offBits > r.Length - cbBits)
                 return;
             if (DecodeDib(r.Slice(offBmi, cbBmi), r.Slice(offBits, cbBits)) is not Dib dib)
                 return;
-            ops.Add(new Op([], BColor.Empty, 0, new Blit(dib, Map(xDest, yDest), Map(xDest + cxDest, yDest), Map(xDest, yDest + cyDest),
-                xSrc, ySrc, cxSrc, cySrc, sourceAlpha, constantAlpha)));
+            var blit = new Blit(dib, Map(xDest, yDest), Map(xDest + cxDest, yDest), Map(xDest, yDest + cyDest),
+                xSrc, ySrc, cxSrc, cySrc, sourceAlpha, constantAlpha);
+
+            // The icon idiom: a mask ANDed onto the page, then the picture
+            // XORed or ORed over the same place. LibreOffice merges the pair
+            // into one picture that shows where the mask is black
+            // (MtfTools::ResolveBitmapActions). An AND alone on a white page
+            // leaves what is not white; an XOR or OR alone is not drawn.
+            if (rop is SrcInvert or SrcPaint)
+            {
+                if (ops.Count > 0 && ops[^1].Blit is { DarkOnly: true } mask &&
+                    mask.Origin == blit.Origin && mask.XEdge == blit.XEdge && mask.YEdge == blit.YEdge)
+                    ops[^1] = ops[^1] with { Blit = blit with { Mask = mask with { DarkOnly = false } } };
+                return;
+            }
+            ops.Add(new Op([], BColor.Empty, 0, rop == SrcAnd ? blit with { DarkOnly = true } : blit));
         }
 
         // EMR_EXTTEXTOUTW/A: bounds (8), iGraphicsMode (24), exScale/eyScale (28, 32),
@@ -511,6 +591,8 @@ internal static class EmfRasterizer
         }
     }
 
+    private const int ArcCounterClockwise = 1, ArcClockwise = 2;
+
     private const uint EtoOpaque = 0x2, EtoGlyphIndex = 0x10, EtoPdy = 0x2000;
 
     /// <summary>
@@ -518,7 +600,7 @@ internal static class EmfRasterizer
     /// unit direction, and each character's offset along it when the record
     /// placed the characters itself.
     /// </summary>
-    private sealed record TextDraw(string Text, double[]? Offsets, BPoint Baseline, double Ux, double Uy, BFontStyle Font, BColor Color);
+    internal sealed record TextDraw(string Text, double[]? Offsets, BPoint Baseline, double Ux, double Uy, BFontStyle Font, BColor Color);
 
     private static EmfFont ReadFont(ReadOnlySpan<byte> r)
     {
@@ -536,7 +618,7 @@ internal static class EmfRasterizer
         return new EmfFont(family.Length == 0 ? "Arial" : family, I32(r, 12), I32(r, 20), I32(r, 28) >= 600, r[32] != 0);
     }
 
-    private static void DrawText(BRenderList list, TextDraw text)
+    internal static void DrawText(BRenderList list, TextDraw text)
     {
         bool rotated = Math.Abs(text.Uy) > 1e-6 || text.Ux < 0;
         if (rotated)
@@ -567,7 +649,7 @@ internal static class EmfRasterizer
     }
 
     /// <summary>Renders a list onto a transparent layer and composites it, straight alpha, over the page.</summary>
-    private static void CompositeLayer(byte[] rgba, int pageWidth, int pageHeight, BRenderList list)
+    internal static void CompositeLayer(byte[] rgba, int pageWidth, int pageHeight, BRenderList list)
     {
         using var renderer = new BImageRenderer();
         using BBitmap layer = renderer.RenderToImage(list, new BSurfaceDescriptor(new BSize(pageWidth, pageHeight), 1.0),
@@ -591,22 +673,38 @@ internal static class EmfRasterizer
         }
     }
 
-    private const uint SrcCopy = 0x00CC0020;
+    private const uint SrcCopy = 0x00CC0020, SrcAnd = 0x008800C6, SrcInvert = 0x00660046, SrcPaint = 0x00EE0086;
 
-    private sealed record Blit(Dib Source, PointF Origin, PointF XEdge, PointF YEdge, int XSrc, int YSrc, int CxSrc, int CySrc,
-        bool SourceAlpha, byte ConstantAlpha);
+    /// <summary>
+    /// A bitmap drawn into a parallelogram. <see cref="DarkOnly"/> leaves out its
+    /// white pixels (an AND onto a white page); <see cref="Mask"/>, another blit
+    /// over the same place, leaves out the pixels where the mask is white.
+    /// </summary>
+    internal sealed record Blit(Dib Source, PointF Origin, PointF XEdge, PointF YEdge, int XSrc, int YSrc, int CxSrc, int CySrc,
+        bool SourceAlpha, byte ConstantAlpha)
+    {
+        public bool DarkOnly { get; init; }
+
+        public Blit? Mask { get; init; }
+    }
+
+    private static bool IsWhite(Dib dib, int x, int y)
+    {
+        int at = (y * dib.Width + x) * 4;
+        return dib.Bgra[at] == 255 && dib.Bgra[at + 1] == 255 && dib.Bgra[at + 2] == 255;
+    }
 
     private sealed record Op(PointF[][] Contours, BColor Color, float StrokeWidth, Blit? Blit, TextDraw? Text = null);
 
     /// <summary>A decoded device-independent bitmap, top row first, as BGRA.</summary>
-    private sealed record Dib(int Width, int Height, byte[] Bgra);
+    internal sealed record Dib(int Width, int Height, byte[] Bgra);
 
     private static PointF[][] Contours(List<List<PointF>> figures) =>
         figures.FindAll(figure => figure.Count >= 2).ConvertAll(figure => figure.ToArray()).ToArray();
 
     private const int MaxDibPixels = 16_000_000;
 
-    private static Dib? DecodeDib(ReadOnlySpan<byte> info, ReadOnlySpan<byte> bits)
+    internal static Dib? DecodeDib(ReadOnlySpan<byte> info, ReadOnlySpan<byte> bits)
     {
         int headerSize = I32(info, 0);
         if (headerSize < 40 || headerSize > info.Length)
@@ -673,7 +771,7 @@ internal static class EmfRasterizer
     /// Draws a bitmap blit into the straight-alpha RGBA page by mapping each page
     /// pixel back through the destination parallelogram to its nearest source pixel.
     /// </summary>
-    private static void Composite(byte[] rgba, int pageWidth, int pageHeight, Blit blit)
+    internal static void Composite(byte[] rgba, int pageWidth, int pageHeight, Blit blit)
     {
         float ax = blit.XEdge.X - blit.Origin.X, ay = blit.XEdge.Y - blit.Origin.Y;
         float bx = blit.YEdge.X - blit.Origin.X, by = blit.YEdge.Y - blit.Origin.Y;
@@ -698,6 +796,14 @@ internal static class EmfRasterizer
                 int sxp = blit.XSrc + (int)(u * blit.CxSrc), syp = blit.YSrc + (int)(v * blit.CySrc);
                 if (sxp < 0 || syp < 0 || sxp >= dib.Width || syp >= dib.Height)
                     continue;
+                if (blit.DarkOnly && IsWhite(dib, sxp, syp))
+                    continue;
+                if (blit.Mask is Blit mask)
+                {
+                    int mx = mask.XSrc + (int)(u * mask.CxSrc), my = mask.YSrc + (int)(v * mask.CySrc);
+                    if (mx < 0 || my < 0 || mx >= mask.Source.Width || my >= mask.Source.Height || IsWhite(mask.Source, mx, my))
+                        continue;
+                }
                 int s = (syp * dib.Width + sxp) * 4;
                 double alpha = blit.SourceAlpha ? dib.Bgra[s + 3] / 255.0 : 1;
                 alpha *= blit.ConstantAlpha / 255.0;

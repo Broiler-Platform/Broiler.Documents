@@ -1092,6 +1092,13 @@ internal static class ExtrasConformance
     /// The <c>render</c> invocation both paths use, so a crash-regression input
     /// is rendered exactly as a document would have been.
     /// </summary>
+    /// <remarks>
+    /// HTML and ODT (packaged, flat or template) ask for <c>--allow-local-images</c>,
+    /// because LibreOffice draws the pictures they link beside themselves: an
+    /// HTML <c>src</c> naming a sibling file, and an ODT package's
+    /// <c>../name</c>, which resolves against the package as a folder. The
+    /// option reaches nothing else.
+    /// </remarks>
     internal static List<string> RenderArguments(
         ExtrasSample sample,
         string outputDirectory,
@@ -1102,11 +1109,10 @@ internal static class ExtrasConformance
     {
         var arguments = new List<string> { "render", sample.LocalPath };
         arguments.AddRange(FormatArguments(sample));
-        if (sample.Format == "html")
-        {
+        if (sample.Format is "html" or "odt")
             arguments.Add("--allow-local-images");
+        if (sample.Format == "html")
             arguments.AddRange(HtmlPageArguments);
-        }
         arguments.AddRange(
         [
             "--out", Path.Combine(outputDirectory, "page-{page}.bmp"),
