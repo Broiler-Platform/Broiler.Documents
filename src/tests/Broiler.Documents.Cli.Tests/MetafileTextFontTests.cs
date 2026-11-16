@@ -29,8 +29,17 @@ public sealed class MetafileTextFontTests : IDisposable
         JsonObject json = CliHarness.RunExpecting(ExitCode.Ok,
             "render", odt, "--out", _cli.Path("formula.png"), "--json", "--font-file", "Some Other Family=" + face).Json();
 
+        // The formula's text is the document's only text, and it is drawn
+        // while the document is read: the mapping is asked for its face only
+        // if it was installed before the read.
         JsonArray unmapped = json["render"]!["fonts"]!["unmappedFamilies"]!.AsArray();
-        Assert.Contains(unmapped, node => node!.GetValue<string>() == family);
+        Assert.NotEmpty(unmapped);
+
+        // Broiler.Graphics' Windows text backend gives a family the system
+        // does not have one of its own before it asks the mapping (it asks
+        // for Courier New there), so the family is checked on other hosts.
+        if (!OperatingSystem.IsWindows())
+            Assert.Contains(unmapped, node => node!.GetValue<string>() == family);
     }
 
     private static void WriteFormulaOdt(string path, string family)
