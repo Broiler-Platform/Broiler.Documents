@@ -104,6 +104,12 @@ public sealed record PageGeometry(
     public TextGrid? TextGrid { get; init; }
 
     /// <summary>
+    /// The line register register-true paragraphs on this page set their
+    /// baselines on ("page line spacing"), or null when the page has none.
+    /// </summary>
+    public LineRegister? LineRegister { get; init; }
+
+    /// <summary>
     /// The space a header keeps between its content and the text when it grows
     /// past the band it reserves, in points. ODF states it as the header style's
     /// <c>fo:margin-bottom</c>: LibreOffice's header is as tall as its content,

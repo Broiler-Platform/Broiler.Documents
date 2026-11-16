@@ -174,6 +174,15 @@ public sealed record DocumentStyleDefaults
     public bool PreserveOpeningParagraphSpacing { get; init; }
 
     /// <summary>
+    /// Whether every page break a paragraph states keeps the paragraph's space
+    /// above at the top of the page it opens, as
+    /// <see cref="ParagraphStyle.PageBreakKeepsSpaceAbove"/> says for one
+    /// paragraph. Set by the ODT reader: Writer counts each break ODT can state
+    /// as the page's own (<c>SwFlowFrame::IsPageBreak</c>).
+    /// </summary>
+    public bool PageBreaksKeepSpaceAbove { get; init; }
+
+    /// <summary>
     /// Whether the space between two paragraphs is the larger of the first's
     /// space below and the second's space above, rather than both.
     /// </summary>
@@ -257,7 +266,8 @@ public sealed record DocumentStyleDefaults
     public bool IsDefault =>
         FontSizePoints == FallbackFontSizePoints && FontFamily is null && !WidensSpaceRuns && !ShrinksJustifiedLines &&
         !TabsOverMargin && !UndecoratedLinks && WidowOrphanLines == 0 && !PreserveOpeningParagraphSpacing &&
-        !KeepWithNextOpeningLines && !CollapsesParagraphSpacing && !LaysOutBodyParagraphBorders && !PrintsSheets;
+        !KeepWithNextOpeningLines && !CollapsesParagraphSpacing && !LaysOutBodyParagraphBorders && !PrintsSheets &&
+        !PageBreaksKeepSpaceAbove;
 
     /// <summary>
     /// What <see cref="WidensSpaceRuns"/> adds to the width of

@@ -111,6 +111,13 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     /// </summary>
     private int _offBody;
 
+    /// <summary>
+    /// The line register of the page being filled: the distance between its
+    /// lines and how far below the top of the body its first baseline is, or
+    /// null for none.
+    /// </summary>
+    private (double Pitch, double Ascent)? _register;
+
     /// <summary>The grid a body line is set on, or null where none applies.</summary>
     private TextGrid? BodyGrid => _offBody == 0 ? _grid : null;
     private bool _verticalWriting;
@@ -383,10 +390,12 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             if (setup.Continuous)
             {
                 _grid = null;
+                _register = null;
                 return (setup.ContentTopPoints, setup.ContentTopPoints + columnHeight);
             }
 
             _currentPageGeometry = selectedPage ?? document.PageGeometry;
+            _register = RegisterOf(_currentPageGeometry?.LineRegister);
             if (!sectionPages || selectedPage is not PageGeometry page)
             {
                 _frame = FrameFor(
@@ -1761,8 +1770,10 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             // (SwFlowFrame::HasParaSpaceAtPages, tdf170003_bottomSpacing.docx).
             bool openingSpacing = _styleDefaults.PreserveOpeningParagraphSpacing &&
                 (paragraphIndex == 0
-                    ? !style.PageBreakBefore && !style.ColumnBreakBefore
-                    : style.PageBreakBefore && style.PageBreakKeepsSpaceAbove);
+                    ? (!style.PageBreakBefore || KeepsSpaceAbove(style)) && !style.ColumnBreakBefore
+                    : style.PageBreakBefore && KeepsSpaceAbove(style));
+            bool KeepsSpaceAbove(ParagraphStyle opening) =>
+                opening.PageBreakKeepsSpaceAbove || _styleDefaults.PageBreaksKeepSpaceAbove;
             double spacingBefore = ColumnHasContent() ? _styleDefaults.SpaceAbove(style.SpacingBefore, spacingAfterPrevious)
                 : openingSpacing || style.ColumnBreakBefore ? Math.Max(0, style.SpacingBefore) : 0;
 
@@ -2006,9 +2017,10 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                     segmentEnd = lineIndex + Math.Max(1, fit);
                 }
                 y += line.LeadingSkip;
+                y = OnRegister(line, style, y, columns.Count > 1 ? regionTop : pageTop);
 
                 double asCharHeight = lineIndex == 0
-                    ? _documentShapes.Where(s => s.ParagraphIndex == paragraphIndex && s.IsAsCharacter).Select(s => BoxHeight(s)).DefaultIfEmpty(0).Max()
+                    ? _documentShapes.Where(s => s.ParagraphIndex == paragraphIndex && s.IsAsCharacter).Select(s => TurnedBox(s).Height).DefaultIfEmpty(0).Max()
                     : 0;
                 if (asCharHeight > 0)
                     line.Height = Math.Max(line.Height, asCharHeight);
@@ -2074,6 +2086,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                     }
                 }
 
+                // A line moved to the next page meets the register again there.
+                y = OnRegister(line, style, y, columns.Count > 1 ? regionTop : pageTop);
                 line.Top = y;
                 line.Shift(columns.Offset(column));
                 if (border is not null)
@@ -2123,6 +2137,16 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             column = 0;
             columnStart = currentLines.Count;
             bool dedicatedEndnotePage = !setup.Continuous && document.NoteNumbering.EndnotesStartOnNewPage;
+            // The pages of their own the endnotes start are on the endnotes'
+            // page style, its paper, margins, header and footer.
+            if (dedicatedEndnotePage && sectionPages && document.NoteNumbering.EndnotePage is PageGeometry endnotePage &&
+                (currentLines.Count > 0 || currentCells.Count > 0))
+            {
+                pendingOwner = new DocumentSection(document.ParagraphCount, 0, 1, 0, endnotePage,
+                    document.NoteNumbering.EndnoteRunningContent ?? RunningContent.Empty);
+                hasPendingOwner = true;
+                pendingSharesFirst = false;
+            }
             if ((dedicatedEndnotePage || y + SeparatorBlock > contentBottom) &&
                 (currentLines.Count > 0 || currentCells.Count > 0))
             {
@@ -2751,6 +2775,17 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             };
             var bounds = new BRect(area.Left + offset, shape.TopOnPage(anchorTop),
                 BoxWidth(shape), BoxHeight(shape));
+            // A turned shape set as a character stands in its line by the box
+            // round it as turned (tdf70838.odt). It is drawn turned about its
+            // top left corner, so that corner moves to put the box in place.
+            if (shape.IsAsCharacter && shape.RotationRadians != 0 && double.IsFinite(shape.RotationRadians))
+            {
+                double cos = Math.Cos(shape.RotationRadians), sin = Math.Sin(shape.RotationRadians);
+                double w = bounds.Width, h = bounds.Height;
+                double minX = Math.Min(Math.Min(0, w * cos), Math.Min(-h * sin, (w * cos) - (h * sin)));
+                double minY = Math.Min(Math.Min(0, w * sin), Math.Min(h * cos, (w * sin) + (h * cos)));
+                bounds = new BRect(bounds.X - minX, bounds.Y - minY, w, h);
+            }
 
             if (((bounds.Width <= 0 || bounds.Height <= 0) && !shape.IsRule) || !Draws(shape))
                 continue;
@@ -4364,6 +4399,20 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         return shape.OffsetXFromCell ? column : Math.Max(1, column - Math.Max(0, shape.OffsetX));
     }
 
+    /// <summary>
+    /// The box round a shape as it is turned (Writer's snap rectangle), or its
+    /// own box where it is not turned.
+    /// </summary>
+    private (double Width, double Height) TurnedBox(DocumentShape shape)
+    {
+        double width = BoxWidth(shape), height = BoxHeight(shape);
+        double angle = shape.RotationRadians;
+        if (angle == 0 || !double.IsFinite(angle))
+            return (width, height);
+        double cos = Math.Abs(Math.Cos(angle)), sin = Math.Abs(Math.Sin(angle));
+        return ((width * cos) + (height * sin), (width * sin) + (height * cos));
+    }
+
     /// <summary>The height a shape's box is drawn at, grown to its text where it grows.</summary>
     private double BoxHeight(DocumentShape shape) =>
         _grownHeights.TryGetValue(shape, out double grown) ? grown : Math.Max(0, shape.Height);
@@ -5940,6 +5989,55 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
         return new LayoutPiece(string.Empty, font, LayoutColors.Or(style.Foreground, _settings.DefaultForeground), style.Background, underline: false,
             strikethrough: false, style.LinkHref, null, 0, ascent, descent, oblique: false, isTab: true, lineGap: lineGap);
+    }
+
+    /// <summary>
+    /// A page's line register measured in the fonts text is set in: the pitch
+    /// of its lines and the first baseline's distance below the top of the
+    /// body, as Writer works them out from the reference style
+    /// (<c>SwTextFrame::FillRegister</c>). The font's height and ascent hold its
+    /// line gap, which Writer counts above the text.
+    /// </summary>
+    private (double Pitch, double Ascent)? RegisterOf(LineRegister? register)
+    {
+        if (register is null)
+            return null;
+
+        var (ascent, descent, lineGap) = VerticalMetrics(FontFor(register.Text));
+        double height = ascent + descent + lineGap;
+        double above = ascent + lineGap;
+        (double pitch, double first) = register.Rule switch
+        {
+            LineHeightRule.Exact when register.LineHeight > 0 => (register.LineHeight, register.LineHeight * 0.8),
+            LineHeightRule.AtLeast => (Math.Max(height, register.LineHeight), Math.Max(height, register.LineHeight) - height + above),
+            LineHeightRule.Leading when float.IsFinite(register.LineHeight) => (height + register.LineHeight, above),
+            // Writer reads a proportion under half as half, and none as single.
+            _ => (height * (register.LineSpacing <= 0 ? 1 : Math.Max(0.5, register.LineSpacing)), above),
+        };
+        return double.IsFinite(pitch) && pitch >= 1 && double.IsFinite(first) ? (pitch, first) : null;
+    }
+
+    /// <summary>
+    /// Where a line of a register-true paragraph starts in the body, at or
+    /// below <paramref name="top"/>: moved down so its baseline falls on the
+    /// next line of the page's register, counted from <paramref name="bodyTop"/>
+    /// (<c>SwTextFormatter::CalcRealHeight</c>). Writer's baseline has the
+    /// text's line gap above it where this layout keeps it below, so the gap is
+    /// counted in, except on a line of exact height, whose baseline Writer sets
+    /// at four fifths of it as this layout does.
+    /// </summary>
+    private double OnRegister(LayoutLine line, ParagraphStyle style, double top, double bodyTop)
+    {
+        if (!style.RegisterTrue || _register is not (double pitch, double first) || _offBody > 0 || line.OnGrid)
+            return top;
+
+        bool exact = style.LineHeightRule == LineHeightRule.Exact && style.LineHeight > 0;
+        double gap = exact ? 0 : line.Pieces.Where(piece => !piece.IsImage).Select(piece => piece.LineGap).DefaultIfEmpty(0).Max();
+        double baseline = top + line.Baseline + gap;
+        // A baseline a hair past a register line, from rounding, stays on it.
+        double steps = Math.Ceiling(((baseline - (bodyTop + first)) / pitch) - 1e-3);
+        double target = bodyTop + first + (steps * pitch);
+        return top + Math.Max(0, target - baseline);
     }
 
     private (double Ascent, double Descent, double LineGap) VerticalMetrics(BFontStyle font)
