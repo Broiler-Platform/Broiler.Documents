@@ -109,26 +109,8 @@ internal sealed class OdtStyles : IOdtImageDiagnostics
 
         string size = level switch { 1 => "130%", 2 => "115%", 3 => "101%", 4 => "95%", _ => "85%" };
         string above = level switch { 1 => "12pt", 2 => "10pt", 3 => "7pt", _ => "6pt" };
-        // Its parent is Writer's built-in Heading where the document has none:
-        // the default heading face, Liberation Sans, at 14 pt, kept with the
-        // next paragraph (IndexElementsInHiddenSections.fodt).
-        var heading = new StyleKey(ParagraphFamily, "Heading");
-        if (!_styles.ContainsKey(heading))
-        {
-            _styles[heading] = new StyleDefinition(
-                "Heading",
-                _styles.ContainsKey(new StyleKey(ParagraphFamily, DefaultParagraphStyleName)) ? DefaultParagraphStyleName : null,
-                new XElement(OdtNamespaces.Style + "paragraph-properties",
-                    new XAttribute(OdtNamespaces.Fo + "margin-top", "12pt"),
-                    new XAttribute(OdtNamespaces.Fo + "margin-bottom", "6pt"),
-                    new XAttribute(OdtNamespaces.Fo + "keep-with-next", "always")),
-                new XElement(OdtNamespaces.Style + "text-properties",
-                    new XAttribute(OdtNamespaces.Fo + "font-family", "Liberation Sans"),
-                    new XAttribute(OdtNamespaces.Fo + "font-size", "14pt")),
-                null,
-                null);
-            _builtInHeadings++;
-        }
+        // Its parent is Writer's built-in Heading where the document has none.
+        AddBuiltInHeading();
         _styles[key] = new StyleDefinition(
             name,
             "Heading",
@@ -142,6 +124,76 @@ internal sealed class OdtStyles : IOdtImageDiagnostics
             null);
         _builtInHeadings++;
         return name;
+    }
+
+    /// <summary>
+    /// Adds Writer's built-in <c>Heading</c> paragraph style when the document
+    /// does not define one (DocumentStylePoolManager,
+    /// <c>RES_POOLCOLL_HEADLINE_BASE</c>): a child of <c>Standard</c> in the
+    /// default heading face, Liberation Sans, at 14 pt, 12 pt above and 6 pt
+    /// below, kept with the next paragraph (IndexElementsInHiddenSections.fodt).
+    /// </summary>
+    private void AddBuiltInHeading()
+    {
+        var heading = new StyleKey(ParagraphFamily, "Heading");
+        if (_styles.ContainsKey(heading))
+            return;
+
+        _styles[heading] = new StyleDefinition(
+            "Heading",
+            _styles.ContainsKey(new StyleKey(ParagraphFamily, DefaultParagraphStyleName)) ? DefaultParagraphStyleName : null,
+            new XElement(OdtNamespaces.Style + "paragraph-properties",
+                new XAttribute(OdtNamespaces.Fo + "margin-top", "12pt"),
+                new XAttribute(OdtNamespaces.Fo + "margin-bottom", "6pt"),
+                new XAttribute(OdtNamespaces.Fo + "keep-with-next", "always")),
+            new XElement(OdtNamespaces.Style + "text-properties",
+                new XAttribute(OdtNamespaces.Fo + "font-family", "Liberation Sans"),
+                new XAttribute(OdtNamespaces.Fo + "font-size", "14pt")),
+            null,
+            null);
+        _builtInHeadings++;
+    }
+
+    /// <summary>
+    /// The paragraph style a note's paragraph that names none is in:
+    /// <c>Footnote</c> or <c>Endnote</c>, which Writer gives the paragraph it
+    /// opens a note with (<c>SwFootnoteInfo::GetFootnoteTextColl</c>), and an
+    /// imported paragraph naming no style keeps. A document that does not
+    /// define it gets Writer's built-in one.
+    /// </summary>
+    public string NoteParagraphStyleName(bool endnote)
+    {
+        string name = endnote ? "Endnote" : "Footnote";
+        AddBuiltInNoteStyle(name);
+        return name;
+    }
+
+    /// <summary>
+    /// Adds Writer's built-in <c>Footnote</c> or <c>Endnote</c> paragraph style
+    /// when the document does not define it (DocumentStylePoolManager,
+    /// <c>RES_POOLCOLL_FOOTNOTE</c> and <c>RES_POOLCOLL_ENDNOTE</c>): a child of
+    /// <c>Standard</c> at 10 pt, its text 6 mm in with the first line hanging
+    /// back to the margin for the label. ergo_sum_footnote.fodt's unstyled
+    /// note lines are 11.5 pt apart, their label at the margin and its text
+    /// 17 pt in.
+    /// </summary>
+    private void AddBuiltInNoteStyle(string name)
+    {
+        var key = new StyleKey(ParagraphFamily, name);
+        if (_styles.ContainsKey(key))
+            return;
+
+        _styles[key] = new StyleDefinition(
+            name,
+            _styles.ContainsKey(new StyleKey(ParagraphFamily, DefaultParagraphStyleName)) ? DefaultParagraphStyleName : null,
+            new XElement(OdtNamespaces.Style + "paragraph-properties",
+                new XAttribute(OdtNamespaces.Fo + "margin-left", "6mm"),
+                new XAttribute(OdtNamespaces.Fo + "text-indent", "-6mm")),
+            new XElement(OdtNamespaces.Style + "text-properties",
+                new XAttribute(OdtNamespaces.Fo + "font-size", "10pt")),
+            null,
+            null);
+        _builtInHeadings++;
     }
 
     /// <summary>The number of list styles that were loaded.</summary>
@@ -973,6 +1025,20 @@ internal sealed class OdtStyles : IOdtImageDiagnostics
         string? current = styleName;
         while (!string.IsNullOrEmpty(current))
         {
+            // A parent named Writer's Heading, Footnote or Endnote that the
+            // document does not define is the built-in one: Writer creates the
+            // pool style a parent name stands for on demand
+            // (SwDocStyleSheet::SetParent, lcl_FindParaFormat with bCreate).
+            // tdf160518_*.fodt's Heading 1 is drawn in Liberation Sans Bold,
+            // 12 pt above and 6 pt below.
+            if (chain.Count > 0 && string.Equals(family, ParagraphFamily, StringComparison.Ordinal))
+            {
+                if (string.Equals(current, "Heading", StringComparison.Ordinal))
+                    AddBuiltInHeading();
+                else if (current is "Footnote" or "Endnote")
+                    AddBuiltInNoteStyle(current);
+            }
+
             if (!_styles.TryGetValue(new StyleKey(family, current), out StyleDefinition? style))
             {
                 // Only the name the content actually referenced is worth

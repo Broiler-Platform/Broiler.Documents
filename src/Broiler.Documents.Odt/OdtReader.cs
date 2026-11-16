@@ -209,9 +209,12 @@ internal static class OdtReader
         XElement? master = ResolveMasterPage(content, styles);
         // A document with no master page at all is on Writer's default page
         // style: A4 with 2 cm margins (hiddenSectionsAroundPageBreak.fodt,
-        // bookmark_order.fodt). A master page whose layout says nothing usable
-        // keeps the caller's page fallback.
-        PageGeometry? page = ReadPageGeometry(master, styles, diagnostics) ?? (master is null ? WriterDefaultPage : null);
+        // bookmark_order.fodt), and so is one whose master page names no page
+        // layout the document defines: Writer leaves that page style at its
+        // pool defaults (tdf160253_outline_numbering.fodt). A master page whose
+        // layout says nothing usable keeps the caller's page fallback.
+        PageGeometry? page = ReadPageGeometry(master, styles, diagnostics) ??
+            (master is null || !NamesPageLayout(master, styles) ? WriterDefaultPage : null);
         RichTextDocument document = ReadContent(content, styles, images, page, options.Limits, diagnostics, master);
         document = document.WithRunningContent(
             ReadRunningContent(master, styles, images, options.Limits, diagnostics));
@@ -234,7 +237,7 @@ internal static class OdtReader
         });
         document = document.WithPageBackground(
             ReadPageBackground(master, PageLayoutProperties(master, styles), styles));
-        document = document.WithNoteNumbering(ReadNoteNumbering(styles));
+        document = document.WithNoteNumbering(ReadNoteNumbering(styles, settings));
         document = document.WithShowsRevisions(OdtRevisions.Shown(settings));
         return new DocumentReadResult(
             document,
@@ -799,6 +802,17 @@ internal static class OdtReader
             "A" => ListNumberFormat.UpperLetter,
             _ => null,
         };
+
+    /// <summary>
+    /// Whether <paramref name="master"/> names a <c>style:page-layout</c> the
+    /// document defines.
+    /// </summary>
+    private static bool NamesPageLayout(XElement master, OdtStyles styles)
+    {
+        string? layoutName = (string?)master.Attribute(OdtNamespaces.Style + "page-layout-name");
+        return !string.IsNullOrWhiteSpace(layoutName) && styles.PageLayouts.Any(candidate =>
+            string.Equals((string?)candidate.Attribute(OdtNamespaces.Style + "name"), layoutName, StringComparison.Ordinal));
+    }
 
     private static XElement? PageLayoutProperties(XElement? master, OdtStyles styles)
     {
@@ -1582,6 +1596,15 @@ internal static class OdtReader
     /// objects with it, so the paragraph is left out whole. Fields in a frame
     /// anchored here belong to the frame's own paragraphs and are not counted.
     /// </summary>
+    /// <summary>
+    /// Whether <paramref name="blocks"/> are paragraphs, at least one, that
+    /// their own fields hide, which the block reader leaves out.
+    /// </summary>
+    internal static bool HidesEveryParagraph(IReadOnlyList<XElement> blocks, OdtReadContext context) =>
+        blocks.Count > 0 && blocks.All(block =>
+            (block.Name == OdtNamespaces.Text + "p" || block.Name == OdtNamespaces.Text + "h") &&
+            (HiddenByEmptyDatabaseField(block, context.Styles) || HiddenByParagraphField(block, context)));
+
     private static bool HiddenByParagraphField(XElement paragraph, OdtReadContext context)
     {
         bool any = false;
@@ -2748,18 +2771,17 @@ internal static class OdtReader
                 bool hidden = IsSectionHidden(element, context);
                 string? sectionStyle = (string?)element.Attribute(OdtNamespaces.Text + "style-name");
                 XElement? sectionProperties = sectionStyle is null ? null : context.Styles.SectionProperties.GetValueOrDefault(sectionStyle);
-                XElement? noteConfiguration = sectionProperties?.Elements(OdtNamespaces.Text + "notes-configuration")
-                    .FirstOrDefault(configuration => (string?)configuration.Attribute(OdtNamespaces.Text + "note-class") == "footnote");
                 SectionFootnotes? previousFootnotes = context.SectionFootnotes;
-                SectionFootnotes? footnotes = null;
-                if (noteConfiguration is not null)
-                {
-                    int? start = int.TryParse((string?)noteConfiguration.Attribute(OdtNamespaces.Text + "start-value"),
-                        NumberStyles.Integer, CultureInfo.InvariantCulture, out int number) && number is > 0 and < 100000 ? number : null;
-                    string? format = (string?)noteConfiguration.Attribute(OdtNamespaces.Style + "num-format");
-                    footnotes = new SectionFootnotes(start, format is null ? null : OdtStyles.NumberFormat(format));
+                SectionFootnotes? previousEndnotes = context.SectionEndnotes;
+                SectionFootnotes? footnotes = SectionNoteCollection(sectionProperties, "footnote");
+                // A section's endnote configuration collects its endnotes at
+                // its end, as its footnote configuration does its footnotes
+                // (SwFormatEndAtTextEnd; tdf146704_EndnoteInSection.odt).
+                SectionFootnotes? endnotes = SectionNoteCollection(sectionProperties, "endnote");
+                if (footnotes is not null)
                     context.SectionFootnotes = footnotes;
-                }
+                if (endnotes is not null)
+                    context.SectionEndnotes = endnotes;
                 OdtBreak pending = hidden ? context.TakeBreak() : OdtBreak.None;
                 if (hidden) context.HiddenSectionDepth++;
                 try
@@ -2769,6 +2791,7 @@ internal static class OdtReader
                 finally
                 {
                     context.SectionFootnotes = previousFootnotes;
+                    context.SectionEndnotes = previousEndnotes;
                     if (hidden)
                     {
                         context.HiddenSectionDepth--;
@@ -2790,7 +2813,8 @@ internal static class OdtReader
                     double mr = OdtUnits.TryParseLength((string?)sectionProperties.Attribute(OdtNamespaces.Fo + "margin-right"), out double rightVal) ? rightVal : uniformMargin;
                     bool indented = ml > 0 || mr > 0;
 
-                    if (count > 1 || (!background.IsEmpty && background.A > 0) || indented || dontBalance || hidden || footnotes is not null)
+                    if (count > 1 || (!background.IsEmpty && background.A > 0) || indented || dontBalance || hidden || footnotes is not null ||
+                        endnotes is not null)
                     {
                         builder.AddSection(new DocumentSection(
                             sectionStart, builder.CurrentParagraphIndex - sectionStart, count, gap,
@@ -2800,7 +2824,7 @@ internal static class OdtReader
                             leftIndent: Math.Max(0, ml),
                             rightIndent: Math.Max(0, mr))
                         {
-                            FootnotesEnding = footnotes is null ? [] : [footnotes],
+                            FootnotesEnding = [.. new[] { footnotes, endnotes }.OfType<SectionFootnotes>()],
                         });
                     }
                 }
@@ -3080,7 +3104,8 @@ internal static class OdtReader
         OdtListContext? list,
         int depth)
     {
-        string? styleName = (string?)paragraph.Attribute(OdtNamespaces.Text + "style-name") ?? UnstyledHeadingStyle(paragraph, context.Styles);
+        string? styleName = (string?)paragraph.Attribute(OdtNamespaces.Text + "style-name") ?? UnstyledHeadingStyle(paragraph, context.Styles) ??
+            context.NoteParagraphStyle;
 
         ParagraphStyle paragraphStyle = ParagraphStyle.Default;
         string? breakAfter = null;
@@ -3751,7 +3776,8 @@ internal static class OdtReader
         OdtListContext? list,
         OdtReadContext context)
     {
-        string? styleName = (string?)paragraph.Attribute(OdtNamespaces.Text + "style-name") ?? UnstyledHeadingStyle(paragraph, context.Styles);
+        string? styleName = (string?)paragraph.Attribute(OdtNamespaces.Text + "style-name") ?? UnstyledHeadingStyle(paragraph, context.Styles) ??
+            context.NoteParagraphStyle;
         ParagraphStyle style = ParagraphStyle.Default;
         foreach (XElement properties in context.Styles.ParagraphProperties(styleName))
             style = ApplyParagraphProperties(properties, style, context.Builder, context.Styles);
@@ -3816,7 +3842,13 @@ internal static class OdtReader
         {
             Revision = context.Builder.Revision,
         };
-        var nested = new OdtReadContext(context.Styles, context.Images, builder) { InNote = true, Regions = context.Regions, Variables = context.Variables };
+        var nested = new OdtReadContext(context.Styles, context.Images, builder)
+        {
+            InNote = true,
+            Regions = context.Regions,
+            Variables = context.Variables,
+            NoteParagraphStyle = context.Styles.NoteParagraphStyleName(kind == NoteKind.Endnote),
+        };
         XElement? body = note.Element(OdtNamespaces.Text + "note-body");
         if (body is not null)
             ReadBlockContent(body.Elements(), nested, list: null, depth + 1);
@@ -3832,9 +3864,28 @@ internal static class OdtReader
 
         var documentNote = new DocumentNote(kind, built.Paragraphs, label?.Trim())
         {
-            Section = kind == NoteKind.Footnote ? context.SectionFootnotes : null,
+            Section = kind == NoteKind.Footnote ? context.SectionFootnotes : context.SectionEndnotes,
         };
         context.Builder.AppendLiteral(DocumentNote.PlaceholderText, style with { Note = documentNote, Image = null });
+    }
+
+    /// <summary>
+    /// The notes a section collects at its end for its
+    /// <c>text:notes-configuration</c> of <paramref name="noteClass"/>, with
+    /// their own numbering where it states a <c>text:start-value</c>; null when
+    /// the section states none.
+    /// </summary>
+    private static SectionFootnotes? SectionNoteCollection(XElement? sectionProperties, string noteClass)
+    {
+        XElement? configuration = sectionProperties?.Elements(OdtNamespaces.Text + "notes-configuration")
+            .FirstOrDefault(candidate => (string?)candidate.Attribute(OdtNamespaces.Text + "note-class") == noteClass);
+        if (configuration is null)
+            return null;
+
+        int? start = int.TryParse((string?)configuration.Attribute(OdtNamespaces.Text + "start-value"),
+            NumberStyles.Integer, CultureInfo.InvariantCulture, out int number) && number is > 0 and < 100000 ? number : null;
+        string? format = (string?)configuration.Attribute(OdtNamespaces.Style + "num-format");
+        return new SectionFootnotes(start, format is null ? null : OdtStyles.NumberFormat(format));
     }
 
     /// <summary>
@@ -3844,10 +3895,21 @@ internal static class OdtReader
     /// <remarks>
     /// LibreOffice writes <c>text:start-value</c> counting from zero - the
     /// default first note is 1 and is written <c>0</c> - and reads it that way.
+    /// <para>
+    /// Writer sets a document's endnotes on pages of their own after its body,
+    /// in the <c>Endnote</c> page style, whether or not the configuration
+    /// names one: <c>SwEndNoteInfo</c> defaults to that pool page style, and
+    /// the import only replaces it with a page style the configuration names.
+    /// Only the <c>ContinuousEndnotes</c> setting (Word's layout, kept for
+    /// documents it opened) runs them on under the body instead.
+    /// </para>
     /// </remarks>
-    private static NoteNumbering ReadNoteNumbering(OdtStyles styles)
+    private static NoteNumbering ReadNoteNumbering(OdtStyles styles, XElement? settings)
     {
-        NoteNumbering numbering = NoteNumbering.Default;
+        NoteNumbering numbering = NoteNumbering.Default with
+        {
+            EndnotesStartOnNewPage = !OdtRevisions.ConfigFlag(settings, "ContinuousEndnotes"),
+        };
         foreach (XElement configuration in styles.NotesConfigurations)
         {
             string? numFormat = (string?)configuration.Attribute(OdtNamespaces.Style + "num-format");
@@ -3865,8 +3927,6 @@ internal static class OdtReader
                 {
                     EndnoteFormat = numFormat is null ? numbering.EndnoteFormat : OdtStyles.NumberFormat(numFormat),
                     EndnoteStart = start ?? numbering.EndnoteStart,
-                    EndnotesStartOnNewPage = !string.IsNullOrEmpty(
-                        (string?)configuration.Attribute(OdtNamespaces.Text + "master-page-name")),
                 };
             }
             else
@@ -4605,6 +4665,7 @@ internal static class OdtReader
             // style nor Standard names one (bookmark_order.fodt).
             FontFamily = string.IsNullOrWhiteSpace(style.FontFamily) ? WriterDefaultFontFamily : style.FontFamily,
             RunningBandsEndAtLastLine = true,
+            ColumnBreaksNeedColumns = true,
         };
     }
 
