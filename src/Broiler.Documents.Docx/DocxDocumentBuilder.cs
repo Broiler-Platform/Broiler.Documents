@@ -736,6 +736,7 @@ internal sealed class DocxDocumentBuilder(
         // one before the paragraph that follows.
         if (_pageBreakSeen && _breakIsColumn && _pageBreakLeadsParagraph && _segments.Count == 0 && !InTableCell)
             StartParagraphOnNewPage();
+
         if (_pageBreakSeen)
         {
             _pageBreakSeen = false;

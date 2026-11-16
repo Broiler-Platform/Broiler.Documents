@@ -114,7 +114,7 @@ internal sealed class DocxSections
     /// Finds the body's sections. A body with no section properties at all has
     /// one section of one column, which is what Word lays it out as.
     /// </summary>
-    public static DocxSections Read(XElement? body)
+    public static DocxSections Read(XElement? body, bool gutterAtTop = false)
     {
         var sections = new List<Section>();
         if (body is null)
@@ -130,7 +130,7 @@ internal sealed class DocxSections
                 XElement sectPr = paragraph
                     .Element(DocxNamespaces.Wordprocessing + "pPr")!
                     .Element(DocxNamespaces.Wordprocessing + "sectPr")!;
-                Section section = ReadSection(sectPr, paragraphs, previous);
+                Section section = ReadSection(sectPr, paragraphs, previous, gutterAtTop);
                 sections.Add(section);
                 previous = section;
                 paragraphs = 0;
@@ -138,7 +138,7 @@ internal sealed class DocxSections
         }
 
         XElement? final = body.Elements(DocxNamespaces.Wordprocessing + "sectPr").LastOrDefault();
-        sections.Add(ReadSection(final, paragraphs, previous));
+        sections.Add(ReadSection(final, paragraphs, previous, gutterAtTop));
         return new DocxSections(sections);
     }
 
@@ -168,13 +168,13 @@ internal sealed class DocxSections
         return properties;
     }
 
-    private static Section ReadSection(XElement? sectPr, int paragraphs, Section? previous = null)
+    private static Section ReadSection(XElement? sectPr, int paragraphs, Section? previous = null, bool gutterAtTop = false)
     {
         // w:type says how the section starts against the one before it, and is
         // read only where there is one before it.
         string type = DocxValueReader.WordValue(sectPr?.Element(DocxNamespaces.Wordprocessing + "type")) ?? "nextPage";
         DocxColumns columns = ReadColumns(sectPr);
-        PageGeometry? page = ReadPage(sectPr);
+        PageGeometry? page = ReadPage(sectPr, gutterAtTop);
 
         bool startsPage = type is "nextPage" or "oddPage" or "evenPage";
 
@@ -227,7 +227,15 @@ internal sealed class DocxSections
     /// <c>w:pgMar</c>, without its columns; null when it states no paper, or a
     /// page with no room to write on.
     /// </summary>
-    public static PageGeometry? ReadPage(XElement? sectPr)
+    /// <remarks>
+    /// The gutter (<c>w:pgMar w:gutter</c>) is added to the left margin, to the
+    /// right one under <c>w:rtlGutter</c>, and to the top one where the
+    /// settings state <c>w:gutterAtTop</c>, as Writer lays out its
+    /// <c>GutterMargin</c> (writerfilter's <c>SectionPropertyMap</c>, the
+    /// <c>RtlGutter</c> and <c>GutterAtTop</c> settings): gutter-left.docx's
+    /// text starts half an inch further in.
+    /// </remarks>
+    public static PageGeometry? ReadPage(XElement? sectPr, bool gutterAtTop = false)
     {
         if (sectPr is null)
             return null;
@@ -273,14 +281,17 @@ internal sealed class DocxSections
                                string.Equals(textDir, "tbRlV", StringComparison.OrdinalIgnoreCase) ||
                                string.Equals(textDir, "btLr", StringComparison.OrdinalIgnoreCase);
 
+        double gutter = Math.Max(0, Margin("gutter", 0));
+        bool rtlGutter = sectPr.Element(DocxNamespaces.Wordprocessing + "rtlGutter") is XElement rtl &&
+            (string?)rtl.Attribute(DocxNamespaces.Wordprocessing + "val") is null or "1" or "true" or "on";
         var geometry = new PageGeometry(
             w,
             h,
-            Margin("left", defaultMargin),
-            Margin("right", defaultMargin),
+            Margin("left", defaultMargin) + (gutterAtTop || rtlGutter ? 0 : gutter),
+            Margin("right", defaultMargin) + (!gutterAtTop && rtlGutter ? gutter : 0),
             // The shared geometry models nonnegative distances. Preserve
             // paper size and the other margins when Word uses a signed edge.
-            Math.Abs(Margin("top", defaultMargin)),
+            Math.Abs(Margin("top", defaultMargin)) + (gutterAtTop ? gutter : 0),
             Math.Abs(Margin("bottom", defaultMargin)),
             Margin("header", defaultHeaderFooter),
             Margin("footer", defaultHeaderFooter))
@@ -288,7 +299,42 @@ internal sealed class DocxSections
             VerticalWriting = verticalWriting,
             LineNumbering = ReadLineNumbering(sectPr.Element(DocxNamespaces.Wordprocessing + "lnNumType")),
         };
+        if (!verticalWriting)
+            geometry = geometry with { TextGrid = ReadTextGrid(sectPr.Element(DocxNamespaces.Wordprocessing + "docGrid"), geometry) };
         return geometry.IsUsable ? geometry : null;
+    }
+
+    /// <summary>
+    /// The line grid a <c>w:docGrid</c> sets the body's lines on, or null for
+    /// none: rows <c>w:linePitch</c> twips tall, as many as fit between the
+    /// top and bottom margins, with no ruby.
+    /// </summary>
+    /// <remarks>
+    /// writerfilter's <c>SectionPropertyMap::CloseSectionGroup</c> turns the
+    /// <c>lines</c>, <c>linesAndChars</c> and <c>snapToChars</c> types into a
+    /// Writer text grid of that base height (GridBaseHeight), no ruby height
+    /// (GridRubyHeight 0) and the text area's height over the pitch in lines
+    /// (GridLines); the <c>default</c> type is no grid. Only the rows are
+    /// read: the character cells of the two character modes are not
+    /// modelled. Writer 24.2 then makes each body line whole rows tall and
+    /// centres the rows in the body, as for an ODF grid: fdo80902.docx's
+    /// 10.5 pt lines stand 18 pt apart on its 360-twip pitch. writerfilter
+    /// also turns the squared page mode off (<c>DefaultPageMode</c>), so the
+    /// space above a paragraph is not rounded to a row.
+    /// </remarks>
+    internal static TextGrid? ReadTextGrid(XElement? docGrid, PageGeometry page)
+    {
+        string? type = (string?)docGrid?.Attribute(DocxNamespaces.Wordprocessing + "type");
+        if (type is not ("lines" or "linesAndChars" or "snapToChars"))
+            return null;
+        if (!DocxValueReader.TryReadInt(docGrid!.Attribute(DocxNamespaces.Wordprocessing + "linePitch"), out int pitch) ||
+            pitch < 1 || pitch > 31680)
+            return null;
+
+        double baseHeight = pitch / 20d;
+        int lines = (int)Math.Floor((page.Height - page.MarginTop - page.MarginBottom) / baseHeight);
+        var grid = new TextGrid(baseHeight, 0, lines) { SnapsParagraphsToRows = false };
+        return grid.IsUsable ? grid : null;
     }
 
     /// <summary>
@@ -368,9 +414,15 @@ internal sealed class DocxSections
     /// section order, the last being the document's; a section whose set is the
     /// last one's keeps none of its own.
     /// </para>
+    /// <para>
+    /// <paramref name="noColumnBalance"/> is the settings' <c>w:noColumnBalance</c>:
+    /// writerfilter then leaves every section's columns unbalanced
+    /// (<c>SectionPropertyMap::ApplyColumnProperties</c>, DontBalanceTextColumns),
+    /// so unbalanced-columns-compat.docx's two lines stay in the left column.
+    /// </para>
     /// </remarks>
     public IReadOnlyList<DocumentSection> ToModel(
-        int paragraphCount, PageGeometry? page, IReadOnlyList<RunningContent>? running = null)
+        int paragraphCount, PageGeometry? page, IReadOnlyList<RunningContent>? running = null, bool noColumnBalance = false)
     {
         var sections = new List<DocumentSection>(_sections.Count);
         bool differ = ColumnsDiffer;
@@ -387,6 +439,7 @@ internal sealed class DocxSections
                           _sections[i].PageNumberStart is not null || _sections[i].PageNumberFormat is not null;
                 sections.Add(new DocumentSection(
                     start, end - start, _sections[i].Columns.Count, _sections[i].Columns.Gap, own, ownRunning,
+                    dontBalanceColumns: noColumnBalance,
                     breakType: _sections[i].BreakType, pageNumberStart: _sections[i].PageNumberStart)
                 {
                     PageNumberFormat = _sections[i].PageNumberFormat,

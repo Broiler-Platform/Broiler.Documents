@@ -65,6 +65,7 @@ internal static class DocxTableReader
         int Span(XElement cell) => Bounded(WordInt(cell.Element(DocxNamespaces.Wordprocessing + "tcPr"), "gridSpan", 1), 1);
         int gridColumns = grid.Count;
         bool hasTrailingGap = false;
+        bool everyRowOutgrowsGrid = grid.Count > 0;
         foreach (XElement row in rowElements)
         {
             long columns = GridGap(row, "gridBefore") + (long)GridGap(row, "gridAfter");
@@ -72,6 +73,23 @@ internal static class DocxTableReader
             if (columns > 4096) context.Builder.AddDiagnosticOnce("docx.table.grid", "A table grid count exceeded the supported range and was bounded.");
             gridColumns = Math.Max(gridColumns, (int)Math.Min(4096, columns));
             hasTrailingGap |= GridGap(row, "gridAfter") > 0;
+            everyRowOutgrowsGrid &= columns > grid.Count && GridGap(row, "gridBefore") == 0 && GridGap(row, "gridAfter") == 0 &&
+                EnumerateTableChildren(row, "tc").All(cell => Span(cell) == 1);
+        }
+
+        // A grid with fewer columns than every row's cells is no grid for them:
+        // writerfilter then places each row's columns by its cells' w:tcW
+        // (DomainMapperTableManager::endOfRowAction, shouldInsertRow), as for
+        // a table that states no grid. fdo76586.docx states one 9444-twip
+        // column for rows of a 1602 and a 7843-twip cell. Only rows of single
+        // cells are read so: one width for each column of the inferred grid,
+        // where spans would leave the columns between their edges to guess.
+        List<double>? outgrownGrid = null;
+        if (everyRowOutgrowsGrid && !hasTrailingGap)
+        {
+            outgrownGrid = [.. grid];
+            grid.Clear();
+            missingGrid = true;
         }
         if (missingGrid && gridColumns > 0)
         {
@@ -91,6 +109,7 @@ internal static class DocxTableReader
                 Fill(column, after, ReadPreferredWidth(rowProperties?.Element(DocxNamespaces.Wordprocessing + "wAfter"), false));
             }
             if (inferred.Any(width => width > 0)) grid.AddRange(inferred);
+            else if (outgrownGrid is not null) grid.AddRange(outgrownGrid);
             void Fill(int first, int count, double? width)
             {
                 if (count <= 0 || width is not > 0) return;

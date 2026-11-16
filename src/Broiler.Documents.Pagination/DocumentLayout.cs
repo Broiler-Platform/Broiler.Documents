@@ -1965,7 +1965,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 // A line on the page's text grid starts on one of its rows: the
                 // space above its paragraph, or a line kept off the grid before
                 // it, moves it down to the next row.
-                if (line.OnGrid && BodyGrid is TextGrid grid)
+                if (line.OnGrid && BodyGrid is TextGrid { SnapsParagraphsToRows: true } grid)
                     y = grid.Snap(y, _gridTop);
                 if (!setup.Continuous && (style.OrphanLines is > 0 || style.WidowLines is > 0) && lineIndex >= segmentEnd)
                 {
@@ -2837,9 +2837,31 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         double[] edges = table.AutoFit
             ? AutoColumnEdges(table, document, left, width) : ColumnEdges(table, left, width);
         var boxes = new List<RowBox>(table.Rows.Count);
+        bool collapsing = _styleDefaults.CollapsingTableBorders;
+        double previousBottomLine = 0;
 
         foreach (TableRow row in table.Rows)
         {
+            // Writer's collapsing borders (SwRowFrame::Format): the row's text
+            // starts below the widest top line and distance of its cells, or the
+            // row above's widest bottom line and this row's widest distance,
+            // whichever is lower, and ends above the widest bottom distance.
+            double rowTop = 0, rowBottom = 0, bottomLine = 0;
+            if (collapsing)
+            {
+                double topSpace = 0, topDistance = 0;
+                foreach (TableCell cell in row.Cells)
+                {
+                    TableCellPadding cellPadding = cell.PaddingFor(table);
+                    topSpace = Math.Max(topSpace, LineSize(cell.Borders.Top) + cellPadding.Top);
+                    topDistance = Math.Max(topDistance, cellPadding.Top);
+                    rowBottom = Math.Max(rowBottom, cellPadding.Bottom);
+                    bottomLine = Math.Max(bottomLine, LineSize(cell.Borders.Bottom));
+                }
+                rowTop = Math.Max(topSpace, previousBottomLine + topDistance);
+                previousBottomLine = bottomLine;
+            }
+
             // A row may break across a page where every cell can be cut on its
             // own line boundary, or between the rows of a table nested in it. A
             // box that spans rows would need cutting with the rows it spans, so a
@@ -2855,6 +2877,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             {
                 (double cellLeft, double cellWidth) = ColumnSpanBox(edges, cell);
                 TableCellPadding padding = cell.PaddingFor(table);
+                if (collapsing)
+                    padding = new TableCellPadding(padding.Left, rowTop, padding.Right, rowBottom);
                 double textWidth = Math.Max(1.0, cellWidth - padding.Left - padding.Right);
 
                 (List<LayoutLine> lines, List<LayoutCell> nested, List<CutPiece> pieces, double height) =
@@ -2905,6 +2929,10 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             boxes.Add(box);
         }
 
+        // The table's own bottom margin holds its last row's bottom line.
+        if (collapsing && boxes.Count > 0)
+            boxes[^1].Height += previousBottomLine;
+
         // The merges that end first are grown first: a row an earlier merge
         // grows is then counted in the rows of a merge that ends below it,
         // rather than both growing their own last row for the same text
@@ -2949,6 +2977,9 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         }
         return boxes;
     }
+
+    /// <summary>The room a cell's border line takes: its width, or none when it draws nothing.</summary>
+    private static double LineSize(TableBorder border) => border.IsVisible ? border.Width : 0;
 
     /// <summary>
     /// Breaks a group of rows that a merged cell's text holds together between
@@ -3572,7 +3603,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 // The rows are counted from the top of the cell's row, which
                 // is taken to be on one, so text below the cell's top padding
                 // starts a row down (tdf167583.fodt in LibreOffice 24.2).
-                if (line.OnGrid && BodyGrid is TextGrid grid)
+                if (line.OnGrid && BodyGrid is TextGrid { SnapsParagraphsToRows: true } grid)
                     y = grid.Snap(y + gridOffset, 0) - gridOffset;
                 line.Top = y;
                 if (lineIndex == 0)
@@ -4722,44 +4753,6 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         paragraph.MarkStyle.Hidden && paragraph.Runs.All(run => run.Style.Hidden);
 
     /// <summary>
-    /// The body paragraph at <paramref name="index"/> joined with those after it
-    /// while its mark is hidden, and in <paramref name="last"/> the last one joined.
-    /// </summary>
-    private RichTextParagraph JoinBodyHiddenMarks(RichTextDocument document, int index, out int last)
-    {
-        // The body joins paragraphs as a header does (JoinHiddenMarks): soffice
-        // 24.2 sets hidden-para-separator.rtf's "C ", "D", a hidden empty
-        // paragraph and "E", each mark but the last hidden, on one line
-        // (testTdf152872: one portion "C DE"). A paragraph that starts a
-        // table, a section or a page or column, or that has shapes of its own,
-        // ends the join before it, so nothing anchored to it loses its place.
-        // A paragraph with nothing shown starts no join here: it takes no room
-        // and the next keeps its own formatting, as before.
-        RichTextParagraph paragraph = document.Paragraphs[index];
-        last = index;
-        if (!paragraph.MarkStyle.Hidden || paragraph.Length == 0 || IsWhollyHidden(paragraph))
-            return paragraph;
-        int end = index;
-        while (end + 1 < document.ParagraphCount && document.Paragraphs[end].MarkStyle.Hidden)
-        {
-            int next = end + 1;
-            ParagraphStyle nextStyle = document.Paragraphs[next].Style;
-            if (nextStyle.PageBreakBefore || nextStyle.ColumnBreakBefore ||
-                DocumentTable.StartingAt(document.Tables, next) is not null ||
-                DocumentSection.Containing(document.Sections, next) is { } section && section.ParagraphIndex == next ||
-                _documentShapes.Any(shape => shape.ParagraphIndex == next))
-                break;
-            end = next;
-        }
-
-        if (end == index)
-            return paragraph;
-        RichTextParagraph joined = JoinHiddenMarks([.. document.Paragraphs.Skip(index).Take(end - index + 1)], 0, out int joinedLast);
-        last = index + joinedLast;
-        return joined;
-    }
-
-    /// <summary>
     /// The paragraph at <paramref name="index"/> joined with those after it
     /// while its mark is hidden, and in <paramref name="last"/> the last one
     /// joined.
@@ -4783,6 +4776,49 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         {
             RichTextParagraph next = paragraphs[++last];
             joined = joined.Append(next).WithMarkStyle(next.MarkStyle);
+        }
+
+        return joined;
+    }
+
+    /// <summary>
+    /// The body paragraph at <paramref name="index"/> joined, as
+    /// <see cref="JoinHiddenMarks"/> joins a running band's, with the body
+    /// paragraphs after it while its mark is hidden; <paramref name="last"/> is
+    /// the last one joined.
+    /// </summary>
+    /// <remarks>
+    /// Writer 24.2 lays a body paragraph whose mark is hidden out as one with
+    /// the next (hidden-para-separator.docx's "C", "D" and "E" stand on one
+    /// line; tdf131728.docx's style separators run each heading on into the
+    /// paragraph after it). The join stops before anything that is not a
+    /// plain paragraph of the same flow: a table, a section's start, a
+    /// paragraph that breaks a page or column, or one an object is anchored
+    /// to, whose place the layout keeps by its index. A paragraph with no
+    /// text shown starts no join here: it is hidden on its own. The RTF
+    /// reading is the same: soffice 24.2 sets hidden-para-separator.rtf's
+    /// "C ", "D", a hidden empty paragraph and "E" on one line
+    /// (testTdf152872).
+    /// </remarks>
+    private RichTextParagraph JoinBodyHiddenMarks(RichTextDocument document, int index, out int last)
+    {
+        RichTextParagraph joined = document.Paragraphs[index];
+        last = index;
+        if (!joined.MarkStyle.Hidden || joined.Length == 0 || IsWhollyHidden(joined))
+            return joined;
+        DocumentSection? section = DocumentSection.Containing(document.Sections, index);
+        while (joined.MarkStyle.Hidden && last + 1 < document.ParagraphCount)
+        {
+            int next = last + 1;
+            RichTextParagraph candidate = document.Paragraphs[next];
+            if (document.Tables.Any(table => table.Covers(next)) ||
+                !ReferenceEquals(DocumentSection.Containing(document.Sections, next), section) ||
+                section?.ParagraphIndex == next ||
+                candidate.Style.PageBreakBefore || candidate.Style.ColumnBreakBefore ||
+                _documentShapes.Any(shape => shape.ParagraphIndex == next))
+                break;
+            joined = joined.Append(candidate).WithMarkStyle(candidate.MarkStyle);
+            last = next;
         }
 
         return joined;
@@ -5273,7 +5309,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 style,
                 defaultFont,
                 paragraphIndex,
-                i == rows.Count - 1);
+                i == rows.Count - 1,
+                i == 0 && !continuation);
             line.LeadingSkip = i < skips.Count ? skips[i] : 0;
 
             // A line that holds a change is marked in the margin, left of the
@@ -5547,7 +5584,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     /// Positions one line's pieces, applies alignment, and computes the line box.
     /// </summary>
     private LayoutLine PlaceLine(List<LayoutPiece> pieces, bool hasMarker, double textLeft, double textWidth,
-        ParagraphStyle style, BFontStyle defaultFont, int paragraphIndex, bool isLastLine)
+        ParagraphStyle style, BFontStyle defaultFont, int paragraphIndex, bool isLastLine, bool isFirstLine = false)
     {
         // A populated line is measured from the fonts it actually draws. The
         // fallback face is only for empty lines; including it in every maximum
@@ -5632,7 +5669,15 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         // A body line on a page's text grid is as many rows tall as its text
         // needs, its text centred in them below the ruby, and only proportional
         // spacing past single changes that (SwTextFormatter::CalcRealHeight):
-        // an exact or at-least height is ignored there.
+        // an exact or at-least height is ignored there. On a grid in the
+        // squared page mode every line of tdf144450.fodt is its rows times the
+        // spacing (soffice 24.2). In the standard page mode of a DOCX Writer
+        // spaces every line but a paragraph's first so (CalcRealHeight skips
+        // IsParaLine), and SwFlowFrame::CalcUpperSpace opens the next
+        // paragraph by the last line's text height times the spacing past
+        // single (SwTextFrame::GetLineSpace), which is held below the last
+        // line here: chtoutline.docx's one-line 18 pt headings at triple
+        // spacing on an 18 pt grid stand 36 + 2 x 21.2 pt apart, not 108.
         if (BodyGrid is TextGrid grid && !style.IgnoresTextGrid)
         {
             double overhang = Math.Max(0, imageAscent - ascent);
@@ -5640,9 +5685,14 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             double rows = grid.RowsFor(text);
             double baseline = ascent + overhang +
                 ((rows - text + (grid.RubyBelow ? -grid.RubyHeight : grid.RubyHeight)) / 2);
-            double spaced = style.LineHeightRule == LineHeightRule.Proportional && style.LineSpacing > 1
-                ? rows * style.LineSpacing
-                : rows;
+            double spaced = rows;
+            if (style.LineHeightRule == LineHeightRule.Proportional && style.LineSpacing > 1)
+            {
+                if (grid.SnapsParagraphsToRows || !isFirstLine)
+                    spaced = rows * style.LineSpacing;
+                if (!grid.SnapsParagraphsToRows && isLastLine)
+                    spaced += natural * (style.LineSpacing - 1);
+            }
             return new LayoutLine(pieces, 0, spaced, baseline, paragraphIndex) { OnGrid = true };
         }
 

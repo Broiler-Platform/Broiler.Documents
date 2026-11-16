@@ -69,8 +69,9 @@ internal static class DocxReader
             // first of all, because a section's properties follow its content.
             DocxSettings settings = ReadSettings(archive, documentRelationships, baseDirectory, options.Limits, diagnostics);
             DocxDocumentVariables.Apply(documentXml, settings.Root, options.Limits);
-            DocxSections sections = DocxSections.Read(documentXml.Root?.Element(DocxNamespaces.Wordprocessing + "body"));
-            PageGeometry? page = ReadPageGeometry(documentXml, sections, diagnostics);
+            bool gutterAtTop = settings.Root?.Element(DocxNamespaces.Wordprocessing + "gutterAtTop") is XElement atTop && ReadOnOff(atTop);
+            DocxSections sections = DocxSections.Read(documentXml.Root?.Element(DocxNamespaces.Wordprocessing + "body"), gutterAtTop);
+            PageGeometry? page = ReadPageGeometry(documentXml, sections, diagnostics, gutterAtTop);
             int compatibilityMode = WordCompatibilityMode(settings.Root);
             bool splitPgBreakAndParaMark = HasSplitPgBreakAndParaMark(settings.Root);
             styles.HtmlParagraphAutoSpacing = !HasCompatFlag(settings.Root, "doNotUseHTMLParagraphAutoSpacing");
@@ -113,7 +114,8 @@ internal static class DocxReader
                 splitPgBreakAndParaMark);
             document = document.WithRunningContent(running[^1]);
             document = document.WithPageGeometry(page);
-            document = document.WithSections(sections.ToModel(document.ParagraphCount, page, running));
+            document = document.WithSections(sections.ToModel(document.ParagraphCount, page, running,
+                HasCompatFlag(settings.Root, "noColumnBalance")));
             document = document.WithStyleDefaults(ReadStyleDefaults(styles) with
             {
                 ShrinksJustifiedLines = compatibilityMode >= 15,
@@ -126,6 +128,7 @@ internal static class DocxReader
                 LaysOutBodyParagraphBorders = true,
                 ProportionalSpacingRunsPastBottom = true,
                 IgnoresBlanksInLineHeight = compatibilityMode <= 14,
+                CollapsingTableBorders = true,
             });
             document = document.WithNoteNumbering(notes.Numbering with { RaisedLabels = notes.LabelsRaised ?? false });
             document = document.WithShowsRevisions(DocxRevisions.Shown(settings.Root));
@@ -735,7 +738,8 @@ internal static class DocxReader
     private static PageGeometry? ReadPageGeometry(
         XDocument documentXml,
         DocxSections sections,
-        List<DocumentDiagnostic> diagnostics)
+        List<DocumentDiagnostic> diagnostics,
+        bool gutterAtTop = false)
     {
         XElement? sectPr = documentXml.Root
             ?.Element(DocxNamespaces.Wordprocessing + "body")
@@ -749,7 +753,7 @@ internal static class DocxReader
         // where leaving the page unstated let the renderer's A4 stand in.
         sectPr ??= new XElement(DocxNamespaces.Wordprocessing + "sectPr");
 
-        if (DocxSections.ReadPage(sectPr) is not PageGeometry geometry)
+        if (DocxSections.ReadPage(sectPr, gutterAtTop) is not PageGeometry geometry)
         {
             diagnostics.Add(DocumentDiagnostic.Warning(
                 "docx.section.geometry",
@@ -1841,7 +1845,7 @@ internal static class DocxReader
             return;
 
         XElement? anchor = picture.Element(DocxNamespaces.WordDrawing + "anchor");
-        if (anchor is not null && ReadFloatingPicture(anchor, image, context))
+        if (anchor is not null && ReadFloatingPicture(anchor, image, context, style))
             return;
 
         context.Builder.AppendText(InlineImage.PlaceholderText, style with { Image = image });
@@ -1954,7 +1958,7 @@ internal static class DocxReader
     /// answer this reader gave every anchored picture before floats existed.
     /// Returns false in that case, and the caller appends it inline.
     /// </remarks>
-    private static bool ReadFloatingPicture(XElement anchor, InlineImage image, DocxReadContext context)
+    private static bool ReadFloatingPicture(XElement anchor, InlineImage image, DocxReadContext context, InlineStyle? style = null)
     {
         // Said whether it floats or not. Position, stacking and wrapping are all
         // kept now, so the note names what is still approximate rather than
@@ -1970,7 +1974,7 @@ internal static class DocxReader
             return false;
 
         (ShapeWrap Wrap, WrapSide Side, TableCellPadding Margins) = ReadWrap(anchor);
-        (double offsetY, bool fromPage) = VerticalOffset(anchor, context, picture: true);
+        (double offsetY, bool fromPage) = VerticalOffset(anchor, context, picture: true, lineStyle: style);
         double offsetX = HorizontalOffset(anchor, context);
         IReadOnlyList<(double X, double Y)>? wrapPolygon = Wrap == ShapeWrap.None ? null : ReadWrapPolygon(anchor);
 
@@ -2778,10 +2782,19 @@ internal static class DocxReader
                 offsetX = frameStart + (horizontal == "center" ? (frameWidth - width) / 2 : horizontal == "right" ? frameWidth - width : 0);
             string? vertical = style.GetValueOrDefault("mso-position-vertical");
             string? verticalFrame = style.GetValueOrDefault("mso-position-vertical-relative");
-            if (vertical is "top" or "center" or "bottom" && verticalFrame is "page" or "margin")
+            // The frame the shape is aligned in, from the page's top: the page,
+            // its margins, or the band above or below them.
+            (double Top, double Height)? alignFrame = verticalFrame switch
             {
-                double frameHeight = verticalFrame == "page" ? alignmentPage.Height : alignmentPage.Height - alignmentPage.MarginTop - alignmentPage.MarginBottom;
-                offsetY = (verticalFrame == "page" ? 0 : alignmentPage.MarginTop) +
+                "page" => (0, alignmentPage.Height),
+                "margin" => (alignmentPage.MarginTop, alignmentPage.Height - alignmentPage.MarginTop - alignmentPage.MarginBottom),
+                "top-margin-area" => (0, alignmentPage.MarginTop),
+                "bottom-margin-area" => (alignmentPage.Height - alignmentPage.MarginBottom, alignmentPage.MarginBottom),
+                _ => null,
+            };
+            if (vertical is "top" or "center" or "bottom" && alignFrame is (double frameTop, double frameHeight))
+            {
+                offsetY = frameTop +
                     (vertical == "center" ? (frameHeight - height) / 2 : vertical == "bottom" ? frameHeight - height : 0);
                 fromPage = true;
             }
@@ -3147,7 +3160,8 @@ internal static class DocxReader
     /// whose side depends on the page's parity, and a margin with no page to
     /// measure it on are kept as stated and reported.
     /// </remarks>
-    private static (double Offset, bool FromPage) VerticalOffset(XElement anchor, DocxReadContext context, bool picture = false)
+    private static (double Offset, bool FromPage) VerticalOffset(XElement anchor, DocxReadContext context, bool picture = false,
+        InlineStyle? lineStyle = null)
     {
         if (SimplePosition(anchor) is XElement simple)
             return (SimpleCoordinate(simple, "y"), true);
@@ -3180,6 +3194,19 @@ internal static class DocxReader
                 // and a header's own band starts there too.
                 _ => offset,
             }, false);
+        }
+
+        // Centred on its line (wp:align under relativeFrom="line"): LibreOffice
+        // centres the object on the line it is anchored in, the line's height
+        // here being its run's single-spaced height, 1.15 times the type size
+        // (tdf162551_notLayoutInCell_charLeft_fromTop.docx's picture stands
+        // half above and half below "-anchor point-").
+        if (from == "line" && lineStyle is InlineStyle runStyle &&
+            (string?)PositionElement(anchor, "positionV")?.Element(DocxNamespaces.WordDrawing + "align") is string lineAlign &&
+            lineAlign.Trim() == "center")
+        {
+            double lineHeight = 1.15 * (runStyle.FontSize ?? 12f);
+            return ((lineHeight - AnchorExtent(anchor).Height) / 2, false);
         }
 
         if (from is null or "paragraph" or "line")
@@ -3602,9 +3629,9 @@ internal static class DocxReader
             style = ApplyParagraphProperties(styleParagraphProperties, context.Numbering, style, context.Styles.Theme);
 
         style = ApplyParagraphProperties(pPr, context.Numbering, style, context.Styles.Theme);
-        style = ApplyAutoSpacing(style, chain, pPr, paragraph, context.Styles.HtmlParagraphAutoSpacing);
         style = style with { Border = ReadParagraphBorder(chain, pPr, context.Styles.Theme) };
         style = ApplyList(style, chain, pPr, paragraphStyleId, context.Numbering);
+        style = ApplyAutoSpacing(style, chain, pPr, paragraph, context.Styles.HtmlParagraphAutoSpacing);
         return context.Styles.HtmlParagraphAutoSpacing && style.ListKind != ListKind.None && paragraph is not null
             ? TrimListAutoSpacing(style, chain, pPr, paragraph, paragraphStyleId)
             : style;
@@ -3778,9 +3805,11 @@ internal static class DocxReader
     /// <c>w:before</c> and <c>w:after</c>: 14 pt where the settings leave HTML
     /// paragraph auto spacing on, 5 pt where they turn it off. With it on, the
     /// first paragraph of a cell, of a text box and of the document has no
-    /// automatic space above, and the last of a cell none below
-    /// (writerfilter's <c>DomainMapper_Impl::finishParagraph</c> and its table
-    /// handler). cell-grid-span.docx's HTML-born paragraphs stand 14 pt apart.
+    /// automatic space above, and the last of a cell none below unless it is
+    /// numbered (writerfilter's <c>DomainMapper_Impl::finishParagraph</c>, and
+    /// <c>ClearPreviousParagraph</c>, which keeps the space under a cell's last
+    /// paragraph when it has numbering rules: tdf#132802).
+    /// cell-grid-span.docx's HTML-born paragraphs stand 14 pt apart.
     /// </summary>
     private static ParagraphStyle ApplyAutoSpacing(
         ParagraphStyle style, IReadOnlyList<XElement> chain, XElement? pPr, XElement? paragraph, bool html)
@@ -3802,7 +3831,7 @@ internal static class DocxReader
 
         if (after == true)
         {
-            bool lastInCell = html && paragraph?.Parent is { Name.LocalName: "tc" } cell &&
+            bool lastInCell = html && style.ListKind == ListKind.None && paragraph?.Parent is { Name.LocalName: "tc" } cell &&
                 cell.Elements(DocxNamespaces.Wordprocessing + "p").LastOrDefault() == paragraph &&
                 !paragraph.ElementsAfterSelf().Any(e => e.Name.LocalName == "tbl");
             style = style with { SpacingAfter = lastInCell ? 0 : amount };
@@ -3894,6 +3923,9 @@ internal static class DocxReader
             style = style with { RightToLeft = ReadOnOff(bidi) };
         if (pPr.Element(DocxNamespaces.Wordprocessing + "keepLines") is XElement keepLines)
             style = style with { KeepTogether = ReadOnOff(keepLines) };
+        // writerfilter's ParaSnapToGrid: off keeps the paragraph's lines off the page's text grid.
+        if (pPr.Element(DocxNamespaces.Wordprocessing + "snapToGrid") is XElement snapToGrid)
+            style = style with { IgnoresTextGrid = !ReadOnOff(snapToGrid) };
         if (pPr.Element(DocxNamespaces.Wordprocessing + "widowControl") is XElement widowControl)
         {
             int count = ReadOnOff(widowControl) ? 2 : 0;

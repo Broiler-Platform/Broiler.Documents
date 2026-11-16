@@ -49,6 +49,16 @@ public sealed record TextGrid(double BaseHeight, double RubyHeight, int Lines, b
     /// </summary>
     public double CharWidth { get; init; }
 
+    /// <summary>
+    /// True when a paragraph's space above is rounded to start it on a row,
+    /// as Writer does in its squared page mode, the ODF default
+    /// (<c>SwFlowFrame::GetUpperSpaceAmountConsideredForPageGrid_</c>). False
+    /// in the standard page mode writerfilter sets for a DOCX
+    /// (<c>DefaultPageMode</c> off): a paragraph starts where the space above
+    /// it ends, and only its lines are whole rows tall.
+    /// </summary>
+    public bool SnapsParagraphsToRows { get; init; } = true;
+
     /// <summary>The height of one row of the grid: its text and ruby together.</summary>
     public double Pitch => BaseHeight + RubyHeight;
 
