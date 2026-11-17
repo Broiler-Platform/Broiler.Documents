@@ -17,6 +17,10 @@ apply to almost every such file:
 3. How Writer bases a "heading N" style.
 4. The space above a paragraph at the top of a page.
 
+## Fixed Defects
+
+- tdf#165805: RTF page break after table is no longer lost.
+
 ## Causes
 
 | Cause | Samples | Outcome |
