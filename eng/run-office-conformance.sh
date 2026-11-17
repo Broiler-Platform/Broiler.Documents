@@ -37,7 +37,8 @@
 #     --only <substring>       Run only documents whose seed/format key contains this
 #     --jobs <n>               Concurrent documents
 #     --threshold <percent>   Minimum rendering similarity, 0 to 100 (default: 80)
-#     --dpi <n>                Resolution for both rasterisers (default: 144)
+#     --dpi <n>                Rendering resolution (default: 144)
+#     --max-pages <n>          Rendering page limit (default: 40; truncated re-saves fail)
 #     --font-dir <dir>         Pin a font directory. Repeatable
 #     --skip-install           Trust whatever soffice and pdftoppm are on PATH
 #     --require-pinned-toolchain
@@ -46,7 +47,9 @@
 #     --allow-pending-tools    Drive tools whose register row is not yet approved
 #     --update-baseline        Regenerate the baseline from this run
 #     --restamp                Permit --update-baseline to change the toolchain stamp
-#     --resave                 Check strict byte fidelity without LibreOffice/poppler
+#     --resave                 Check normalized fidelity and images without Office tools
+#     --no-resave-render       Disable image comparison (default: enabled, --threshold 80)
+#     --resave-render          Enable before/after image comparison
 #                              Uses tests/office/resave-failed-documents.txt for tracking
 #     --font-set <name>        The name the baseline stamp records for the pinned fonts
 #     --keep                   Keep the workspace and print where it is
@@ -92,6 +95,7 @@ TRIAGE_DIR=""
 PREVIOUS_TRIAGE=""
 JOBS=""
 DPI="144"
+MAX_PAGES="40"
 THRESHOLD="80"
 FONT_DIRS=()
 SKIP_INSTALL=false
@@ -100,6 +104,7 @@ ALLOW_PENDING=false
 UPDATE_BASELINE=false
 RESTAMP=false
 RESAVE=false
+RESAVE_RENDER=true
 FONT_SET="${BROILER_OFFICE_FONT_SET:-}"
 KEEP=false
 VERBOSE=false
@@ -147,6 +152,7 @@ while [[ $# -gt 0 ]]; do
         --jobs) JOBS="$2"; shift 2 ;;
         --threshold) THRESHOLD="$2"; shift 2 ;;
         --dpi) DPI="$2"; shift 2 ;;
+        --max-pages) MAX_PAGES="$2"; shift 2 ;;
         --font-dir) FONT_DIRS+=("$2"); shift 2 ;;
         --skip-install) SKIP_INSTALL=true; shift ;;
         --require-pinned-toolchain) REQUIRE_PINNED=true; shift ;;
@@ -154,6 +160,8 @@ while [[ $# -gt 0 ]]; do
         --update-baseline) UPDATE_BASELINE=true; shift ;;
         --restamp) RESTAMP=true; shift ;;
         --resave) RESAVE=true; shift ;;
+        --resave-render) RESAVE_RENDER=true; shift ;;
+        --no-resave-render) RESAVE_RENDER=false; shift ;;
         --font-set) FONT_SET="$2"; shift 2 ;;
         --keep) KEEP=true; shift ;;
         --verbose) VERBOSE=true; shift ;;
@@ -414,6 +422,7 @@ RUNNER_ARGS=(
     --junit "$JUNIT_FILE"
     --axis "$AXIS"
     --dpi "$DPI"
+    --max-pages "$MAX_PAGES"
     --threshold "$THRESHOLD"
 )
 
@@ -451,7 +460,12 @@ fi
 [[ "$ALLOW_PENDING" == "true" ]] && RUNNER_ARGS+=(--allow-pending-tools)
 [[ "$UPDATE_BASELINE" == "true" ]] && RUNNER_ARGS+=(--update-baseline)
 [[ "$RESTAMP" == "true" ]] && RUNNER_ARGS+=(--restamp)
-[[ "$RESAVE" == "true" ]] && RUNNER_ARGS+=(--resave)
+if [[ "$RESAVE" == "true" ]]; then
+    RUNNER_ARGS+=(--resave)
+    if [[ "$RESAVE_RENDER" == "false" ]]; then
+        RUNNER_ARGS+=(--no-resave-render)
+    fi
+fi
 # Forwarded whenever it is set, and not only when regenerating: the baseline
 # stamp records the font set, and a run that did not name one can never match a
 # baseline that did. Leaving it out made the documented adoption sequence produce

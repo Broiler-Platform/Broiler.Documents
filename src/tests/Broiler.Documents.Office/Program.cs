@@ -913,7 +913,8 @@ internal static class Program
         bool AcceptReferenceMismatch = false,
         bool Incremental = false,
         string? FailedDocumentsPath = null,
-        bool ReSave = false)
+        bool ReSave = false,
+        bool ReSaveRender = true)
     {
         public bool IsExtrasRun => !SeedCorpus && (ExtrasUrl is not null || ExtrasDirectory is not null ||
             SampleList is not null || SingleSample is not null || Incremental || TriageDirectory is not null || ReferencesDirectory is not null || PrepareReferences is not null || ReSave);
@@ -926,7 +927,7 @@ internal static class Program
             string? crashRegressions = null, sampleList = null, singleSample = null, triageDirectory = null, previousTriage = null;
             string? referencesDirectory = null, prepareReferences = null, referenceProducer = null, referenceDefects = null;
             string? failedDocumentsPath = null;
-            bool incremental = false;
+            bool incremental = false, resaveRender = true;
             string axis = "all";
             var fontDirectories = new List<string>();
             bool keep = false, verbose = false, update = false, restamp = false;
@@ -1008,6 +1009,8 @@ internal static class Program
                     case "--restamp": restamp = true; break;
                     case "--allow-pending-tools": allowPending = true; break;
                     case "--resave": resave = true; break;
+                    case "--resave-render": resaveRender = true; break;
+                    case "--no-resave-render": resaveRender = false; break;
                     case "--accept-reference-mismatch": acceptReferenceMismatch = true; break;
                     case "--help" or "-h": help = true; break;
                     case "--axis":
@@ -1069,7 +1072,7 @@ internal static class Program
                 maxFiles, createIssue, seedCorpus, keep, verbose, update, restamp, allowPending, help,
                 jobs, dpi, threshold, maxPages, TimeSpan.FromSeconds(timeout), sampleList, singleSample, triageDirectory, previousTriage,
                 referencesDirectory, prepareReferences, referenceProducer, referenceDefects, acceptReferenceMismatch,
-                incremental, failedDocumentsPath, resave);
+                incremental, failedDocumentsPath, resave, resaveRender);
         }
 
         public static void WriteUsage(TextWriter output)
@@ -1130,7 +1133,9 @@ internal static class Program
             output.WriteLine("  --update-baseline        Regenerate the baseline from this run.");
             output.WriteLine("  --restamp                Permit --update-baseline to change the toolchain stamp.");
             output.WriteLine("  --allow-pending-tools    Drive tools whose register row is not approved.");
-            output.WriteLine("  --resave                 Re-save office reference data with broilerdoc and compare.");
+            output.WriteLine("  --resave                 Compare normalized round-trip fidelity and rendered images.");
+            output.WriteLine("  --no-resave-render       Disable before/after image comparison (enabled by default).");
+            output.WriteLine("  --resave-render          Enable image comparison; --threshold defaults to 80% matching pixels.");
             output.WriteLine("  -h, --help               Show this and exit 0.");
             output.WriteLine();
             output.WriteLine("Exit code is the number of failed checks, capped at 98. 99 alone is a usage");

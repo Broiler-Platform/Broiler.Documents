@@ -8,6 +8,40 @@ open, and, at the end, which issue each came from.
 
 ## Done
 
+### Default before/after image checks for re-saves
+
+Re-save mode now invokes `roundtrip --render` by default, in addition to model
+comparison. Each page must have at least 80% matching RGBA pixels by default;
+`--threshold 100` requires exact pixels. Counts and image dimensions must match,
+and truncated rendering fails. `--no-resave-render` opts out. The workflow
+exposes rendering, threshold, DPI, and page-limit inputs. JSON retains per-page
+measurements and rendering notes, while `--keep` also saves before/after PNGs
+and differences. A rendered recheck of the #258 focus set found the orientation
+change in `ooxmlexport/data/tdf171038_pageAfter.docx` despite a model-equal result.
+The CLI ratio check was fixed at the same time: its zero absolute-pixel limit
+previously overrode `--max-different-ratio`, making any nonzero difference fail.
+
+
+### Re-save checks compare normalized round-trip fidelity
+
+Issue [#258](https://github.com/Broiler-Platform/Broiler.Documents/issues/258)
+reported 3,918 failures: 3,897 conversions succeeded but changed the source
+bytes. Byte preservation is not the normalized model's contract. Re-save mode
+now detects content with `info`, selects a writable codec from `formats`, and
+uses `roundtrip --via <detected-format> --json` for the verdict. This also fixes
+four ODT inputs carrying `.docx` suffixes that forced DOCX routing rejected.
+Byte identity remains informational, and formatting-code differences are kept
+beside the structural comparison so serialization rounding is visible.
+
+Known encrypted inputs are skipped only on exit 3 with an exact sample ID and
+SHA-256 match. Read-only formats are reported separately; fuzz families use the
+established robustness checks. Other rejections, crashes, timeouts, and output
+read-back failures still fail. Issues group outcomes with bounded excerpts,
+while JSON retains complete per-sample diagnostics and comparisons. Full runs
+replace the separate re-save failure list with normalized-policy failures.
+See the [investigation](office-resave-issue-258.md) and
+[guide](../guides/office-conformance.md#normalized-re-save-conformance).
+
 ### The reference fonts have no Liberation faces
 
 `office-reference-data.yml` used to install `fonts-liberation2` among the

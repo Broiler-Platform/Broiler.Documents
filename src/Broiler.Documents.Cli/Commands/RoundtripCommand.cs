@@ -46,6 +46,7 @@ public static class RoundtripCommand
                 OptionSpec.Many("via", "format", "A format to round-trip through. Give more than one to test several."),
                 OptionSpec.Value("keep", "directory", "Keep the intermediate files instead of working in memory."),
                 OptionSpec.Flag("render", "Also render both sides and compare the pixels."),
+                OptionSpec.Value("render-out", "path", "Keep rendered pages; {via}, {side}, and {page} are replaced."),
                 OptionSpec.Value("diff", "path", "Write a difference image. {via} and {page} are replaced."),
                 OptionSpec.Value("diff-style", "style", "overlay, mask, or heat.", "overlay"),
                 OptionSpec.Value("tolerance", "n", "Per-channel difference that still counts as equal, 0-255.", "0"),
@@ -315,7 +316,14 @@ public static class RoundtripCommand
         double maxRatio = context.Line.GetDouble("max-different-ratio", 0);
         DiffStyle? style = context.Line.Has("diff") ? ParseDiffStyle(context.Line) : null;
 
-        bool equal = before.Pages.Count == after.Pages.Count;
+        bool equal = before.Pages.Count == after.Pages.Count && !before.Layout.Truncated && !after.Layout.Truncated;
+        if (context.Line.Has("render-out"))
+        {
+            string pattern = context.Line.Require("render-out")
+                .Replace("{via}", formatName.ToLowerInvariant(), StringComparison.Ordinal);
+            pipeline.Write(before, pattern.Replace("{side}", "before", StringComparison.Ordinal));
+            pipeline.Write(after, pattern.Replace("{side}", "after", StringComparison.Ordinal));
+        }
         var pages = new JsonArray();
 
         context.Report("  render          " + before.Pages.Count + " vs " + after.Pages.Count + " page(s)");
@@ -327,7 +335,10 @@ public static class RoundtripCommand
 
             try
             {
-                bool passes = comparison.Passes(0, maxRatio, requireSameSize: true);
+                // This command exposes a ratio threshold, not an absolute pixel
+                // limit. Passing zero here would require exact pixels even when
+                // --max-different-ratio explicitly permits a difference.
+                bool passes = comparison.Passes(long.MaxValue, maxRatio, requireSameSize: true);
                 equal &= passes;
 
                 context.Report($"  page {i + 1,-11} {comparison.DifferingPixels} differing pixel(s), max delta {comparison.MaxChannelDelta}{(passes ? string.Empty : "   DIFFERENT")}");
@@ -359,6 +370,12 @@ public static class RoundtripCommand
         {
             ["beforePageCount"] = before.Pages.Count,
             ["afterPageCount"] = after.Pages.Count,
+            ["beforeTruncated"] = before.Layout.Truncated,
+            ["afterTruncated"] = after.Layout.Truncated,
+            ["beforeNotes"] = new JsonArray([.. before.Notes.Select(n => (JsonNode?)n)]),
+            ["afterNotes"] = new JsonArray([.. after.Notes.Select(n => (JsonNode?)n)]),
+            ["beforeImages"] = new JsonArray([.. before.WrittenPaths.Select(n => (JsonNode?)n)]),
+            ["afterImages"] = new JsonArray([.. after.WrittenPaths.Select(n => (JsonNode?)n)]),
             ["pages"] = pages,
         });
     }

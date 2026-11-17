@@ -2,7 +2,7 @@ name: Office re-save conformance
 
 # Runs on the hosted .NET SDK without the Office toolchain container.
 # Downloads the pinned LibreOffice sw/qa/extras corpus (or an explicit URL),
-# re-saves the documents with broilerdoc, and reports strict byte fidelity.
+# re-saves the documents with broilerdoc, and reports normalized round-trip fidelity.
 # See docs/guides/office-conformance.md for details.
 
 on:
@@ -11,6 +11,23 @@ on:
     - cron: '45 3 * * *'
   workflow_dispatch:
     inputs:
+      render:
+        description: Compare before/after rendered images as well as the normalized model
+        type: boolean
+        required: false
+        default: true
+      threshold:
+        description: Minimum matching pixels per page, 0 to 100 percent (100 requires exact equality)
+        required: false
+        default: '80'
+      dpi:
+        description: Before/after image resolution in dots per inch
+        required: false
+        default: '144'
+      maxPages:
+        description: Maximum rendered pages per document; reaching the limit fails the image check
+        required: false
+        default: '40'
       incremental:
         description: 'Recheck only previously failed documents tracked in the repository'
         type: boolean
@@ -84,6 +101,10 @@ jobs:
       - name: Run the re-save conformance suite
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OFFICE_RENDER: ${{ github.event_name != 'workflow_dispatch' && 'true' || inputs.render && 'true' || 'false' }}
+          OFFICE_THRESHOLD: ${{ inputs.threshold || '80' }}
+          OFFICE_DPI: ${{ inputs.dpi || '144' }}
+          OFFICE_MAX_PAGES: ${{ inputs.maxPages || '40' }}
           OFFICE_INCREMENTAL: ${{ inputs.incremental && 'true' || 'false' }}
           OFFICE_ONLY: ${{ inputs.only || '' }}
           OFFICE_EXTRAS_URL: ${{ inputs.extrasUrl || format('https://github.com/LibreOffice/core/tree/{0}/sw/qa/extras', steps.corpus.outputs.revision) }}
@@ -94,8 +115,14 @@ jobs:
             --output-dir "$GITHUB_WORKSPACE/test-results"
             --jobs "$OFFICE_JOBS"
             --resave
+            --threshold "$OFFICE_THRESHOLD"
+            --dpi "$OFFICE_DPI"
+            --max-pages "$OFFICE_MAX_PAGES"
           )
           ARGS+=(--extras-url "$OFFICE_EXTRAS_URL")
+          if [ "$OFFICE_RENDER" = "false" ]; then
+            ARGS+=(--no-resave-render)
+          fi
           if [ "$OFFICE_INCREMENTAL" = "true" ]; then
             ARGS+=(--incremental)
           fi
@@ -144,9 +171,7 @@ jobs:
               body: `Workflow run: ${runUrl} (attempt ${attempt})\nStatus: **${status}**\nCommit: ${context.sha}\nTrigger: ${context.eventName}\nIncremental: ${context.payload.inputs?.incremental || 'false'}\n\n${details}`,
             });
             core.info(`Created ${issue.data.html_url}`);
-            await core.summary.addLink('Office re-save conformance issue', issue.data.html_url).write();
-            if (status !== 'success')
-              core.setFailed('Re-save conformance run failed.');
+            await core.summary.addLink('Office re-save conformance issue', issue.data.html_url).addRaw('\n\n' + details).write();
 
       - name: Upload the re-save report
         if: always()

@@ -175,6 +175,14 @@ the difference nobody decided on. The diagnostics printed alongside usually tell
 you which kind you are looking at: a codec that *knows* it dropped something says
 so.
 
+`roundtrip --render` also compares the original imported model's rendered pages
+with the re-read output. `--max-different-ratio 0.2` allows up to 20% differing
+pixels per page; the default is exact pixel equality. Page counts and image
+sizes must match, and hitting `--max-pages` fails the rendered check. Use
+`--render-out '{via}-{side}-{page}.png'` to keep before/after PNGs and
+`--diff 'diff-{via}-{page}.png'` for difference images. Rendering notes and
+truncation status are included in the JSON report.
+
 ### Then `compare` in document mode
 
 When you have two documents rather than one:

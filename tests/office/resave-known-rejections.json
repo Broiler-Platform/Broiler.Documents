@@ -1,0 +1,56 @@
+{
+  "$schema": "resave-known-rejections.schema.json",
+  "schemaVersion": 1,
+  "corpusRevision": "54dd3de1c918cfdde2aa261dd4fb9745520bd40b",
+  "source": "https://github.com/Broiler-Platform/Broiler.Documents/issues/258",
+  "samples": [
+    {
+      "id": "odfexport/data/sha1_correct.odt",
+      "sha256": "5a89338ce350002cd2e931cddac4977cef6289bd6750267aa5715be247e4b1c9",
+      "reason": "Encrypted/password-protected upstream sample; no password supplied.",
+      "expectedExitCode": 3
+    },
+    {
+      "id": "odfexport/data/sha1_wrong.odt",
+      "sha256": "f7a63cb1e0bdc1409d5d3fdc97ddee51a7ceca804917c4683ff0c1bb8dc31246",
+      "reason": "Encrypted/password-protected upstream sample; no password supplied.",
+      "expectedExitCode": 3
+    },
+    {
+      "id": "ooxmlexport/data/tdf133771.odt",
+      "sha256": "45a58f349e86057832d4052309036dca3d90978b3c9be95da059068de7e2fbdb",
+      "reason": "Encrypted/password-protected upstream sample; no password supplied.",
+      "expectedExitCode": 3
+    },
+    {
+      "id": "ooxmlexport/data/Encrypted_LO_Standard_abc.docx",
+      "sha256": "d6b55065e5c8e6debd4a72a957275c22e1f5373a1806e40a1a2bd34334cce073",
+      "reason": "Encrypted/password-protected upstream sample; no password supplied.",
+      "expectedExitCode": 3
+    },
+    {
+      "id": "ooxmlexport/data/Encrypted_MSO2007_abc.docx",
+      "sha256": "ea105a1eb01653c904320ef9ab426686cc468b09503f617725c41cee2f6f549f",
+      "reason": "Encrypted/password-protected upstream sample; no password supplied.",
+      "expectedExitCode": 3
+    },
+    {
+      "id": "ooxmlexport/data/Encrypted_MSO2010_abc.docx",
+      "sha256": "7a51bb14cafbc1904779fa176701702251b55c2f9a5b064ba237a92eb3ce73ed",
+      "reason": "Encrypted/password-protected upstream sample; no password supplied.",
+      "expectedExitCode": 3
+    },
+    {
+      "id": "ooxmlexport/data/Encrypted_MSO2013_abc.docx",
+      "sha256": "2db365c48e5f3b0302b2f6c0f56b298b15f819e95c6448073566baad910023d3",
+      "reason": "Encrypted/password-protected upstream sample; no password supplied.",
+      "expectedExitCode": 3
+    },
+    {
+      "id": "pdf/data/Hybrid_EmbeddedFileOnlyPDF20UAPasswordpop.pdf",
+      "sha256": "271b134d76809e61f0488e141ea88147be29ed7e98b5ec2e2f42bbca1ac9cf6b",
+      "reason": "Encrypted/password-protected upstream sample; no password supplied.",
+      "expectedExitCode": 3
+    }
+  ]
+}

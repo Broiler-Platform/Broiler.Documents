@@ -1043,7 +1043,7 @@ issue #182](../notes/office-conformance-workflow.md#issue-182)
 records what the investigation found about the workflow, first among it that
 a text difference of split lines names its cause.
 
-## Strict re-save conformance
+## Normalized re-save conformance
 
 `office-resave.yml` runs directly on `ubuntu-24.04` with the .NET 10 SDK;
 it does not pull the Office SDK Docker image or provision LibreOffice, Poppler,
@@ -1052,33 +1052,85 @@ or fonts. The runner downloads the corpus from the `corpusRevision` pinned in
 can select another corpus. Incremental and exact-list runs download only the
 selected files, and an empty incremental run downloads nothing.
 
-`office-resave.yml` runs the extras corpus through `broilerdoc convert` and
-compares each output with the input byte for byte. Serialization changes,
-including ZIP metadata and XML ordering, count as failures even when document
-content is preserved. This measures byte fidelity, not semantic equivalence.
-Conversion errors and successful conversions with missing output are failures.
+The runner detects each input's format from its content with `info --json`,
+then calls `roundtrip --via <detected-format> --render --json` by default. This serializes the
+normalized model with a canonical output extension and reads it back. The
+verdict checks plain text and the CLI structural comparison, including run
+formatting and tables. It uses the CLI's default numeric tolerance (absolute
+difference below 0.0005 for style measurements). Formatting-code equality is
+reported separately because serialization rounding can change its exact text.
+No whitespace or style ignore flags are passed. This is policy
+`normalized-roundtrip-render-v1` with images enabled, or
+`normalized-roundtrip-v1` when images are disabled.
 
-Run locally with no LibreOffice, Poppler, or font installation required:
+Before and after are rendered to bitmaps in the same process with the same
+renderer, fonts, and settings. **Image comparison is enabled by default**.
+`--threshold <percent>` sets the minimum matching pixels on **every** page
+(default: **80**). Similarity is `100 × (1 − differingPixels / comparedPixels)`
+over the entire page, including the background. A pixel differs if any RGBA
+channel differs; no per-channel tolerance is applied. At 100, every pixel must
+match exactly. Both the model and image checks must pass. A passing 80% result
+does not establish pixel identity, and a large white background can make even
+visible content changes occupy a small percentage of pixels.
+
+Page counts and page-image dimensions must match regardless of the threshold.
+A truncated render fails; raise the runner's `--max-pages` (default: 40) to check
+longer documents. `--dpi` controls resolution (default: 144), and `--font-dir`
+pins fonts for both sides. `--no-resave-render` disables the image check;
+`--resave-render` re-enables it. The GitHub workflow exposes `render` (default:
+true), `threshold` (default: 80), `dpi` (default: 144), and `maxPages`
+(default: 40) dispatch inputs; scheduled runs render too.
+The same-renderer check concerns the imported model, not fidelity to Word or
+LibreOffice, and exact pixels are specific to the selected rendering environment.
+
+Byte identity is reported as an informational metric, not a pass condition.
+ZIP metadata, XML ordering, and flat XML versus ZIP serialization can change
+without changing the model. A model round trip cannot detect data already lost
+during initial import; the semantic/pixel conformance suite addresses that gap.
+
+Read-only target formats are skipped explicitly using the tool's `formats`
+capabilities. Known encrypted/password-protected inputs are listed in
+`tests/office/resave-known-rejections.json`, with exact IDs, SHA-256 hashes,
+and expected exit 3. Changed inputs and unexpected rejections remain failures.
+Crash-regression families use the existing read/dump robustness checks: documented
+exits 0–6 are handled, while exit 70, crashes, and timeouts fail. Those rows are
+reported as robustness results and do not claim fidelity. Other malformed inputs
+are failures unless covered by the established crash-regression policy.
+
+Run locally:
 
 ```bash
 bash eng/run-office-conformance.sh --resave --extras-dir /path/to/extras --jobs 2
 bash eng/run-office-conformance.sh --resave --extras-dir /path/to/extras --incremental
+bash eng/run-office-conformance.sh --resave --extras-dir /path/to/extras --threshold 100
+bash eng/run-office-conformance.sh --resave --extras-dir /path/to/extras --no-resave-render
 ```
 
 Use `--only <substring>`, `--only @path/to/list.txt`, or `--sample-list <path>`
 for focused runs, and `--max-files` for a capped run. The runner also accepts
-`--sample <id>` directly. `--jobs` limits concurrent conversions. `--keep`
-retains the temporary workspace for inspecting outputs; otherwise it is removed.
+`--sample <id>` directly. `--jobs` limits concurrent documents. `--keep`
+retains the temporary workspace, canonical outputs, before/after PNGs, and
+difference images; otherwise it is removed. Images are compared in memory when
+`--keep` is absent.
 
-The wrapper writes console logs, JSON, JUnit, and a Markdown summary under its
-output directory. Workflow issues include the summary and link to the run;
-artifacts contain the complete reports and updated failure list. Reports name
-failed samples, conversion diagnostics, and reproduction commands.
+The wrapper writes logs, JSON, JUnit, and Markdown under its output directory.
+JSON retains per-sample input diagnostics, complete round-trip comparison and
+diagnostics, detected format, byte identity, worst-page image similarity, and
+outcome category under `resaves`. Per-page pixel counts, image dimensions,
+truncation, and rendering notes are retained in the round-trip render report.
+A render-only failure is categorized as `render-difference`.
+The issue and Actions summary group outcomes and show representative samples;
+full reports and reproduction commands remain in workflow artifacts.
 
-Complete runs track failures in `tests/office/resave-failed-documents.txt`,
-independently of the semantic/pixel failure list. `--failed-documents <path>`
-overrides this path. Incremental runs recheck this list, prune passing samples,
-and preserve unevaluated entries when filtered or capped. An empty list produces
-a zero-check report without downloading the corpus. Focused non-incremental runs
-do not change the list. Workflow artifacts do not commit the list back to the
-repository; commit the downloaded list to use it in subsequent dispatches.
+Complete runs replace `tests/office/resave-failed-documents.txt` with the current
+failures, independently of the semantic/pixel failure list. This also removes
+stale byte-comparison failures. `--failed-documents <path>` overrides this path.
+Incremental runs prune passing or explicitly skipped samples and preserve
+unevaluated entries when filtered or capped. Focused non-incremental runs do not
+change the list. Workflow artifacts do not commit the list back to the repository;
+commit the downloaded list to use it in subsequent dispatches.
+
+The committed failure list initially comes from the model-only recheck recorded
+in [issue #258's investigation](../notes/office-resave-issue-258.md). A full
+render-enabled run regenerates it with the new visual verdict; an incremental
+run checks only already tracked failures and cannot discover new visual failures.
