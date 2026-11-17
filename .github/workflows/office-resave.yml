@@ -1,7 +1,8 @@
 name: Office re-save conformance
 
-# Uses the Broiler.Code office image's LibreOffice sw/qa/extras corpus,
-# re-saves the documents with broilerdoc, and compares the bytes.
+# Runs on the hosted .NET SDK without the Office toolchain container.
+# Downloads the pinned LibreOffice sw/qa/extras corpus (or an explicit URL),
+# re-saves the documents with broilerdoc, and reports strict byte fidelity.
 # See docs/guides/office-conformance.md for details.
 
 on:
@@ -20,9 +21,9 @@ on:
         required: false
         default: ''
       extrasUrl:
-        description: GitHub tree URL for LibreOffice QA extras samples (e.g. sw/qa/extras or sc/qa/extras)
+        description: Optional GitHub tree URL for QA extras; empty uses the pinned reference corpus revision
         required: false
-        default: 'https://github.com/LibreOffice/core/tree/master/sw/qa/extras'
+        default: ''
       jobs:
         description: Concurrent documents (use 1 to reduce peak memory further)
         required: false
@@ -37,26 +38,13 @@ permissions:
   issues: write
 
 concurrency:
-  group: office-resave-${{ (startsWith(inputs.only, '@') || (inputs.incremental && inputs.only != '')) && github.run_id || 'full' }}
+  group: office-resave-${{ inputs.incremental && 'incremental' || startsWith(inputs.only, '@') && github.run_id || 'full' }}
   cancel-in-progress: false
 
 jobs:
-  reference-configuration:
-    runs-on: ubuntu-24.04
-    outputs:
-      image: ${{ steps.reference.outputs.image }}
-    steps:
-      - uses: actions/checkout@v7
-      - id: reference
-        run: python3 eng/office-reference-archive.py config
-
   resave:
     name: Office re-save
-    needs: reference-configuration
     runs-on: ubuntu-24.04
-    container:
-      image: ${{ needs.reference-configuration.outputs.image }}
-      options: --init
 
     timeout-minutes: 360
 
@@ -71,31 +59,43 @@ jobs:
       - name: Check out
         uses: actions/checkout@v7
 
-      - name: Build
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Resolve the pinned corpus revision
+        id: corpus
         run: |
-          dotnet build src/tests/Broiler.Documents.Office/Broiler.Documents.Office.csproj \
-            -c Release --nologo
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          config = json.loads(Path('tests/office/reference-source.json').read_text(encoding='utf-8'))
+          revision = config.get('corpusRevision', '')
+          if not re.fullmatch(r'[0-9a-f]{40}', revision):
+              raise SystemExit('corpusRevision must be a full Git commit SHA')
+          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
+              output.write(f'revision={revision}\n')
+          PY
 
       - name: Run the re-save conformance suite
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OFFICE_INCREMENTAL: ${{ inputs.incremental && 'true' || 'false' }}
           OFFICE_ONLY: ${{ inputs.only || '' }}
-          OFFICE_EXTRAS_URL: ${{ inputs.extrasUrl || 'https://github.com/LibreOffice/core/tree/master/sw/qa/extras' }}
+          OFFICE_EXTRAS_URL: ${{ inputs.extrasUrl || format('https://github.com/LibreOffice/core/tree/{0}/sw/qa/extras', steps.corpus.outputs.revision) }}
           OFFICE_JOBS: ${{ inputs.jobs || '2' }}
           OFFICE_MAX_FILES: ${{ inputs.maxFiles || '' }}
         run: |
           ARGS=(
             --output-dir "$GITHUB_WORKSPACE/test-results"
-            --skip-install
             --jobs "$OFFICE_JOBS"
             --resave
           )
-          if [ "$OFFICE_EXTRAS_URL" = "$BROILER_OFFICE_EXTRAS_URL" ]; then
-             ARGS+=(--extras-dir "$BROILER_OFFICE_EXTRAS_DIR")
-          else
-            ARGS+=(--extras-url "$OFFICE_EXTRAS_URL")
-          fi
+          ARGS+=(--extras-url "$OFFICE_EXTRAS_URL")
           if [ "$OFFICE_INCREMENTAL" = "true" ]; then
             ARGS+=(--incremental)
           fi
@@ -107,6 +107,7 @@ jobs:
           fi
           RUNNER_STATUS=0
           bash eng/run-office-conformance.sh "${ARGS[@]}" || RUNNER_STATUS=$?
+          cp tests/office/resave-failed-documents.txt test-results/resave-failed-documents.txt
           if [ "$RUNNER_STATUS" = "99" ]; then
             echo "::error::The suite could not run. Exit 99 is a defect in the harness."
             exit 1
@@ -129,10 +130,18 @@ jobs:
             const status = process.env.OFFICE_JOB_STATUS;
             const path = require('node:path');
             const resultsDir = path.join(process.env.GITHUB_WORKSPACE, 'test-results');
+            const reportPath = path.join(resultsDir, 'office-major-differences.md');
+            const report = fs.existsSync(reportPath)
+              ? fs.readFileSync(reportPath, 'utf8')
+              : 'No completed re-save report was produced. See workflow logs for the harness failure.';
+            // Keep room for metadata within GitHub's issue body limit.
+            const details = report.length > 55000
+              ? report.slice(0, 55000) + '\n\nReport truncated; download the full artifact.'
+              : report;
             const issue = await github.rest.issues.create({
               ...context.repo,
               title: `Office re-save conformance: run ${context.runNumber}, attempt ${attempt} (${status})`,
-              body: `Workflow run: ${runUrl} (attempt ${attempt})\nStatus: **${status}**\nCommit: ${context.sha}\nTrigger: ${context.eventName}`,
+              body: `Workflow run: ${runUrl} (attempt ${attempt})\nStatus: **${status}**\nCommit: ${context.sha}\nTrigger: ${context.eventName}\nIncremental: ${context.payload.inputs?.incremental || 'false'}\n\n${details}`,
             });
             core.info(`Created ${issue.data.html_url}`);
             await core.summary.addLink('Office re-save conformance issue', issue.data.html_url).write();

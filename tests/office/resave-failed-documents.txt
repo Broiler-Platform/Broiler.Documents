@@ -1,0 +1,2 @@
+# Office re-save failures, independent of semantic/pixel conformance.
+# Populated by a complete --resave run; rechecked with --resave --incremental.

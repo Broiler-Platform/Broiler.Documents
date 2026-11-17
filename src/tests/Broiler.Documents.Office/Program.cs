@@ -85,10 +85,23 @@ internal static class Program
 
         Guard(workspace, root);
 
-        string failedDocsPath = options.FailedDocumentsPath ?? FailedDocuments.DefaultPath(root);
+        string failedDocsPath = options.FailedDocumentsPath ?? (options.ReSave ? ReSaveConformance.DefaultFailedPath(root) : FailedDocuments.DefaultPath(root));
         if (options.Incremental) _ = FailedDocuments.Load(failedDocsPath);
         if (options.SampleList is not null || options.SingleSample is not null) _ = ExtrasSelection.Resolve(options.SampleList, options.SingleSample);
         if (options.PreviousTriage is not null) _ = ExtrasTriage.Load(options.PreviousTriage);
+
+        if (options.ReSave)
+        {
+            try
+            {
+                return await ReSaveConformance.RunAsync(options, tool, workspace, root).ConfigureAwait(false);
+            }
+            finally
+            {
+                if (options.Keep) Console.WriteLine("kept        " + workspace);
+                else Delete(workspace);
+            }
+        }
 
         var log = new RunLog();
         string platform = PlatformName();
@@ -145,56 +158,6 @@ internal static class Program
             : pinned.Count.ToString(CultureInfo.InvariantCulture) + " face(s) from " +
               string.Join(", ", options.FontDirectories) + ", " +
               (fontArguments.Count / 2).ToString(CultureInfo.InvariantCulture) + " mapping(s)"));
-
-        if (options.ReSave)
-        {
-            CrashRegressions crashRegressions = CrashRegressions.Load(
-                options.CrashRegressions ?? Path.Combine(root, "tests", "office", "extras-crash-regressions.json"));
-            IReadOnlyList<ExtrasSample> samples = await ExtrasConformance.AcquireSamplesAsync(workspace, options.ExtrasUrl, options.ExtrasDirectory,
-                null, options.MaxFiles, ExtrasSelection.Resolve(options.SampleList, options.SingleSample)).ConfigureAwait(false);
-            return await RunReSaveAsync(options, tool, workspace, samples).ConfigureAwait(false);
-        }
-
-        static async Task<int> RunReSaveAsync(
-            Options options,
-            BroilerDocTool tool,
-            string workspace,
-            IReadOnlyList<ExtrasSample> samples)
-        {
-            Console.WriteLine("Re-saving " + samples.Count + " samples...");
-
-            int failed = 0;
-            foreach (var sample in samples)
-            {
-                string output = Path.Combine(workspace, "resave", sample.Id);
-                Directory.CreateDirectory(Path.GetDirectoryName(output)!);
-
-                // Re-save with broilerdoc convert
-                ToolRun run = await tool.RunAsync(["convert", sample.LocalPath, "--out", output, "--quiet"]).ConfigureAwait(false);
-                if (run.ExitCode != 0)
-                {
-                    Console.WriteLine("FAILED: " + sample.Id + " (convert exited " + run.ExitCode + ")");
-                    failed++;
-                    continue;
-                }
-
-                // Compare original and re-saved
-                byte[] original = File.ReadAllBytes(sample.LocalPath);
-                byte[] reSaved = File.ReadAllBytes(output);
-
-                if (!original.SequenceEqual(reSaved))
-                {
-                    Console.WriteLine("FAILED: " + sample.Id + " (not byte-identical)");
-                    failed++;
-                }
-                else
-                {
-                    Console.WriteLine("PASSED: " + sample.Id);
-                }
-            }
-
-            return failed;
-        }
 
         if (options.IsExtrasRun)
         {
@@ -1063,6 +1026,10 @@ internal static class Program
                         throw new ArgumentException("Unknown option '" + argument + "'.");
                 }
             }
+
+            if (resave && (seedCorpus || update || restamp || referencesDirectory is not null ||
+                prepareReferences is not null || previousTriage is not null || createIssue))
+                throw new ArgumentException("--resave cannot be combined with seed/baseline, reference archive, previous triage, or ranking issue options.");
 
             if (incremental && (sampleList is not null || singleSample is not null))
                 throw new ArgumentException("--incremental, --sample, and --sample-list are mutually exclusive.");

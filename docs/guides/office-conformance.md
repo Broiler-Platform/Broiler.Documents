@@ -1042,3 +1042,43 @@ covers, and sets the spaces that open a paragraph. The [workflow note for
 issue #182](../notes/office-conformance-workflow.md#issue-182)
 records what the investigation found about the workflow, first among it that
 a text difference of split lines names its cause.
+
+## Strict re-save conformance
+
+`office-resave.yml` runs directly on `ubuntu-24.04` with the .NET 10 SDK;
+it does not pull the Office SDK Docker image or provision LibreOffice, Poppler,
+or fonts. The runner downloads the corpus from the `corpusRevision` pinned in
+`tests/office/reference-source.json`. An explicit `extrasUrl` dispatch input
+can select another corpus. Incremental and exact-list runs download only the
+selected files, and an empty incremental run downloads nothing.
+
+`office-resave.yml` runs the extras corpus through `broilerdoc convert` and
+compares each output with the input byte for byte. Serialization changes,
+including ZIP metadata and XML ordering, count as failures even when document
+content is preserved. This measures byte fidelity, not semantic equivalence.
+Conversion errors and successful conversions with missing output are failures.
+
+Run locally with no LibreOffice, Poppler, or font installation required:
+
+```bash
+bash eng/run-office-conformance.sh --resave --extras-dir /path/to/extras --jobs 2
+bash eng/run-office-conformance.sh --resave --extras-dir /path/to/extras --incremental
+```
+
+Use `--only <substring>`, `--only @path/to/list.txt`, or `--sample-list <path>`
+for focused runs, and `--max-files` for a capped run. The runner also accepts
+`--sample <id>` directly. `--jobs` limits concurrent conversions. `--keep`
+retains the temporary workspace for inspecting outputs; otherwise it is removed.
+
+The wrapper writes console logs, JSON, JUnit, and a Markdown summary under its
+output directory. Workflow issues include the summary and link to the run;
+artifacts contain the complete reports and updated failure list. Reports name
+failed samples, conversion diagnostics, and reproduction commands.
+
+Complete runs track failures in `tests/office/resave-failed-documents.txt`,
+independently of the semantic/pixel failure list. `--failed-documents <path>`
+overrides this path. Incremental runs recheck this list, prune passing samples,
+and preserve unevaluated entries when filtered or capped. An empty list produces
+a zero-check report without downloading the corpus. Focused non-incremental runs
+do not change the list. Workflow artifacts do not commit the list back to the
+repository; commit the downloaded list to use it in subsequent dispatches.

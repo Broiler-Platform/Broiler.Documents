@@ -337,7 +337,11 @@ internal static class ExtrasConformance
             Directory.CreateDirectory(repoDir);
             string remote = "https://github.com/" + owner + "/" + repo + ".git";
 
-            if (!RunGit(repoDir, ["clone", "--filter=blob:none", "--no-checkout", "--depth", "1", "--sparse", "--branch", branch, remote, "."], TimeSpan.FromMinutes(3)))
+            // Fetch accepts pinned commit SHAs as well as named branches;
+            // clone --branch only accepts a branch or tag.
+            if (!RunGit(repoDir, ["init"], TimeSpan.FromMinutes(1)) ||
+                !RunGit(repoDir, ["remote", "add", "origin", remote], TimeSpan.FromMinutes(1)) ||
+                !RunGit(repoDir, ["sparse-checkout", "init", "--cone"], TimeSpan.FromMinutes(1)))
                 return null;
 
             if (!string.IsNullOrEmpty(subpath))
@@ -346,7 +350,8 @@ internal static class ExtrasConformance
                     return null;
             }
 
-            if (!RunGit(repoDir, ["checkout"], TimeSpan.FromMinutes(5)))
+            if (!RunGit(repoDir, ["-c", "protocol.version=2", "fetch", "--depth", "1", "--filter=blob:none", "origin", branch], TimeSpan.FromMinutes(3)) ||
+                !RunGit(repoDir, ["checkout", "--detach", "FETCH_HEAD"], TimeSpan.FromMinutes(5)))
                 return null;
 
             return string.IsNullOrEmpty(subpath)

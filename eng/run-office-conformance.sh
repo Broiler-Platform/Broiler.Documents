@@ -46,7 +46,8 @@
 #     --allow-pending-tools    Drive tools whose register row is not yet approved
 #     --update-baseline        Regenerate the baseline from this run
 #     --restamp                Permit --update-baseline to change the toolchain stamp
-#     --resave                 Re-save office reference data with broilerdoc and compare
+#     --resave                 Check strict byte fidelity without LibreOffice/poppler
+#                              Uses tests/office/resave-failed-documents.txt for tracking
 #     --font-set <name>        The name the baseline stamp records for the pinned fonts
 #     --keep                   Keep the workspace and print where it is
 #     --verbose                Name every skipped check under its grouped reason
@@ -286,6 +287,7 @@ utc_now() {
     date -u +"%Y-%m-%dT%H:%M:%SZ"
 }
 
+if [[ "$RESAVE" != "true" ]]; then
 echo "--- [$(utc_now)] Step 1: Provisioning LibreOffice and poppler ---"
 
 if [[ "$SKIP_INSTALL" == "true" ]]; then
@@ -390,6 +392,8 @@ else
 fi
 
 echo ""
+fi
+
 echo "--- [$(utc_now)] Step 4: Building the office conformance suite ---"
 
 # `-c Release` and not a solution configuration: Broiler.Documents.slnx maps
@@ -411,7 +415,6 @@ RUNNER_ARGS=(
     --axis "$AXIS"
     --dpi "$DPI"
     --threshold "$THRESHOLD"
-    --soffice "$SOFFICE"
 )
 
 if [[ "$SEED_CORPUS" == "true" || "$UPDATE_BASELINE" == "true" ]]; then
@@ -423,7 +426,7 @@ else
         RUNNER_ARGS+=(--extras-url "$EXTRAS_URL")
     fi
     RUNNER_ARGS+=(--top-differences "$TOP_DIFFERENCES" --issue-out "$ISSUE_FILE")
-    RUNNER_ARGS+=(--triage-dir "${TRIAGE_DIR:-$OUTPUT_DIR/triage}")
+    [[ "$RESAVE" != "true" ]] && RUNNER_ARGS+=(--triage-dir "${TRIAGE_DIR:-$OUTPUT_DIR/triage}")
     [[ -n "$SAMPLE_LIST" ]] && RUNNER_ARGS+=(--sample-list "$SAMPLE_LIST")
     [[ "$INCREMENTAL" == "true" ]] && RUNNER_ARGS+=(--incremental)
     [[ -n "$FAILED_DOCUMENTS" ]] && RUNNER_ARGS+=(--failed-documents "$FAILED_DOCUMENTS")
@@ -433,7 +436,14 @@ else
     [[ -n "$GITHUB_REPO" ]] && RUNNER_ARGS+=(--github-repo "$GITHUB_REPO")
 fi
 
-[[ -n "$ONLY" ]] && RUNNER_ARGS+=(--only "$ONLY")
+if [[ "$RESAVE" != "true" ]]; then
+    RUNNER_ARGS+=(--soffice "$SOFFICE")
+fi
+if [[ "$ONLY" == @* ]]; then
+    RUNNER_ARGS+=(--sample-list "${ONLY#@}")
+elif [[ -n "$ONLY" ]]; then
+    RUNNER_ARGS+=(--only "$ONLY")
+fi
 [[ -n "$REFERENCES_DIR" ]] && RUNNER_ARGS+=(--references-dir "$REFERENCES_DIR")
 [[ "$ACCEPT_REFERENCE_MISMATCH" == "true" ]] && RUNNER_ARGS+=(--accept-reference-mismatch)
 [[ -n "$JOBS" ]] && RUNNER_ARGS+=(--jobs "$JOBS")
