@@ -146,6 +146,56 @@ internal static class Program
               string.Join(", ", options.FontDirectories) + ", " +
               (fontArguments.Count / 2).ToString(CultureInfo.InvariantCulture) + " mapping(s)"));
 
+        if (options.ReSave)
+        {
+            CrashRegressions crashRegressions = CrashRegressions.Load(
+                options.CrashRegressions ?? Path.Combine(root, "tests", "office", "extras-crash-regressions.json"));
+            IReadOnlyList<ExtrasSample> samples = await ExtrasConformance.AcquireSamplesAsync(workspace, options.ExtrasUrl, options.ExtrasDirectory,
+                null, options.MaxFiles, ExtrasSelection.Resolve(options.SampleList, options.SingleSample)).ConfigureAwait(false);
+            return await RunReSaveAsync(options, tool, workspace, samples).ConfigureAwait(false);
+        }
+
+        static async Task<int> RunReSaveAsync(
+            Options options,
+            BroilerDocTool tool,
+            string workspace,
+            IReadOnlyList<ExtrasSample> samples)
+        {
+            Console.WriteLine("Re-saving " + samples.Count + " samples...");
+
+            int failed = 0;
+            foreach (var sample in samples)
+            {
+                string output = Path.Combine(workspace, "resave", sample.Id);
+                Directory.CreateDirectory(Path.GetDirectoryName(output)!);
+
+                // Re-save with broilerdoc convert
+                ToolRun run = await tool.RunAsync(["convert", sample.LocalPath, "--out", output, "--quiet"]).ConfigureAwait(false);
+                if (run.ExitCode != 0)
+                {
+                    Console.WriteLine("FAILED: " + sample.Id + " (convert exited " + run.ExitCode + ")");
+                    failed++;
+                    continue;
+                }
+
+                // Compare original and re-saved
+                byte[] original = File.ReadAllBytes(sample.LocalPath);
+                byte[] reSaved = File.ReadAllBytes(output);
+
+                if (!original.SequenceEqual(reSaved))
+                {
+                    Console.WriteLine("FAILED: " + sample.Id + " (not byte-identical)");
+                    failed++;
+                }
+                else
+                {
+                    Console.WriteLine("PASSED: " + sample.Id);
+                }
+            }
+
+            return failed;
+        }
+
         if (options.IsExtrasRun)
         {
             CrashRegressions crashRegressions = CrashRegressions.Load(
@@ -899,10 +949,11 @@ internal static class Program
         string? ReferenceDefects = null,
         bool AcceptReferenceMismatch = false,
         bool Incremental = false,
-        string? FailedDocumentsPath = null)
+        string? FailedDocumentsPath = null,
+        bool ReSave = false)
     {
         public bool IsExtrasRun => !SeedCorpus && (ExtrasUrl is not null || ExtrasDirectory is not null ||
-            SampleList is not null || SingleSample is not null || Incremental || TriageDirectory is not null || ReferencesDirectory is not null || PrepareReferences is not null);
+            SampleList is not null || SingleSample is not null || Incremental || TriageDirectory is not null || ReferencesDirectory is not null || PrepareReferences is not null || ReSave);
 
         public static Options Parse(string[] arguments)
         {
@@ -916,7 +967,7 @@ internal static class Program
             string axis = "all";
             var fontDirectories = new List<string>();
             bool keep = false, verbose = false, update = false, restamp = false;
-            bool allowPending = false, help = false, createIssue = false, seedCorpus = false;
+            bool allowPending = false, resave = false, help = false, createIssue = false, seedCorpus = false;
             bool acceptReferenceMismatch = false;
             int jobs = Environment.ProcessorCount;
             double threshold = 80;
@@ -993,6 +1044,7 @@ internal static class Program
                     case "--update-baseline": update = true; break;
                     case "--restamp": restamp = true; break;
                     case "--allow-pending-tools": allowPending = true; break;
+                    case "--resave": resave = true; break;
                     case "--accept-reference-mismatch": acceptReferenceMismatch = true; break;
                     case "--help" or "-h": help = true; break;
                     case "--axis":
@@ -1050,7 +1102,7 @@ internal static class Program
                 maxFiles, createIssue, seedCorpus, keep, verbose, update, restamp, allowPending, help,
                 jobs, dpi, threshold, maxPages, TimeSpan.FromSeconds(timeout), sampleList, singleSample, triageDirectory, previousTriage,
                 referencesDirectory, prepareReferences, referenceProducer, referenceDefects, acceptReferenceMismatch,
-                incremental, failedDocumentsPath);
+                incremental, failedDocumentsPath, resave);
         }
 
         public static void WriteUsage(TextWriter output)
@@ -1111,6 +1163,7 @@ internal static class Program
             output.WriteLine("  --update-baseline        Regenerate the baseline from this run.");
             output.WriteLine("  --restamp                Permit --update-baseline to change the toolchain stamp.");
             output.WriteLine("  --allow-pending-tools    Drive tools whose register row is not approved.");
+            output.WriteLine("  --resave                 Re-save office reference data with broilerdoc and compare.");
             output.WriteLine("  -h, --help               Show this and exit 0.");
             output.WriteLine();
             output.WriteLine("Exit code is the number of failed checks, capped at 98. 99 alone is a usage");
