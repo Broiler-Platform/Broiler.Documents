@@ -46,6 +46,7 @@
 #     --allow-pending-tools    Drive tools whose register row is not yet approved
 #     --update-baseline        Regenerate the baseline from this run
 #     --restamp                Permit --update-baseline to change the toolchain stamp
+#     --resave                 Re-save office reference data with broilerdoc and compare
 #     --font-set <name>        The name the baseline stamp records for the pinned fonts
 #     --keep                   Keep the workspace and print where it is
 #     --verbose                Name every skipped check under its grouped reason
@@ -97,6 +98,7 @@ REQUIRE_PINNED=false
 ALLOW_PENDING=false
 UPDATE_BASELINE=false
 RESTAMP=false
+RESAVE=false
 FONT_SET="${BROILER_OFFICE_FONT_SET:-}"
 KEEP=false
 VERBOSE=false
@@ -150,6 +152,7 @@ while [[ $# -gt 0 ]]; do
         --allow-pending-tools) ALLOW_PENDING=true; shift ;;
         --update-baseline) UPDATE_BASELINE=true; shift ;;
         --restamp) RESTAMP=true; shift ;;
+        --resave) RESAVE=true; shift ;;
         --font-set) FONT_SET="$2"; shift 2 ;;
         --keep) KEEP=true; shift ;;
         --verbose) VERBOSE=true; shift ;;
@@ -438,6 +441,7 @@ fi
 [[ "$ALLOW_PENDING" == "true" ]] && RUNNER_ARGS+=(--allow-pending-tools)
 [[ "$UPDATE_BASELINE" == "true" ]] && RUNNER_ARGS+=(--update-baseline)
 [[ "$RESTAMP" == "true" ]] && RUNNER_ARGS+=(--restamp)
+[[ "$RESAVE" == "true" ]] && RUNNER_ARGS+=(--resave)
 # Forwarded whenever it is set, and not only when regenerating: the baseline
 # stamp records the font set, and a run that did not name one can never match a
 # baseline that did. Leaving it out made the documented adoption sequence produce
