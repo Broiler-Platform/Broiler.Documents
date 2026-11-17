@@ -95,13 +95,13 @@ public sealed class DocumentSection(
     /// which is what a layout does here too.
     /// </para>
     /// </remarks>
-    public RunningContent? RunningContent { get; } = runningContent;
+    public RunningContent? RunningContent { get; private set; } = runningContent;
 
     /// <summary>The colour behind this section's text area; empty means transparent.</summary>
     public BColor Background { get; } = background;
 
     /// <summary>The page style sequence applying to this section, or null when uniform.</summary>
-    public PageStyleSequence? PageStyles { get; } = pageStyles;
+    public PageStyleSequence? PageStyles { get; private set; } = pageStyles;
 
     /// <summary>Retain this section in the model without displaying its body content.</summary>
     public bool Hidden { get; } = hidden;
@@ -150,6 +150,17 @@ public sealed class DocumentSection(
 
     /// <summary>Footnote collections whose original sections end at this boundary.</summary>
     public IReadOnlyList<SectionFootnotes> FootnotesEnding { get; init; } = [];
+
+    internal DocumentSection WithMappedPictures(RunningContent? running, PageStyleSequence? styles)
+    {
+        if (ReferenceEquals(running, RunningContent) && ReferenceEquals(styles, PageStyles))
+            return this;
+
+        var copy = (DocumentSection)MemberwiseClone();
+        copy.RunningContent = running;
+        copy.PageStyles = styles;
+        return copy;
+    }
 
     /// <summary>True when <paramref name="paragraphIndex"/> is one of the section's paragraphs.</summary>
     public bool Contains(int paragraphIndex) => paragraphIndex >= ParagraphIndex && paragraphIndex < ParagraphEnd;

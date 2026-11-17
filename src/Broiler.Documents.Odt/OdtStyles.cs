@@ -90,6 +90,34 @@ internal sealed class OdtStyles : IOdtImageDiagnostics
 
     private int _builtInHeadings;
 
+    public IEnumerable<(string Id, string Name)> NamedParagraphStyles =>
+        _styles.Where(pair => pair.Key.Family == ParagraphFamily && !pair.Value.Automatic && pair.Value.Declared && pair.Key.Name != "Standard")
+            .Select(pair => (pair.Key.Name, pair.Value.DisplayName ?? pair.Key.Name));
+
+    public string? NamedParagraphStyleFor(string? id)
+    {
+        for (int depth = 0; id is not null && depth <= _maxChainDepth; depth++)
+        {
+            if (!_styles.TryGetValue(new StyleKey(ParagraphFamily, id), out StyleDefinition? style))
+                break;
+            if (!style.Automatic)
+                return style.Declared && id != "Standard" ? style.DisplayName ?? id : null;
+            id = style.ParentStyleName;
+        }
+        return null;
+    }
+
+    public int? OutlineLevelFor(string id)
+    {
+        int? result = null;
+        foreach (StyleDefinition style in Chain(ParagraphFamily, id))
+        {
+            if (style.OutlineLevel is int level)
+                result = level is >= 1 and <= 9 ? level : null;
+        }
+        return result;
+    }
+
     /// <summary>
     /// The paragraph style a <c>text:h</c> that names none is drawn in:
     /// <c>Heading N</c> for its outline level, as Writer assigns the outline
@@ -715,6 +743,10 @@ internal sealed class OdtStyles : IOdtImageDiagnostics
                 style.Parent?.Name == OdtNamespaces.Office + "automatic-styles")
             {
                 ListStyleName = (string?)style.Attribute(OdtNamespaces.Style + "list-style-name"),
+                DisplayName = (string?)style.Attribute(OdtNamespaces.Style + "display-name"),
+                Declared = true,
+                OutlineLevel = int.TryParse((string?)style.Attribute(OdtNamespaces.Style + "default-outline-level"), out int outline)
+                    ? outline : null,
             };
 
             XElement? graphic = style.Element(OdtNamespaces.Style + "graphic-properties");
@@ -1185,6 +1217,9 @@ internal sealed class OdtStyles : IOdtImageDiagnostics
         string? DataStyleName,
         bool Automatic = false)
     {
+        public string? DisplayName { get; init; }
+        public bool Declared { get; init; }
+        public int? OutlineLevel { get; init; }
         /// <summary>The style's own <c>style:list-style-name</c>, empty where it states none, null where it is silent.</summary>
         public string? ListStyleName { get; init; }
     }

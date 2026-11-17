@@ -309,6 +309,15 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         _offBody = 0;
         _bodyParagraphs = document.Paragraphs;
         _sections = document.Sections;
+        var resolvedBands = new Dictionary<DocumentSection, RunningContent>(ReferenceEqualityComparer.Instance);
+        RunningContent RunningFor(DocumentSection? section)
+        {
+            if (section?.RunningContent is not { HasLinks: true })
+                return section?.RunningContent ?? _documentRunning;
+            if (!resolvedBands.TryGetValue(section, out RunningContent? running))
+                resolvedBands.Add(section, running = document.RunningContentFor(section));
+            return running;
+        }
         _bodyTables = document.Tables;
         _lineNumberCount = 0;
         _lineNumberSection = null;
@@ -452,7 +461,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             if (section?.PageNumberStart is int restart && _restartedNumbering.Add(section))
                 _numbering = (pages.Count + 1, restart);
             _pageNumberFormat = section?.PageNumberFormat;
-            _running = setup.Continuous ? RunningContent.Empty : section?.RunningContent ?? _documentRunning;
+            _running = setup.Continuous ? RunningContent.Empty : RunningFor(section);
             _firstPage = sharesFirst ? 0 : pages.Count + 1;
         }
 
@@ -1157,7 +1166,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             if (hasPendingOwner || region is null || ReferenceEquals(region, owner))
                 return;
 
-            RunningContent own = region.RunningContent ?? _documentRunning;
+            RunningContent own = RunningFor(region);
             if (setup.Continuous || ContinuesPageStyles(region) || ReferenceEquals(own, _running))
                 return;
 
@@ -1392,7 +1401,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             }
             bool isSectionStart = section is not null && section.ParagraphIndex == paragraphIndex;
             bool sectionBreaksPage = isSectionStart && section!.BreakType is SectionBreakType.NextPage or SectionBreakType.OddPage or SectionBreakType.EvenPage;
-            bool softPageBreak = table is null && document.Paragraphs[paragraphIndex].Style.SoftPageBreakBefore > pages.Count + 1;
+            bool softPageBreak = document.Paragraphs[paragraphIndex].Style.SoftPageBreakBefore > pages.Count + 1;
 
             if (!ReferenceEquals(section, region))
             {
@@ -1406,9 +1415,9 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 EnterRegion(section, startsPage, opensPage);
             }
 
-            if (table is not null && (table.PageBreakBefore || table.ColumnBreakBefore || sectionBreaksPage))
+            if (table is not null && (table.PageBreakBefore || table.ColumnBreakBefore || sectionBreaksPage || softPageBreak))
             {
-                bool pageBreak = table.PageBreakBefore || sectionBreaksPage;
+                bool pageBreak = table.PageBreakBefore || sectionBreaksPage || softPageBreak;
                 if (setup.Continuous)
                     ignoredBreaks++;
                 else if (pageBreak && (currentLines.Count > 0 || floatLines.Count > 0 || currentCells.Count > 0 || floatCells.Count > 0))
@@ -1512,9 +1521,12 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 bool keepInitialHeader = composedRows.Take(firstBodyGroup).Sum(row => row.Height) <= contentBottom - pageTop;
                 bool headerOnly = false;
 
-                void ContinueTable(bool inHeader, RowBox? nextRow = null)
+                void ContinueTable(bool inHeader, RowBox? nextRow = null, bool nextPage = false)
                 {
-                    BreakColumn();
+                    if (nextPage)
+                        BreakPage();
+                    else
+                        BreakColumn();
                     if (inHeader || truncated || setup.Continuous)
                         return;
 
@@ -1557,7 +1569,15 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 int rowNumber = 0;
                 foreach (RowBox composedRow in composedRows)
                 {
+                    int rowIndex = rowNumber;
                     bool inHeader = rowNumber++ < headerCount;
+                    int? firstParagraph = TableSoftPageBreaks.FirstParagraph(table.Rows[rowIndex]);
+                    if (rowIndex > 0 && !setup.Continuous && ColumnHasContent() && firstParagraph is int rowStart &&
+                        document.Paragraphs[rowStart].Style.SoftPageBreakBefore > pages.Count + 1 && table.CanBreakBeforeRow(rowIndex))
+                    {
+                        regionUnbalanced = true;
+                        ContinueTable(inHeader, composedRow, nextPage: true);
+                    }
                     // Keep the initial repeated heading with its first body row.
                     int groupEnd = inHeader && keepInitialHeader ? firstBodyGroup : rowNumber;
                     for (int index = rowNumber - 1; index < groupEnd && index < table.Rows.Count; index++)
@@ -2394,6 +2414,11 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             inlineCells: allInlineCells)
         {
             VerticalWriting = _verticalWriting,
+            HeaderLines = headerLines,
+            FooterLines = footerLines,
+            RunningContentSource = _running,
+            HeaderSelection = ReferenceEquals(_running.EffectiveHeader(selection), _running.Header(selection)) ? selection : PageSelection.Default,
+            FooterSelection = ReferenceEquals(_running.EffectiveFooter(selection), _running.Footer(selection)) ? selection : PageSelection.Default,
             PageBorders = setup.Continuous ? default : _currentPageGeometry?.Borders ?? default,
             PageBorderInsets = _currentPageGeometry?.BorderInsets ?? default,
             ColumnSeparators = columnSeparators ?? [],
@@ -5135,8 +5160,16 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     /// the hanging indent where it sets them as LibreOffice does.
     /// </summary>
     private ParagraphLines ComposeNoteParagraph(DocumentNote note, int index, DocumentPageBox setup,
-        double? left = null, double? width = null) =>
-        OffBody(() => ComposeNoteParagraphCore(note, index, setup, left, width));
+        double? left = null, double? width = null)
+    {
+        ParagraphLines result = OffBody(() => ComposeNoteParagraphCore(note, index, setup, left, width));
+        foreach (LayoutLine line in result.Lines)
+        {
+            line.SourceNote = note;
+            line.NoteParagraphIndex = index;
+        }
+        return result;
+    }
 
     private ParagraphLines ComposeNoteParagraphCore(DocumentNote note, int index, DocumentPageBox setup,
         double? left, double? width)

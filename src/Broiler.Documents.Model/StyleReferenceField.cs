@@ -35,10 +35,13 @@ namespace Broiler.Documents.Model;
 /// paragraph in full.
 /// </para>
 /// </remarks>
-/// <param name="StyleName">The character style's name, as the document's styles name it.</param>
+/// <param name="StyleName">The style's name, as the document's styles name it.</param>
 /// <param name="FromBottom">True for <c>\l</c>: the page's last stretch rather than its first.</param>
 public sealed record StyleReferenceField(string StyleName, bool FromBottom = false)
 {
+    /// <summary>Search whole paragraphs that use the named paragraph style.</summary>
+    public bool ParagraphStyle { get; init; }
+
     /// <summary>
     /// The field's text on a page whose body runs from <paramref name="pageStart"/>
     /// up to, not including, <paramref name="pageEnd"/> in
@@ -103,7 +106,8 @@ public sealed record StyleReferenceField(string StyleName, bool FromBottom = fal
             foreach (StyleRun run in paragraph.Runs)
             {
                 int length = Math.Min(run.Length, Math.Max(0, paragraph.Length - offset));
-                if (run.Style.CharacterStyle is string name && string.Equals(name, StyleName, comparison))
+                string? name = ParagraphStyle ? paragraph.Style.StyleName : run.Style.CharacterStyle;
+                if (string.Equals(name, StyleName, comparison))
                 {
                     if (start < 0)
                         start = offset;

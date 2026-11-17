@@ -427,12 +427,9 @@ public sealed class RichTextEditor
         range = ClampRange(range);
         if (range.IsEmpty)
         {
-            SetSelection(range);
-            _pendingInline = _pendingInline is InlineStyleDelta existing
-                ? Compose(existing, delta)
-                : delta;
-            _run = KeyboardRun.None;
-            return false;
+            if (range != Selection)
+                SetSelection(range);
+            return ApplyInlineStyle(delta);
         }
 
         RichTextDocument document = Document.ApplyInlineStyle(range, delta);
@@ -482,6 +479,25 @@ public sealed class RichTextEditor
 
     public bool SetAlignment(TextAlignment alignment) =>
         ApplyParagraphStyle(ParagraphStyleDelta.WithAlignment(alignment));
+
+    public bool ApplyPageStructure(PageGeometry? page, System.Collections.Generic.IReadOnlyList<DocumentSection> sections, RunningContent running)
+    {
+        RichTextDocument document = Document.WithPageStructure(page, sections, running);
+        if (ReferenceEquals(document, Document))
+            return false;
+        Commit(document, Selection, [new ApplyPageStructureOperation()]);
+        return true;
+    }
+
+    /// <summary>Applies edits from a separate editor as one undo unit if its original snapshot is still current.</summary>
+    public bool ApplyDocumentEdit(RichTextDocument original, RichTextDocument updated, RichTextRange selection)
+    {
+        ArgumentNullException.ThrowIfNull(updated);
+        if (!ReferenceEquals(original, Document) || ReferenceEquals(updated, Document))
+            return false;
+        Commit(updated, ClampRange(updated, selection), [new ApplyDocumentEditOperation()]);
+        return true;
+    }
 
     public bool SetListKind(ListKind kind) =>
         ApplyParagraphStyle(ParagraphStyleDelta.WithListKind(kind));
@@ -670,6 +686,14 @@ public sealed class RichTextEditor
         Italic = over.Italic ?? baseDelta.Italic,
         Underline = over.Underline ?? baseDelta.Underline,
         Strikethrough = over.Strikethrough ?? baseDelta.Strikethrough,
+        Hidden = over.Hidden ?? baseDelta.Hidden,
+        Capitalization = over.Capitalization ?? baseDelta.Capitalization,
+        SetLanguage = over.SetLanguage || baseDelta.SetLanguage,
+        Language = over.SetLanguage ? over.Language : baseDelta.Language,
+        SetBaselineShift = over.SetBaselineShift || baseDelta.SetBaselineShift,
+        BaselineShift = over.SetBaselineShift ? over.BaselineShift : baseDelta.BaselineShift,
+        SetCharacterStyle = over.SetCharacterStyle || baseDelta.SetCharacterStyle,
+        CharacterStyle = over.SetCharacterStyle ? over.CharacterStyle : baseDelta.CharacterStyle,
         Foreground = over.Foreground ?? baseDelta.Foreground,
         Background = over.Background ?? baseDelta.Background,
         SetFontFamily = over.SetFontFamily || baseDelta.SetFontFamily,

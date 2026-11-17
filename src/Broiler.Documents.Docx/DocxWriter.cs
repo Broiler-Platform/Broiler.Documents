@@ -29,6 +29,8 @@ public static class DocxWriter
         var context = new DocxWriteContext(
             document.Paragraphs.Any(static p => p.Style.ListKind != ListKind.None || p.Style.List is not null),
             (options ?? DocumentWriteOptions.Default).Resources);
+        foreach (NamedParagraphStyle style in document.StyleDefaults.NamedParagraphStyles)
+            context.AddParagraphStyle(style);
         if (document.Sections.Any(section => section.Hidden))
             context.AddDiagnosticOnce("docx.section.hidden", "Hidden section visibility was not written; its retained content is exported as visible paragraphs.");
         BuildRunningParts(document, context);
@@ -54,6 +56,10 @@ public static class DocxWriter
         XDocument? coreXml = DocxMetadata.BuildCore(metadata);
         XDocument? appXml = DocxMetadata.BuildApp(metadata);
         context.ReportMetadata(metadata);
+        XElement[] paragraphStyles = context.ParagraphStyles.Values.Select(entry =>
+            new XElement(DocxNamespaces.Wordprocessing + "style", WordAttribute("type", "paragraph"),
+                WordAttribute("styleId", entry.Id), new XElement(DocxNamespaces.Wordprocessing + "name", WordAttribute("val", XmlText(entry.Style.Name, context))),
+                BuildParagraphProperties(entry.Style.Paragraph, context), BuildRunProperties(entry.Style.Text, context))).ToArray();
 
         using var package = new MemoryStream();
         using (var archive = new ZipArchive(package, ZipArchiveMode.Create, leaveOpen: true))
@@ -65,10 +71,10 @@ public static class DocxWriter
             if (appXml is not null)
                 AddXmlEntry(archive, DocxMetadata.AppPart, appXml);
             AddXmlEntry(archive, "word/document.xml", documentXml);
-            if (context.CharacterStyles.Count > 0)
+            if (context.HasStyles)
                 AddXmlEntry(archive, "word/styles.xml", new XDocument(new XElement(
                     DocxNamespaces.Wordprocessing + "styles",
-                    context.CharacterStyles.Select(pair => new XElement(DocxNamespaces.Wordprocessing + "style",
+                    paragraphStyles, context.CharacterStyles.Select(pair => new XElement(DocxNamespaces.Wordprocessing + "style",
                         WordAttribute("type", "character"), WordAttribute("styleId", pair.Value),
                         new XElement(DocxNamespaces.Wordprocessing + "name", WordAttribute("val", pair.Key)))))));
             if (context.HasDocumentRelationships)
@@ -80,16 +86,15 @@ public static class DocxWriter
             if (footnotesXml is not null)
             {
                 AddXmlEntry(archive, "word/footnotes.xml", footnotesXml);
-                AddXmlEntry(archive, "word/_rels/footnotes.xml.rels", BuildNoteRelationships(context));
+                AddXmlEntry(archive, "word/_rels/footnotes.xml.rels", BuildStoryRelationships(context));
             }
 
             if (endnotesXml is not null)
             {
                 AddXmlEntry(archive, "word/endnotes.xml", endnotesXml);
-                AddXmlEntry(archive, "word/_rels/endnotes.xml.rels", BuildNoteRelationships(context));
+                AddXmlEntry(archive, "word/_rels/endnotes.xml.rels", BuildStoryRelationships(context));
             }
-            foreach (DocxRunningPart part in context.RunningParts)
-                AddXmlEntry(archive, part.PartPath, part.Xml);
+            WriteRunningParts(archive, context);
             foreach (DocxImagePart image in context.Images)
                 AddBinaryEntry(archive, image.PartPath, image.Data.Span);
         }
@@ -153,6 +158,9 @@ public static class DocxWriter
             {
                 foreach (bool isHeader in new[] { true, false })
                 {
+                    if (running.IsLinked(selection, isHeader))
+                        continue;
+
                     // What the model draws where a set lacks a type: nothing for
                     // the default, nothing on a first page it makes different,
                     // and its default on an even page.
@@ -240,7 +248,8 @@ public static class DocxWriter
         (int Count, double Gap, bool Separator)? columns = null,
         SectionBreakType? breakType = null,
         bool continuous = false,
-        int? pageNumberStart = null)
+        int? pageNumberStart = null,
+        ListNumberFormat? pageNumberFormat = null)
     {
         var sectPr = new XElement(DocxNamespaces.Wordprocessing + "sectPr");
         bool hasFirst = false;
@@ -297,11 +306,12 @@ public static class DocxWriter
 
         }
 
-        if (pageNumberStart is int start)
+        if (pageNumberStart is not null || pageNumberFormat is not null)
         {
             sectPr.Add(new XElement(
                 DocxNamespaces.Wordprocessing + "pgNumType",
-                WordAttribute("start", start.ToString(CultureInfo.InvariantCulture))));
+                pageNumberStart is int start ? WordAttribute("start", start.ToString(CultureInfo.InvariantCulture)) : null,
+                pageNumberFormat is { } format ? WordAttribute("fmt", NumberFormat(format)) : null));
         }
 
         if (stated.Count > 1)
@@ -341,7 +351,8 @@ public static class DocxWriter
             lastColumns,
             breakType: lastBreak,
             continuous: lastBreak == SectionBreakType.Continuous || (lastBreak == null && document.Sections.Count > 0),
-            pageNumberStart: lastSection?.PageNumberStart));
+            pageNumberStart: lastSection?.PageNumberStart,
+            pageNumberFormat: lastSection?.PageNumberFormat));
 
         var root = new XElement(
             DocxNamespaces.Wordprocessing + "document",
@@ -516,7 +527,8 @@ public static class DocxWriter
             ColumnsAt(document, index),
             breakType: effectiveBreak,
             continuous: effectiveBreak == SectionBreakType.Continuous,
-            pageNumberStart: section?.PageNumberStart);
+            pageNumberStart: section?.PageNumberStart,
+            pageNumberFormat: section?.PageNumberFormat);
     }
 
     /// <summary>A paragraph's <c>w:pPr</c>, made when it has none, and kept first among its children.</summary>
@@ -889,6 +901,14 @@ public static class DocxWriter
     {
         var element = new XElement(DocxNamespaces.Wordprocessing + "p");
         XElement? properties = BuildParagraphProperties(paragraph.Style, context);
+        NamedParagraphStyle? previous = context.ActiveParagraphStyle;
+        context.ActiveParagraphStyle = null;
+        if (paragraph.Style.StyleName is { } name && context.ParagraphStyles.TryGetValue(name, out var definition))
+        {
+            context.ActiveParagraphStyle = definition.Style;
+            properties ??= new XElement(DocxNamespaces.Wordprocessing + "pPr");
+            properties.AddFirst(new XElement(DocxNamespaces.Wordprocessing + "pStyle", WordAttribute("val", definition.Id)));
+        }
 
         // The mark's w:rPr closes CT_PPr's base properties and comes before a
         // w:sectPr, which is added after this. A mark carries no link and no
@@ -956,6 +976,7 @@ public static class DocxWriter
             context.InDeletion = false;
         }
 
+        context.ActiveParagraphStyle = previous;
         return element;
     }
 
@@ -1013,14 +1034,8 @@ public static class DocxWriter
     private static XElement? BuildParagraphProperties(ParagraphStyle style, DocxWriteContext context)
     {
         var properties = new XElement(DocxNamespaces.Wordprocessing + "pPr");
-        if (style.TabStops is ParagraphTabStops tabs)
-            properties.Add(new XElement(DocxNamespaces.Wordprocessing + "tabs", tabs.Select(tab =>
-                new XElement(DocxNamespaces.Wordprocessing + "tab",
-                    WordAttribute("pos", Twips(tab.Position)),
-                    WordAttribute("val", tab.Alignment switch
-                    { TabAlignment.Center => "center", TabAlignment.Right => "right", TabAlignment.Decimal => "decimal", _ => "left" }),
-                    tab.Leader is null ? null : WordAttribute("leader", tab.Leader switch
-                    { "-" => "hyphen", "_" => "underscore", "·" => "middleDot", _ => "dot" })))));
+        ParagraphStyle inherited = style.StyleName is { } name && context.ParagraphStyles.TryGetValue(name, out var named)
+            ? named.Style.Paragraph : ParagraphStyle.Default;
         if (style.KeepWithNext)
             properties.Add(new XElement(DocxNamespaces.Wordprocessing + "keepNext"));
         if (style.KeepTogether)
@@ -1047,17 +1062,10 @@ public static class DocxWriter
 
         if (style.List is ListReference list)
         {
-            if (list.RestartAt is not null)
-            {
-                context.AddDiagnosticOnce(
-                    "docx.list.restart",
-                    "A list item that restarts its list's count was written without the restart; DOCX restarts a list only through a list of its own.");
-            }
-
             properties.Add(new XElement(
                 DocxNamespaces.Wordprocessing + "numPr",
                 new XElement(DocxNamespaces.Wordprocessing + "ilvl", WordAttribute("val", list.Level.ToString(CultureInfo.InvariantCulture))),
-                new XElement(DocxNamespaces.Wordprocessing + "numId", WordAttribute("val", context.NumIdFor(list.Definition).ToString(CultureInfo.InvariantCulture)))));
+                new XElement(DocxNamespaces.Wordprocessing + "numId", WordAttribute("val", context.NumIdFor(list).ToString(CultureInfo.InvariantCulture)))));
         }
         else if (style.ListKind != ListKind.None)
         {
@@ -1073,14 +1081,42 @@ public static class DocxWriter
             context.EndLegacyList();
         }
 
+        if (style.Border is not null || inherited.Border is not null)
+        {
+            ParagraphBorder border = style.Border ?? default;
+            properties.Add(new XElement(DocxNamespaces.Wordprocessing + "pBdr",
+                ParagraphEdge("top", border.Edges.Top, border.Spacing.Top),
+                ParagraphEdge("left", border.Edges.Left, border.Spacing.Left),
+                ParagraphEdge("bottom", border.Edges.Bottom, border.Spacing.Bottom),
+                ParagraphEdge("right", border.Edges.Right, border.Spacing.Right)));
+        }
+
         // w:shd is 10th, after w:numPr and before w:spacing.
-        if (!style.Background.IsEmpty && style.Background.A > 0)
+        if (!style.Background.IsEmpty && style.Background.A > 0 || !inherited.Background.IsEmpty)
         {
             properties.Add(new XElement(
                 DocxNamespaces.Wordprocessing + "shd",
                 WordAttribute("val", "clear"),
                 WordAttribute("color", "auto"),
-                WordAttribute("fill", HexColor(style.Background))));
+                WordAttribute("fill", style.Background.IsEmpty ? "auto" : HexColor(style.Background))));
+        }
+
+        if (style.TabStops is { Count: > 0 } || inherited.TabStops is { Count: > 0 })
+        {
+            ParagraphTabStops tabs = style.TabStops ?? new ParagraphTabStops([]);
+            if (tabs.Any(tab => tab.Alignment == TabAlignment.Decimal && tab.DecimalCharacter != '.'))
+                context.AddDiagnosticOnce("docx.tab.decimal-character", "DOCX uses the application's decimal separator for decimal tabs.");
+            if (tabs.Any(tab => tab.Leader is not (null or "." or "-" or "_" or "·")))
+                context.AddDiagnosticOnce("docx.tab.leader", "A custom tab leader was written as dots.");
+            var clears = (inherited.TabStops ?? new ParagraphTabStops([])).Where(old => !tabs.Any(tab => tab.Position == old.Position))
+                .Select(tab => new XElement(DocxNamespaces.Wordprocessing + "tab", WordAttribute("pos", Twips(tab.Position)), WordAttribute("val", "clear")));
+            properties.Add(new XElement(DocxNamespaces.Wordprocessing + "tabs", clears, tabs.Select(tab =>
+                new XElement(DocxNamespaces.Wordprocessing + "tab",
+                    WordAttribute("pos", Twips(tab.Position)),
+                    WordAttribute("val", tab.Alignment switch
+                    { TabAlignment.Center => "center", TabAlignment.Right => "right", TabAlignment.Decimal => "decimal", _ => "left" }),
+                    tab.Leader is null ? null : WordAttribute("leader", tab.Leader switch
+                    { "-" => "hyphen", "_" => "underscore", "·" => "middleDot", _ => "dot" })))));
         }
 
         if (style.LineHeightRule == LineHeightRule.Leading && style.LineHeight != 0)
@@ -1088,14 +1124,15 @@ public static class DocxWriter
 
         bool fixedHeight = (style.LineHeightRule is LineHeightRule.Exact or LineHeightRule.AtLeast) && style.LineHeight > 0;
         if (Math.Abs(style.LineSpacing - 1f) > 0.001f ||
-            fixedHeight ||
+            fixedHeight || inherited.LineHeightRule != LineHeightRule.Proportional || inherited.LineSpacing != 1 ||
+            inherited.SpacingBefore != 0 || inherited.SpacingAfter != 0 ||
             Math.Abs(style.SpacingBefore) > 0.001f ||
             Math.Abs(style.SpacingAfter) > 0.001f)
         {
             var spacing = new XElement(DocxNamespaces.Wordprocessing + "spacing");
-            if (Math.Abs(style.SpacingBefore) > 0.001f)
+            if (Math.Abs(style.SpacingBefore) > 0.001f || inherited.SpacingBefore != 0)
                 spacing.Add(WordAttribute("before", Twips(style.SpacingBefore).ToString(CultureInfo.InvariantCulture)));
-            if (Math.Abs(style.SpacingAfter) > 0.001f)
+            if (Math.Abs(style.SpacingAfter) > 0.001f || inherited.SpacingAfter != 0)
                 spacing.Add(WordAttribute("after", Twips(style.SpacingAfter).ToString(CultureInfo.InvariantCulture)));
             if (fixedHeight)
             {
@@ -1103,7 +1140,7 @@ public static class DocxWriter
                 spacing.Add(WordAttribute("line", Math.Max(1, Twips(style.LineHeight)).ToString(CultureInfo.InvariantCulture)));
                 spacing.Add(WordAttribute("lineRule", style.LineHeightRule == LineHeightRule.Exact ? "exact" : "atLeast"));
             }
-            else if (Math.Abs(style.LineSpacing - 1f) > 0.001f)
+            else if (Math.Abs(style.LineSpacing - 1f) > 0.001f || inherited.LineHeightRule != LineHeightRule.Proportional || inherited.LineSpacing != 1)
             {
                 spacing.Add(WordAttribute("line", Math.Max(1, (int)Math.Round(style.LineSpacing * 240f)).ToString(CultureInfo.InvariantCulture)));
                 spacing.Add(WordAttribute("lineRule", "auto"));
@@ -1115,13 +1152,14 @@ public static class DocxWriter
         // A numbered paragraph's indent is where its label starts, and DOCX
         // states where the text starts and how far the label hangs back from
         // it, so it is written as both.
-        if (style.LeftIndent.HasValue || style.RightIndent.HasValue || style.FirstLineIndent.HasValue)
+        if (style.LeftIndent.HasValue || style.RightIndent.HasValue || style.FirstLineIndent.HasValue ||
+            inherited.LeftIndent.HasValue || inherited.RightIndent.HasValue || inherited.FirstLineIndent.HasValue)
         {
             var indentation = new XElement(DocxNamespaces.Wordprocessing + "ind",
                 WordAttribute("left", ((int)Math.Round(style.LeftIndentIn() * 20)).ToString(CultureInfo.InvariantCulture)));
-            if (style.RightIndent.HasValue)
+            if (style.RightIndent.HasValue || inherited.RightIndent.HasValue)
                 indentation.Add(WordAttribute("right", ((int)Math.Round(style.RightIndentIn * 20)).ToString(CultureInfo.InvariantCulture)));
-            if (style.FirstLineIndent.HasValue)
+            if (style.FirstLineIndent.HasValue || inherited.FirstLineIndent.HasValue)
                 indentation.Add(WordAttribute(style.FirstLineIndentIn < 0 ? "hanging" : "firstLine",
                     ((int)Math.Round(Math.Abs(style.FirstLineIndentIn) * 20)).ToString(CultureInfo.InvariantCulture)));
             properties.Add(indentation);
@@ -1146,8 +1184,25 @@ public static class DocxWriter
             properties.Add(new XElement(DocxNamespaces.Wordprocessing + "jc", WordAttribute("val", "right")));
         else if (style.Alignment == TextAlignment.Justify)
             properties.Add(new XElement(DocxNamespaces.Wordprocessing + "jc", WordAttribute("val", "both")));
+        else if (inherited.Alignment != TextAlignment.Left)
+            properties.Add(new XElement(DocxNamespaces.Wordprocessing + "jc", WordAttribute("val", "left")));
+
+        if (style.HeadingLevel is >= 1 and <= 9)
+            properties.Add(new XElement(DocxNamespaces.Wordprocessing + "outlineLvl",
+                WordAttribute("val", (style.HeadingLevel.Value - 1).ToString(CultureInfo.InvariantCulture))));
+        else if (inherited.HeadingLevel is not null)
+            properties.Add(new XElement(DocxNamespaces.Wordprocessing + "outlineLvl", WordAttribute("val", "9")));
 
         return properties.HasElements ? properties : null;
+
+        static XElement ParagraphEdge(string side, TableBorder edge, double space)
+        {
+            XElement element = BuildBorderEdge(side, edge);
+            if (edge.IsVisible)
+                element.SetAttributeValue(DocxNamespaces.Wordprocessing + "space",
+                    double.IsFinite(space) ? (int)Math.Clamp(Math.Round(space), 0, 31) : 0);
+            return element;
+        }
     }
 
     private static void AddRun(XElement parent, string text, InlineStyle style, DocxWriteContext context)
@@ -1156,7 +1211,8 @@ public static class DocxWriter
         {
             if (CanWriteStyleName(reference.StyleName) && !reference.StyleName.Contains('"'))
             {
-                context.CharacterStyleId(reference.StyleName);
+                if (!reference.ParagraphStyle)
+                    context.CharacterStyleId(reference.StyleName);
                 string instruction = "STYLEREF \"" + reference.StyleName + "\"" + (reference.FromBottom ? " \\l" : "");
                 parent.Add(new XElement(DocxNamespaces.Wordprocessing + "fldSimple",
                     WordAttribute("instr", instruction), BuildRun(text, style with { StyleReference = null }, context)));
@@ -1282,10 +1338,10 @@ public static class DocxWriter
                 WordAttribute("eastAsia", family)));
         }
 
-        if (style.Bold)
-            properties.Add(new XElement(DocxNamespaces.Wordprocessing + "b"));
-        if (style.Italic)
-            properties.Add(new XElement(DocxNamespaces.Wordprocessing + "i"));
+        if (style.Bold || context.ActiveParagraphStyle?.Text.Bold == true)
+            properties.Add(new XElement(DocxNamespaces.Wordprocessing + "b", style.Bold ? null : WordAttribute("val", "0")));
+        if (style.Italic || context.ActiveParagraphStyle?.Text.Italic == true)
+            properties.Add(new XElement(DocxNamespaces.Wordprocessing + "i", style.Italic ? null : WordAttribute("val", "0")));
 
         // Adjacent in the sequence as well as exclusive in the model, so the
         // either/or costs this one nothing: whichever arm runs, it lands
@@ -1347,6 +1403,10 @@ public static class DocxWriter
         if (!style.IsNote && style.Shift is { } shift &&
             shift.Scale != (shift.Position == BaselinePosition.Offset ? 1 : BaselineShift.DefaultScale))
             context.AddDiagnosticOnce("docx.text.position", "A custom baseline scale was approximated by Word's native baseline formatting.");
+
+        if (!string.IsNullOrWhiteSpace(style.Language))
+            properties.Add(new XElement(DocxNamespaces.Wordprocessing + "lang",
+                WordAttribute("val", XmlText(style.Language, context))));
 
         // A change of formatting closes the sequence. What the run looked like
         // before is not held, so the earlier properties are written empty, as
@@ -1487,11 +1547,11 @@ public static class DocxWriter
                     new XElement(DocxNamespaces.Wordprocessing + type))));
 
     /// <summary>
-    /// A notes part's relationships: the hyperlinks and pictures, under the
-    /// ids the body's part gives them, because a note's paragraphs were written
-    /// by the same context and name those ids.
+    /// Hyperlinks and pictures registered by the shared paragraph writer.
+    /// Body, note and running parts use the same IDs in their XML, and each
+    /// part needs its own relationships to resolve the IDs it uses.
     /// </summary>
-    private static XDocument BuildNoteRelationships(DocxWriteContext context)
+    private static XDocument BuildStoryRelationships(DocxWriteContext context)
     {
         var root = new XElement(DocxNamespaces.PackageRelationships + "Relationships");
         foreach (KeyValuePair<string, string> relationship in context.HyperlinkRelationships.OrderBy(pair => pair.Value, StringComparer.Ordinal))
@@ -1514,6 +1574,32 @@ public static class DocxWriter
         }
 
         return new XDocument(new XDeclaration("1.0", "utf-8", "yes"), root);
+    }
+
+    private static void WriteRunningParts(ZipArchive archive, DocxWriteContext context)
+    {
+        if (context.RunningParts.Count == 0)
+            return;
+
+        var relationships = BuildStoryRelationships(context).Root!.Elements()
+            .ToDictionary(element => (string)element.Attribute("Id")!, StringComparer.Ordinal);
+        foreach (DocxRunningPart part in context.RunningParts)
+        {
+            AddXmlEntry(archive, part.PartPath, part.Xml);
+            // References are scoped to the XML part that uses them. Keep only
+            // the shared relationships that this header or footer names.
+            var local = new XElement(DocxNamespaces.PackageRelationships + "Relationships");
+            foreach (string id in part.Xml.Descendants().Attributes()
+                .Where(attribute => attribute.Name.Namespace == DocxNamespaces.Relationships)
+                .Select(attribute => attribute.Value).Distinct(StringComparer.Ordinal))
+            {
+                if (relationships.TryGetValue(id, out XElement? relationship))
+                    local.Add(relationship);
+            }
+            if (local.HasElements)
+                AddXmlEntry(archive, DocxPackage.RelationshipsPartPath(part.PartPath),
+                    new XDocument(new XDeclaration("1.0", "utf-8", "yes"), local));
+        }
     }
 
     /// <summary>
@@ -2133,7 +2219,7 @@ public static class DocxWriter
                 new XAttribute("PartName", "/word/document.xml"),
                 new XAttribute("ContentType", DocxNamespaces.DocumentContentType)));
 
-        if (context.CharacterStyles.Count > 0)
+        if (context.HasStyles)
             types.Add(new XElement(DocxNamespaces.ContentTypes + "Override",
                 new XAttribute("PartName", "/word/styles.xml"),
                 new XAttribute("ContentType", "application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml")));
@@ -2249,7 +2335,7 @@ public static class DocxWriter
     {
         var root = new XElement(DocxNamespaces.PackageRelationships + "Relationships");
 
-        if (context.CharacterStyles.Count > 0)
+        if (context.HasStyles)
             root.Add(new XElement(DocxNamespaces.PackageRelationships + "Relationship",
                 new XAttribute("Id", "rIdStyles"),
                 new XAttribute("Type", DocxNamespaces.StylesRelationship),
@@ -2601,6 +2687,12 @@ public static class DocxWriter
         public DocumentConversionContext Resources { get; } = resources;
 
         public Dictionary<string, string> CharacterStyles { get; } = new(StringComparer.OrdinalIgnoreCase);
+        public Dictionary<string, (string Id, NamedParagraphStyle Style)> ParagraphStyles { get; } = new(StringComparer.OrdinalIgnoreCase);
+        public NamedParagraphStyle? ActiveParagraphStyle { get; set; }
+        public bool HasStyles => CharacterStyles.Count > 0 || ParagraphStyles.Count > 0;
+
+        public void AddParagraphStyle(NamedParagraphStyle style) =>
+            ParagraphStyles.TryAdd(style.Name, ("Paragraph" + (ParagraphStyles.Count + 1).ToString(CultureInfo.InvariantCulture), style));
 
         public string CharacterStyleId(string name)
         {
@@ -2612,7 +2704,7 @@ public static class DocxWriter
             return id;
         }
 
-        public bool HasDocumentRelationships => CharacterStyles.Count > 0 ||
+        public bool HasDocumentRelationships => HasStyles ||
             HasNumbering || _hyperlinks.Count > 0 || _imageOrder.Count > 0 || _runningParts.Count > 0 ||
             SettingsRelationshipId is not null || FootnotesRelationshipId is not null || EndnotesRelationshipId is not null;
 
@@ -2707,6 +2799,7 @@ public static class DocxWriter
         public int NextRevisionId() => _nextRevisionId++;
 
         private readonly Dictionary<ListDefinition, int> _listNumIds = new(ReferenceEqualityComparer.Instance);
+        private readonly Dictionary<ListDefinition, ListDefinition> _listRestarts = new(ReferenceEqualityComparer.Instance);
         private readonly List<ListDefinition> _listOrder = [];
         private readonly List<int> _legacyRestarts = [];
         private int _nextNumId = 3;
@@ -2730,6 +2823,21 @@ public static class DocxWriter
             _listNumIds[definition] = numId;
             _listOrder.Add(definition);
             return numId;
+        }
+
+        public int NumIdFor(ListReference list)
+        {
+            if (list.RestartAt is int restart && list.Level == 0)
+            {
+                ListLevel[] levels = list.Definition.Levels.ToArray();
+                levels[0] = levels[0] with { Start = restart };
+                _listRestarts[list.Definition] = new ListDefinition(levels, list.Definition.Name);
+            }
+            else if (list.RestartAt is not null)
+            {
+                AddDiagnosticOnce("docx.list.restart", "DOCX omitted a nested list restart to preserve the higher-level counters.");
+            }
+            return NumIdFor(_listRestarts.GetValueOrDefault(list.Definition, list.Definition));
         }
 
         /// <summary>

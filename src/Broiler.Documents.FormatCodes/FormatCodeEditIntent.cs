@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using Broiler.Documents.Model;
 using Broiler.Graphics.Color;
 
@@ -33,9 +34,8 @@ public enum FormatCodeProperty
     Background,
     Link,
 
-    // Inline properties are projected by their offset from Bold, so a new one
-    // belongs at the end of that contiguous run — before the paragraph
-    // properties, which start at Alignment.
+    // The original inline properties are projected by their offset from Bold.
+    // Later additions are mapped explicitly to keep existing values stable.
     Capitalization,
     Alignment,
     ListKind,
@@ -60,6 +60,10 @@ public enum FormatCodeProperty
     // The single character a footnote or endnote citation occupies; deleting
     // it deletes the note.
     Note,
+    Hidden,
+    BaselineShift,
+    Language,
+    CharacterStyle,
 }
 
 /// <summary>
@@ -97,6 +101,10 @@ public enum FormatCodePaletteEntry
     Tab,
     LineBreak,
     ParagraphBreak,
+    Hidden,
+    BaselineShift,
+    Language,
+    CharacterStyle,
 }
 
 /// <summary>Validation limits for structured pane edits.</summary>
@@ -181,6 +189,20 @@ public static class FormatCodeEditValidator
             if (href.Length > limits.MaxLinkCharacters || ContainsControl(href) || !IsAllowedLink(href))
                 return FormatCodeEditValidationResult.Invalid("FCEDIT022");
         }
+
+        if (delta.SetBaselineShift && delta.BaselineShift is BaselineShift shift &&
+            (!Enum.IsDefined(shift.Position) || !double.IsFinite(shift.Scale) || shift.Scale is <= 0 or > 10 ||
+            !double.IsFinite(shift.Offset) || Math.Abs(shift.Offset) > 10))
+            return FormatCodeEditValidationResult.Invalid("FCEDIT023");
+
+        if (delta.SetLanguage && delta.Language is string language &&
+            (language.Length is < 2 or > 63 || !language.Split('-').All(part =>
+                part.Length is >= 1 and <= 8 && part.All(char.IsAsciiLetterOrDigit))))
+            return FormatCodeEditValidationResult.Invalid("FCEDIT024");
+
+        if (delta.SetCharacterStyle && delta.CharacterStyle is string name &&
+            (string.IsNullOrWhiteSpace(name) || name.Length > limits.MaxFontFamilyCharacters || ContainsControl(name) || ContainsUnpairedSurrogate(name)))
+            return FormatCodeEditValidationResult.Invalid("FCEDIT025");
 
         return FormatCodeEditValidationResult.Valid;
     }
@@ -317,6 +339,14 @@ public static class FormatCodeInsertPalette
                 new ApplyFormatCodeInlineIntent(range, InlineStyleDelta.WithCapitalization(TextCapitalization.AllCaps)),
             FormatCodePaletteEntry.SmallCaps =>
                 new ApplyFormatCodeInlineIntent(range, InlineStyleDelta.WithCapitalization(TextCapitalization.SmallCaps)),
+            FormatCodePaletteEntry.Hidden when value is bool hidden =>
+                new ApplyFormatCodeInlineIntent(range, InlineStyleDelta.WithHidden(hidden)),
+            FormatCodePaletteEntry.BaselineShift when value is BaselineShift shift =>
+                new ApplyFormatCodeInlineIntent(range, InlineStyleDelta.WithBaselineShift(shift)),
+            FormatCodePaletteEntry.Language when value is string language =>
+                new ApplyFormatCodeInlineIntent(range, InlineStyleDelta.WithLanguage(language)),
+            FormatCodePaletteEntry.CharacterStyle when value is string name =>
+                new ApplyFormatCodeInlineIntent(range, InlineStyleDelta.WithCharacterStyle(name)),
             FormatCodePaletteEntry.AlignLeft =>
                 new ApplyFormatCodeParagraphIntent(range, ParagraphStyleDelta.WithAlignment(TextAlignment.Left)),
             FormatCodePaletteEntry.AlignCenter =>

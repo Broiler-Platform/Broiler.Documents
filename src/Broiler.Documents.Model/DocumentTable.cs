@@ -155,6 +155,42 @@ public sealed class DocumentTable(
     /// <summary>Space below the table, in points: ODF's <c>fo:margin-bottom</c> on a table.</summary>
     public double SpacingAfter { get; } = double.IsFinite(spacingAfter) && spacingAfter > 0 ? spacingAfter : 0;
 
+    /// <summary>Whether gridlines are visible for this table (default true).</summary>
+    public bool ShowGridlines { get; init; } = true;
+
+    /// <summary>The number of frozen top rows (0 for none).</summary>
+    public int FrozenRows { get; init; }
+
+    /// <summary>The number of frozen left columns (0 for none).</summary>
+    public int FrozenColumns { get; init; }
+
+    /// <summary>The number of rows at which the sheet viewport is split (0 for none).</summary>
+    public int SplitRows { get; init; }
+
+    /// <summary>The number of columns at which the sheet viewport is split (0 for none).</summary>
+    public int SplitColumns { get; init; }
+
+    /// <summary>Whether this table has an active viewport split.</summary>
+    public bool HasSplit => SplitRows > 0 || SplitColumns > 0;
+
+    /// <summary>Conditional formatting rules applied to this table.</summary>
+    public IReadOnlyList<Spreadsheets.ConditionalFormat>? ConditionalFormats { get; init; }
+
+    /// <summary>Data validation rules applied to this table.</summary>
+    public IReadOnlyList<Spreadsheets.DataValidation>? DataValidations { get; init; }
+
+    /// <summary>AutoFilter configuration applied to this table.</summary>
+    public Spreadsheets.SpreadsheetAutoFilter? AutoFilter { get; init; }
+
+    /// <summary>Whether summary rows are positioned below detail rows in outlines (default true).</summary>
+    public bool SummaryRowsBelow { get; init; } = true;
+
+    /// <summary>Whether summary columns are positioned to the right of detail columns in outlines (default true).</summary>
+    public bool SummaryColumnsRight { get; init; } = true;
+
+    /// <summary>Column formatting and outline properties for this table.</summary>
+    public IReadOnlyList<Spreadsheets.SpreadsheetColumn>? Columns { get; init; }
+
     /// <summary>Returns a copy of this table with the specified sheet or table name.</summary>
     public DocumentTable WithName(string? newName) =>
         new DocumentTable(
@@ -175,7 +211,20 @@ public sealed class DocumentTable(
             KeepTogether,
             newName,
             SpacingBefore,
-            SpacingAfter);
+            SpacingAfter)
+        {
+            ShowGridlines = ShowGridlines,
+            FrozenRows = FrozenRows,
+            FrozenColumns = FrozenColumns,
+            SplitRows = SplitRows,
+            SplitColumns = SplitColumns,
+            ConditionalFormats = ConditionalFormats,
+            DataValidations = DataValidations,
+            AutoFilter = AutoFilter,
+            SummaryRowsBelow = SummaryRowsBelow,
+            SummaryColumnsRight = SummaryColumnsRight,
+            Columns = Columns,
+        };
 
     /// <summary>The inline table's width within its containing text area.</summary>
     public double WidthIn(double available)
@@ -656,7 +705,7 @@ public sealed class DocumentTable(
                     cell.IsRowSpanContinuation,
                     relocatedTables,
                     cell.Padding,
-                    cell.VerticalAlignment, cell.Formula, cell.NumberFormat));
+                    cell.VerticalAlignment, cell.Formula, cell.NumberFormat, cell.Value, cell.WrapText, cell.Note, cell.Hyperlink));
             }
             remappedRows.Add(new TableRow(remappedCells, row.IsHeader, row.MinHeight, row.CanSplit, row.ExactHeight, row.KeepWithNext));
         }
@@ -726,7 +775,7 @@ public sealed class DocumentTable(
                     cell.IsRowSpanContinuation,
                     cell.Tables,
                     cell.Padding,
-                    cell.VerticalAlignment, cell.Formula, cell.NumberFormat));
+                    cell.VerticalAlignment, cell.Formula, cell.NumberFormat, cell.Value, cell.WrapText, cell.Note, cell.Hyperlink));
                 if (!cell.IsRowSpanContinuation)
                     running += cell.ParagraphCount;
             }
@@ -766,7 +815,7 @@ public sealed class DocumentTable(
                         cell.IsRowSpanContinuation,
                         cell.Tables,
                         cell.Padding,
-                        cell.VerticalAlignment, cell.Formula, cell.NumberFormat));
+                        cell.VerticalAlignment, cell.Formula, cell.NumberFormat, cell.Value, cell.WrapText, cell.Note, cell.Hyperlink));
                 }
                 else
                 {
@@ -848,7 +897,7 @@ public sealed class DocumentTable(
                         cell.IsRowSpanContinuation,
                         cell.Tables,
                         cell.Padding,
-                        cell.VerticalAlignment, cell.Formula, cell.NumberFormat));
+                        cell.VerticalAlignment, cell.Formula, cell.NumberFormat, cell.Value, cell.WrapText, cell.Note, cell.Hyperlink));
                 }
                 else
                 {
@@ -952,7 +1001,7 @@ public sealed class DocumentTable(
                         cell.IsRowSpanContinuation,
                         cell.Tables,
                         cell.Padding,
-                        cell.VerticalAlignment, cell.Formula, cell.NumberFormat));
+                        cell.VerticalAlignment, cell.Formula, cell.NumberFormat, cell.Value, cell.WrapText, cell.Note, cell.Hyperlink));
                     insertedInRow = true;
                 }
                 else if (c0 >= target)
@@ -973,7 +1022,7 @@ public sealed class DocumentTable(
                         cell.IsRowSpanContinuation,
                         cell.Tables,
                         cell.Padding,
-                        cell.VerticalAlignment, cell.Formula, cell.NumberFormat));
+                        cell.VerticalAlignment, cell.Formula, cell.NumberFormat, cell.Value, cell.WrapText, cell.Note, cell.Hyperlink));
                 }
                 else
                 {
@@ -1018,7 +1067,7 @@ public sealed class DocumentTable(
                     cell.IsRowSpanContinuation,
                     relocatedTables,
                     cell.Padding,
-                    cell.VerticalAlignment, cell.Formula, cell.NumberFormat));
+                    cell.VerticalAlignment, cell.Formula, cell.NumberFormat, cell.Value, cell.WrapText, cell.Note, cell.Hyperlink));
 
                 running += cellCount;
             }
@@ -1092,7 +1141,7 @@ public sealed class DocumentTable(
                         cell.IsRowSpanContinuation,
                         cell.Tables,
                         cell.Padding,
-                        cell.VerticalAlignment, cell.Formula, cell.NumberFormat));
+                        cell.VerticalAlignment, cell.Formula, cell.NumberFormat, cell.Value, cell.WrapText, cell.Note, cell.Hyperlink));
                 }
                 else if (c0 == atIndex && cs > 1)
                 {
@@ -1107,7 +1156,7 @@ public sealed class DocumentTable(
                         cell.IsRowSpanContinuation,
                         cell.Tables,
                         cell.Padding,
-                        cell.VerticalAlignment, cell.Formula, cell.NumberFormat));
+                        cell.VerticalAlignment, cell.Formula, cell.NumberFormat, cell.Value, cell.WrapText, cell.Note, cell.Hyperlink));
                 }
                 else if (c0 > atIndex)
                 {
@@ -1122,7 +1171,7 @@ public sealed class DocumentTable(
                         cell.IsRowSpanContinuation,
                         cell.Tables,
                         cell.Padding,
-                        cell.VerticalAlignment, cell.Formula, cell.NumberFormat));
+                        cell.VerticalAlignment, cell.Formula, cell.NumberFormat, cell.Value, cell.WrapText, cell.Note, cell.Hyperlink));
                 }
                 else
                 {
@@ -1161,7 +1210,7 @@ public sealed class DocumentTable(
                     cell.IsRowSpanContinuation,
                     relocatedTables,
                     cell.Padding,
-                    cell.VerticalAlignment, cell.Formula, cell.NumberFormat));
+                    cell.VerticalAlignment, cell.Formula, cell.NumberFormat, cell.Value, cell.WrapText, cell.Note, cell.Hyperlink));
 
                 running += cellCount;
             }
@@ -1331,7 +1380,7 @@ public sealed class DocumentTable(
                     cell.IsRowSpanContinuation,
                     relocatedTables,
                     cell.Padding,
-                    cell.VerticalAlignment, cell.Formula, cell.NumberFormat));
+                    cell.VerticalAlignment, cell.Formula, cell.NumberFormat, cell.Value, cell.WrapText, cell.Note, cell.Hyperlink));
 
                 running += cellCount;
             }
@@ -1413,7 +1462,7 @@ public sealed class DocumentTable(
                             isRowSpanContinuation: false,
                             cell.Tables,
                             cell.Padding,
-                            cell.VerticalAlignment, cell.Formula, cell.NumberFormat));
+                            cell.VerticalAlignment, cell.Formula, cell.NumberFormat, cell.Value, cell.WrapText, cell.Note, cell.Hyperlink));
 
                         for (int h = 1; h < horizontalSplit; h++)
                         {
@@ -1428,7 +1477,7 @@ public sealed class DocumentTable(
                                 isRowSpanContinuation: false,
                                 tables: null,
                                 cell.Padding,
-                                cell.VerticalAlignment, cell.Formula, cell.NumberFormat));
+                                cell.VerticalAlignment, cell.Formula, cell.NumberFormat, cell.Value, cell.WrapText, cell.Note, cell.Hyperlink));
                         }
                     }
                     else if (cell.ColumnIndex > column)
@@ -1444,7 +1493,7 @@ public sealed class DocumentTable(
                             cell.IsRowSpanContinuation,
                             cell.Tables,
                             cell.Padding,
-                            cell.VerticalAlignment, cell.Formula, cell.NumberFormat));
+                            cell.VerticalAlignment, cell.Formula, cell.NumberFormat, cell.Value, cell.WrapText, cell.Note, cell.Hyperlink));
                     }
                     else
                     {
@@ -1483,7 +1532,7 @@ public sealed class DocumentTable(
                         cell.IsRowSpanContinuation,
                         relocatedTables,
                         cell.Padding,
-                        cell.VerticalAlignment, cell.Formula, cell.NumberFormat));
+                        cell.VerticalAlignment, cell.Formula, cell.NumberFormat, cell.Value, cell.WrapText, cell.Note, cell.Hyperlink));
 
                     running += cellCount;
                 }
@@ -1538,7 +1587,7 @@ public sealed class DocumentTable(
                             isRowSpanContinuation: false,
                             cell.Tables,
                             cell.Padding,
-                            cell.VerticalAlignment, cell.Formula, cell.NumberFormat));
+                            cell.VerticalAlignment, cell.Formula, cell.NumberFormat, cell.Value, cell.WrapText, cell.Note, cell.Hyperlink));
 
                         for (int c = 1; c < cs; c++)
                         {
@@ -1553,7 +1602,7 @@ public sealed class DocumentTable(
                                 isRowSpanContinuation: false,
                                 tables: null,
                                 cell.Padding,
-                                cell.VerticalAlignment, cell.Formula, cell.NumberFormat));
+                                cell.VerticalAlignment, cell.Formula, cell.NumberFormat, cell.Value, cell.WrapText, cell.Note, cell.Hyperlink));
                         }
                     }
                     else if (r > row && cell.ColumnIndex == column && cell.IsRowSpanContinuation)
@@ -1611,7 +1660,7 @@ public sealed class DocumentTable(
                         cell.IsRowSpanContinuation,
                         relocatedTables,
                         cell.Padding,
-                        cell.VerticalAlignment, cell.Formula, cell.NumberFormat));
+                        cell.VerticalAlignment, cell.Formula, cell.NumberFormat, cell.Value, cell.WrapText, cell.Note, cell.Hyperlink));
 
                     running += cellCount;
                 }
@@ -1673,8 +1722,17 @@ public sealed class DocumentTable(
 
 /// <summary>One row of a <see cref="DocumentTable"/>.</summary>
 public sealed class TableRow(IReadOnlyList<TableCell> cells, bool isHeader = false, double minHeight = 0, bool canSplit = true,
-    bool exactHeight = false, bool keepWithNext = false)
+    bool exactHeight = false, bool keepWithNext = false, bool isHidden = false, int outlineLevel = 0, bool isCollapsed = false)
 {
+    /// <summary>True for a row that is hidden (e.g. filtered out).</summary>
+    public bool IsHidden { get; init; } = isHidden;
+
+    /// <summary>The outline level (0 for ungrouped, 1-8 for grouped levels).</summary>
+    public int OutlineLevel { get; init; } = Math.Clamp(outlineLevel, 0, 8);
+
+    /// <summary>Whether this row or its group is collapsed.</summary>
+    public bool IsCollapsed { get; init; } = isCollapsed;
+
     public IReadOnlyList<TableCell> Cells { get; } = cells is null || cells.Count == 0 ? [] : [.. cells];
 
     /// <summary>True for a row the document marks as repeating at the top of a page.</summary>
@@ -1722,7 +1780,7 @@ public sealed class TableRow(IReadOnlyList<TableCell> cells, bool isHeader = fal
         var cells = new List<TableCell>(Cells.Count);
         foreach (TableCell cell in Cells)
             cells.Add(cell.Shifted(at, removed, inserted, affinity));
-        return new TableRow(cells, IsHeader, MinHeight, CanSplit, ExactHeight, KeepWithNext);
+        return new TableRow(cells, IsHeader, MinHeight, CanSplit, ExactHeight, KeepWithNext, IsHidden, OutlineLevel, IsCollapsed);
     }
 
     internal TableRow ShiftedBy(int paragraphOffset)
@@ -1734,7 +1792,7 @@ public sealed class TableRow(IReadOnlyList<TableCell> cells, bool isHeader = fal
         foreach (TableCell cell in Cells)
             cells.Add(cell.ShiftedBy(paragraphOffset));
 
-        return new TableRow(cells, IsHeader, MinHeight, CanSplit, ExactHeight, KeepWithNext);
+        return new TableRow(cells, IsHeader, MinHeight, CanSplit, ExactHeight, KeepWithNext, IsHidden, OutlineLevel, IsCollapsed);
     }
 
     internal TableRow RelocateParagraphs(int sourceStart, int sourceCount, int destinationIndex)
@@ -1743,7 +1801,7 @@ public sealed class TableRow(IReadOnlyList<TableCell> cells, bool isHeader = fal
         foreach (TableCell cell in Cells)
             cells.Add(cell.RelocateParagraphs(sourceStart, sourceCount, destinationIndex));
 
-        return new TableRow(cells, IsHeader, MinHeight, CanSplit, ExactHeight, KeepWithNext);
+        return new TableRow(cells, IsHeader, MinHeight, CanSplit, ExactHeight, KeepWithNext, IsHidden, OutlineLevel, IsCollapsed);
     }
 }
 
@@ -1765,8 +1823,80 @@ public sealed class TableCell(
     CellVerticalAlignment verticalAlignment = CellVerticalAlignment.Top,
     string? formula = null,
     string? numberFormat = null,
-    CellValue? value = null)
+    CellValue? value = null,
+    bool wrapText = false,
+    CellNote? note = null,
+    CellHyperlink? hyperlink = null)
 {
+    public TableCell(
+        int paragraphIndex,
+        int paragraphCount,
+        int columnIndex,
+        int columnSpan,
+        int rowSpan,
+        BColor shading,
+        CellBorders borders,
+        bool isRowSpanContinuation,
+        IReadOnlyList<DocumentTable>? tables,
+        TableCellPadding? padding,
+        CellVerticalAlignment verticalAlignment,
+        string? formula,
+        string? numberFormat,
+        CellValue? value)
+        : this(paragraphIndex, paragraphCount, columnIndex, columnSpan, rowSpan, shading, borders, isRowSpanContinuation, tables, padding, verticalAlignment, formula, numberFormat, value, false)
+    {
+    }
+
+    /// <summary>Whether text wrapping is enabled for this cell.</summary>
+    public bool WrapText { get; init; } = wrapText;
+
+    /// <summary>Optional user note or comment attached to this cell.</summary>
+    public CellNote? Note { get; init; } = note;
+
+    /// <summary>Optional hyperlink attached to this cell.</summary>
+    public CellHyperlink? Hyperlink { get; init; } = hyperlink;
+
+    /// <summary>Returns a copy of this cell with the specified text wrap setting.</summary>
+    public TableCell WithWrapText(bool wrap) =>
+        new TableCell(
+            ParagraphIndex,
+            ParagraphCount,
+            ColumnIndex,
+            ColumnSpan,
+            RowSpan,
+            Shading,
+            Borders,
+            IsRowSpanContinuation,
+            Tables,
+            Padding,
+            VerticalAlignment,
+            Formula,
+            NumberFormat,
+            Value,
+            wrap,
+            Note,
+            Hyperlink);
+
+    /// <summary>Returns a copy of this cell with the specified hyperlink.</summary>
+    public TableCell WithHyperlink(CellHyperlink? link) =>
+        new TableCell(
+            ParagraphIndex,
+            ParagraphCount,
+            ColumnIndex,
+            ColumnSpan,
+            RowSpan,
+            Shading,
+            Borders,
+            IsRowSpanContinuation,
+            Tables,
+            Padding,
+            VerticalAlignment,
+            Formula,
+            NumberFormat,
+            Value,
+            WrapText,
+            Note,
+            link);
 
     /// <summary>The document paragraph this cell's text starts at.</summary>
     public int ParagraphIndex { get; } = Math.Max(0, paragraphIndex);
@@ -1833,7 +1963,7 @@ public sealed class TableCell(
             VerticalAlignment,
             newFormula,
             NumberFormat,
-            Value);
+            Value, WrapText, Note, Hyperlink);
 
     /// <summary>Returns a copy of this cell with the specified number format string.</summary>
     public TableCell WithNumberFormat(string? newFormat) =>
@@ -1851,7 +1981,7 @@ public sealed class TableCell(
             VerticalAlignment,
             Formula,
             newFormat,
-            Value);
+            Value, WrapText, Note, Hyperlink);
 
     /// <summary>Returns a copy of this cell with the specified strongly-typed cell value.</summary>
     public TableCell WithValue(CellValue? newValue) =>
@@ -1869,7 +1999,7 @@ public sealed class TableCell(
             VerticalAlignment,
             Formula,
             NumberFormat,
-            newValue);
+            newValue, WrapText, Note, Hyperlink);
 
     internal TableCell Shifted(int at, int removed, int inserted, RangeAffinity affinity = RangeAffinity.Default)
     {
@@ -1900,7 +2030,7 @@ public sealed class TableCell(
             VerticalAlignment,
             Formula,
             NumberFormat,
-            Value);
+            Value, WrapText, Note, Hyperlink);
     }
 
     internal TableCell ShiftedBy(int paragraphOffset)
@@ -1930,7 +2060,7 @@ public sealed class TableCell(
             VerticalAlignment,
             Formula,
             NumberFormat,
-            Value);
+            Value, WrapText, Note, Hyperlink);
     }
 
     internal TableCell RelocateParagraphs(int sourceStart, int sourceCount, int destinationIndex)
@@ -1962,7 +2092,7 @@ public sealed class TableCell(
             VerticalAlignment,
             Formula,
             NumberFormat,
-            Value);
+            Value, WrapText, Note, Hyperlink);
     }
 }
 

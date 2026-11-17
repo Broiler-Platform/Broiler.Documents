@@ -287,9 +287,7 @@ internal sealed class OdtDocumentBuilder(DocumentLimits limits, List<DocumentDia
         if (markStyle.Revision is null && Revision is { Kind: RevisionKind.Insertion or RevisionKind.Deletion })
             markStyle = markStyle with { Revision = Revision };
 
-        RichTextParagraph paragraph = RichTextParagraph.Empty
-            .WithParagraphStyle(_paragraphStyle)
-            .WithMarkStyle(markStyle);
+        RichTextParagraph paragraph = RichTextParagraph.Empty.WithMarkStyle(markStyle);
         int offset = 0;
         foreach (Segment segment in _segments)
         {
@@ -300,7 +298,10 @@ internal sealed class OdtDocumentBuilder(DocumentLimits limits, List<DocumentDia
         if (_spacingContext is { } spacing)
             _spacingContexts[_paragraphs.Count] = spacing;
         _spacingContext = null;
-        _paragraphs.Add(paragraph);
+        var style = _paragraphStyle;
+        if (!style.SoftPageMarkerOffsets.IsDefaultOrEmpty && style.SoftPageMarkerOffsets[^1] > paragraph.Length)
+            style = style with { SoftPageMarkerOffsets = [.. style.SoftPageMarkerOffsets.Select(marker => Math.Min(marker, paragraph.Length))] };
+        _paragraphs.Add(paragraph.WithParagraphStyle(style));
         _segments.Clear();
         _length = 0;
         _paragraphStyle = ParagraphStyle.Default;
@@ -387,6 +388,16 @@ internal sealed class OdtDocumentBuilder(DocumentLimits limits, List<DocumentDia
 
     /// <summary>The paragraph a shape met right now would be anchored to.</summary>
     public int CurrentParagraphIndex => _paragraphs.Count;
+
+    public void AddSoftPageMarker()
+    {
+        var offsets = _paragraphStyle.SoftPageMarkerOffsets;
+        int offset = _length + (_pendingSpace && _length > 0 ? 1 : 0);
+        _paragraphStyle = _paragraphStyle with
+        {
+            SoftPageMarkerOffsets = offsets.IsDefault ? [offset] : offsets.Add(offset),
+        };
+    }
 
     public DocumentLimits Limits => _limits;
 

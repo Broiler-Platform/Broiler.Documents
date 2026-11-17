@@ -129,7 +129,8 @@ internal static class XlsxReader
                 : null;
             double digitWidth = 7;
             var customFormats = new Dictionary<int, string>();
-            var cellStyles = new List<(int NumberFormatId, BColor Fill, CellVerticalAlignment Vertical, TextAlignment Horizontal, InlineStyle Font, CellBorders Borders)>();
+            var cellStyles = new List<(int NumberFormatId, BColor Fill, CellVerticalAlignment Vertical, TextAlignment Horizontal, InlineStyle Font, CellBorders Borders, bool WrapText)>();
+            var dxfStyles = new List<ConditionalFormatStyle>();
             string? stylesRelTarget = workbookRels.FirstOrDefault(r => r.Type.EndsWith("/styles", StringComparison.OrdinalIgnoreCase))?.Target;
             if (stylesRelTarget is not null)
             {
@@ -184,24 +185,78 @@ internal static class XlsxReader
                                 if (int.TryParse((string?)xf.Attribute("numFmtId"), NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsedId))
                                     numFmtId = parsedId;
                                 int.TryParse((string?)xf.Attribute("fillId"), NumberStyles.Integer, CultureInfo.InvariantCulture, out int fillId);
-                                var vertical = (string?)xf.Element(ns + "alignment")?.Attribute("vertical") switch
+                                var alignElem = xf.Element(ns + "alignment");
+                                var vertical = (string?)alignElem?.Attribute("vertical") switch
                                 {
                                     "center" => CellVerticalAlignment.Center,
                                     "bottom" => CellVerticalAlignment.Bottom,
                                     _ => CellVerticalAlignment.Top,
                                 };
-                                var horizontal = (string?)xf.Element(ns + "alignment")?.Attribute("horizontal") switch
+                                var horizontal = (string?)alignElem?.Attribute("horizontal") switch
                                 {
                                     "center" => TextAlignment.Center,
                                     "right" => TextAlignment.Right,
                                     "justify" => TextAlignment.Justify,
                                     _ => TextAlignment.Left,
                                 };
+                                bool wrapText = (string?)alignElem?.Attribute("wrapText") is "1" or "true";
                                 int.TryParse((string?)xf.Attribute("fontId"), NumberStyles.Integer, CultureInfo.InvariantCulture, out int fontId);
                                 int.TryParse((string?)xf.Attribute("borderId"), NumberStyles.Integer, CultureInfo.InvariantCulture, out int borderId);
                                 cellStyles.Add((numFmtId, (uint)fillId < (uint)fills.Count ? fills[fillId] : default, vertical,
                                     horizontal, (uint)fontId < (uint)fonts.Length ? fonts[fontId] : default,
-                                    (uint)borderId < (uint)borders.Length ? borders[borderId] : default));
+                                    (uint)borderId < (uint)borders.Length ? borders[borderId] : default, wrapText));
+                            }
+                        }
+
+                        XElement? dxfsElem = stylesXml.Root.Element(ns + "dxfs");
+                        if (dxfsElem is not null)
+                        {
+                            foreach (XElement dxf in dxfsElem.Elements(ns + "dxf"))
+                            {
+                                bool? bold = null;
+                                bool? italic = null;
+                                bool? underline = null;
+                                bool? strikethrough = null;
+                                BColor? foreground = null;
+                                XElement? fontElem = dxf.Element(ns + "font");
+                                if (fontElem is not null)
+                                {
+                                    if (fontElem.Element(ns + "b") is { } b)
+                                        bold = (string?)b.Attribute("val") is not ("0" or "false");
+                                    if (fontElem.Element(ns + "i") is { } i)
+                                        italic = (string?)i.Attribute("val") is not ("0" or "false");
+                                    if (fontElem.Element(ns + "u") is { } u)
+                                        underline = (string?)u.Attribute("val") is not ("0" or "false" or "none");
+                                    if (fontElem.Element(ns + "strike") is { } s)
+                                        strikethrough = (string?)s.Attribute("val") is not ("0" or "false");
+                                    if (fontElem.Element(ns + "color") is { } c)
+                                    {
+                                        var clr = XlsxCellAppearance.ReadColor(c, theme, indexed);
+                                        if (clr.A > 0) foreground = clr;
+                                    }
+                                }
+
+                                BColor? shading = null;
+                                XElement? fillElem = dxf.Element(ns + "fill");
+                                if (fillElem is not null)
+                                {
+                                    XElement? pattern = fillElem.Element(ns + "patternFill");
+                                    if (pattern is not null)
+                                    {
+                                        var fillClr = XlsxCellAppearance.ReadColor(pattern.Element(ns + "bgColor") ?? pattern.Element(ns + "fgColor"), theme, indexed);
+                                        if (fillClr.A > 0)
+                                            shading = fillClr;
+                                    }
+                                }
+
+                                CellBorders? dxfBorders = null;
+                                XElement? borderElem = dxf.Element(ns + "border");
+                                if (borderElem is not null)
+                                {
+                                    dxfBorders = XlsxCellAppearance.ReadBorders(borderElem, theme, indexed);
+                                }
+
+                                dxfStyles.Add(new ConditionalFormatStyle(shading, foreground, bold, italic, underline, strikethrough, dxfBorders));
                             }
                         }
                     }
@@ -234,7 +289,68 @@ internal static class XlsxReader
                     if (sheetXml?.Root is null)
                         continue;
 
-                    SpreadsheetWorksheet sheet = ReadWorksheet(sheetName, sheetXml.Root, sharedStrings, cellStyles, customFormats, use1904, digitWidth);
+                    ZipArchiveEntry? commEntry = FindEntry(archive, $"xl/comments{sheets.Count + 1}.xml") ?? FindEntry(archive, $"comments{sheets.Count + 1}.xml");
+                    var sheetNotes = new Dictionary<CellAddress, CellNote>();
+                    if (commEntry is not null)
+                    {
+                        XDocument? commentsXml = DocumentPackage.LoadEntryXml(commEntry, options.Limits.MaxBinBytes, diagnostics, XlsxDiagnosticCodes.SheetXmlInvalid, $"Comments {sheetName}");
+                        if (commentsXml?.Root is not null)
+                        {
+                            var authorsList = commentsXml.Root.Element(XlsxNamespaces.Spreadsheet + "authors")?.Elements(XlsxNamespaces.Spreadsheet + "author").Select(a => a.Value).ToList() ?? [];
+                            XElement? commentListElem = commentsXml.Root.Element(XlsxNamespaces.Spreadsheet + "commentList");
+                            if (commentListElem is not null)
+                            {
+                                foreach (XElement c in commentListElem.Elements(XlsxNamespaces.Spreadsheet + "comment"))
+                                {
+                                    string? refAttr = (string?)c.Attribute("ref");
+                                    if (!string.IsNullOrEmpty(refAttr) && CellAddress.TryParse(refAttr, out CellAddress addr))
+                                    {
+                                        int.TryParse((string?)c.Attribute("authorId"), NumberStyles.Integer, CultureInfo.InvariantCulture, out int authorId);
+                                        string? author = (authorId >= 0 && authorId < authorsList.Count) ? authorsList[authorId] : null;
+                                        XElement? textElem = c.Element(XlsxNamespaces.Spreadsheet + "text");
+                                        string noteText = textElem is not null ? string.Concat(textElem.Descendants(XlsxNamespaces.Spreadsheet + "t").Select(t => t.Value)) : string.Empty;
+                                        sheetNotes[addr] = new CellNote(noteText, author);
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    string sheetBaseDir = GetBaseDirectory(sheetPartTarget);
+                    string sheetRelsPath = GetRelationshipsPartPath(sheetPartTarget);
+                    var sheetRels = ReadRelationships(archive, sheetRelsPath, sheetBaseDir, options.Limits, diagnostics);
+
+                    var sheetHyperlinks = new Dictionary<CellAddress, CellHyperlink>();
+                    XElement? hyperlinksElem = sheetXml.Root.Element(XlsxNamespaces.Spreadsheet + "hyperlinks");
+                    if (hyperlinksElem is not null)
+                    {
+                        foreach (XElement hl in hyperlinksElem.Elements(XlsxNamespaces.Spreadsheet + "hyperlink"))
+                        {
+                            string? refAttr = (string?)hl.Attribute("ref");
+                            if (string.IsNullOrEmpty(refAttr) || !CellAddress.TryParse(refAttr, out CellAddress addr))
+                                continue;
+
+                            string? rId = (string?)hl.Attribute(XlsxNamespaces.Relationships + "id")
+                                ?? (string?)hl.Attribute("id");
+                            string? location = (string?)hl.Attribute("location");
+                            string? tooltip = (string?)hl.Attribute("tooltip");
+                            string? target = null;
+                            if (!string.IsNullOrEmpty(rId))
+                            {
+                                target = sheetRels.FirstOrDefault(r => r.Id == rId)?.Target;
+                            }
+                            if (string.IsNullOrEmpty(target) && !string.IsNullOrEmpty(location))
+                            {
+                                target = location;
+                            }
+                            if (!string.IsNullOrEmpty(target))
+                            {
+                                sheetHyperlinks[addr] = new CellHyperlink(target, tooltip);
+                            }
+                        }
+                    }
+
+                    SpreadsheetWorksheet sheet = ReadWorksheet(sheetName, sheetXml.Root, sharedStrings, cellStyles, customFormats, use1904, digitWidth, dxfStyles, sheetNotes, sheetHyperlinks);
                     sheets.Add(sheet);
                 }
             }
@@ -253,23 +369,57 @@ internal static class XlsxReader
         string sheetName,
         XElement worksheetRoot,
         IReadOnlyList<string> sharedStrings,
-        IReadOnlyList<(int NumberFormatId, BColor Fill, CellVerticalAlignment Vertical, TextAlignment Horizontal, InlineStyle Font, CellBorders Borders)> cellStyles,
-        IReadOnlyDictionary<int, string> customFormats, bool use1904, double digitWidth)
+        IReadOnlyList<(int NumberFormatId, BColor Fill, CellVerticalAlignment Vertical, TextAlignment Horizontal, InlineStyle Font, CellBorders Borders, bool WrapText)> cellStyles,
+        IReadOnlyDictionary<int, string> customFormats, bool use1904, double digitWidth,
+        IReadOnlyList<ConditionalFormatStyle>? dxfStyles = null,
+        IReadOnlyDictionary<CellAddress, CellNote>? sheetNotes = null,
+        IReadOnlyDictionary<CellAddress, CellHyperlink>? sheetHyperlinks = null)
     {
-        // Parse column widths
+        // Parse sheetPr (summary directions)
+        bool summaryBelow = true;
+        bool summaryRight = true;
+        XElement? sheetPr = worksheetRoot.Element(XlsxNamespaces.Spreadsheet + "sheetPr");
+        if (sheetPr is not null)
+        {
+            XElement? outlinePr = sheetPr.Element(XlsxNamespaces.Spreadsheet + "outlinePr");
+            if (outlinePr is not null)
+            {
+                if ((string?)outlinePr.Attribute("summaryBelow") is "0" or "false")
+                    summaryBelow = false;
+                if ((string?)outlinePr.Attribute("summaryRight") is "0" or "false")
+                    summaryRight = false;
+            }
+        }
+
+        // Parse column widths and outline properties
         var columnWidths = new List<double>();
+        var columns = new List<SpreadsheetColumn>();
         XElement? colsElem = worksheetRoot.Element(XlsxNamespaces.Spreadsheet + "cols");
         if (colsElem is not null)
         {
             foreach (XElement col in colsElem.Elements(XlsxNamespaces.Spreadsheet + "col"))
             {
                 if (int.TryParse((string?)col.Attribute("min"), NumberStyles.Integer, CultureInfo.InvariantCulture, out int min) &&
-                    int.TryParse((string?)col.Attribute("max"), NumberStyles.Integer, CultureInfo.InvariantCulture, out int max) &&
-                    double.TryParse((string?)col.Attribute("width"), NumberStyles.Float, CultureInfo.InvariantCulture, out double width))
+                    int.TryParse((string?)col.Attribute("max"), NumberStyles.Integer, CultureInfo.InvariantCulture, out int max))
                 {
-                    double ptWidth = XlsxColumnWidth.ToPoints(width, digitWidth);
-                    while (columnWidths.Count < max)
-                        columnWidths.Add(ptWidth);
+                    double? ptWidth = null;
+                    if (double.TryParse((string?)col.Attribute("width"), NumberStyles.Float, CultureInfo.InvariantCulture, out double width))
+                    {
+                        ptWidth = XlsxColumnWidth.ToPoints(width, digitWidth);
+                        while (columnWidths.Count < max)
+                            columnWidths.Add(ptWidth.Value);
+                    }
+
+                    bool colHidden = (string?)col.Attribute("hidden") is "1" or "true";
+                    int colOutline = 0;
+                    if (int.TryParse((string?)col.Attribute("outlineLevel"), NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsedOl))
+                        colOutline = parsedOl;
+                    bool colCollapsed = (string?)col.Attribute("collapsed") is "1" or "true";
+
+                    for (int c = min - 1; c <= max - 1; c++)
+                    {
+                        columns.Add(new SpreadsheetColumn(c, ptWidth, colHidden, colOutline, colCollapsed));
+                    }
                 }
             }
         }
@@ -319,6 +469,16 @@ internal static class XlsxReader
                 if (double.TryParse((string?)rowElem.Attribute("ht"), NumberStyles.Float, CultureInfo.InvariantCulture, out double h))
                     height = h;
 
+                bool hidden = false;
+                string? hiddenAttr = (string?)rowElem.Attribute("hidden");
+                if (hiddenAttr is "1" or "true")
+                    hidden = true;
+
+                int rowOutline = 0;
+                if (int.TryParse((string?)rowElem.Attribute("outlineLevel"), NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsedRol))
+                    rowOutline = parsedRol;
+                bool rowCollapsed = (string?)rowElem.Attribute("collapsed") is "1" or "true";
+
                 var cells = new List<SpreadsheetCell>();
                 int currentSeqCol = 0;
 
@@ -351,7 +511,7 @@ internal static class XlsxReader
                     if (int.TryParse((string?)cElem.Attribute("s"), NumberStyles.Integer, CultureInfo.InvariantCulture, out int s))
                         styleIdx = s;
 
-                    var (numFmtId, fill, vertical, horizontal, font, borders) = (uint)styleIdx < (uint)cellStyles.Count ? cellStyles[styleIdx] : default;
+                    var (numFmtId, fill, vertical, horizontal, font, borders, wrapText) = (uint)styleIdx < (uint)cellStyles.Count ? cellStyles[styleIdx] : default;
                     string? formatCode = customFormats.TryGetValue(numFmtId, out string? customCode)
                         ? customCode
                         : (BuiltinNumberFormats.TryGetValue(numFmtId, out string? builtin) ? builtin : null);
@@ -425,6 +585,15 @@ internal static class XlsxReader
                         rowSpan = span.RowSpan;
                     }
 
+                    CellHyperlink? hyperlink = sheetHyperlinks is not null && sheetHyperlinks.TryGetValue(cellAddr, out var sh) ? sh : null;
+                    if (hyperlink is not null)
+                    {
+                        if (font == InlineStyle.Default)
+                            font = font with { Foreground = new BColor(17, 85, 204), Underline = true, LinkHref = hyperlink.Target };
+                        else if (!font.IsLink)
+                            font = font with { LinkHref = hyperlink.Target };
+                    }
+
                     cells.Add(new SpreadsheetCell(
                         cellAddr,
                         cellVal,
@@ -432,15 +601,306 @@ internal static class XlsxReader
                         numberFormat: formatCode,
                         cachedText: cachedText,
                         columnSpan: colSpan,
-                        rowSpan: rowSpan, shading: fill) { VerticalAlignment = vertical, Alignment = horizontal, Font = font, Borders = borders });
+                        rowSpan: rowSpan, shading: fill)
+                    {
+                        VerticalAlignment = vertical,
+                        Alignment = horizontal,
+                        WrapText = wrapText,
+                        Font = font,
+                        Borders = borders,
+                        Note = sheetNotes is not null && sheetNotes.TryGetValue(cellAddr, out var sn) ? sn : null,
+                        Hyperlink = hyperlink
+                    });
                 }
 
-                rows.Add(new SpreadsheetRow(rowIndex, cells, height));
+                rows.Add(new SpreadsheetRow(rowIndex, cells, height, hidden, rowOutline, rowCollapsed));
             }
         }
 
-        return new SpreadsheetWorksheet(sheetName, rows, columnWidths);
+        // Parse sheet views (gridlines, freeze panes, split panes)
+        bool showGridlines = true;
+        int frozenRows = 0;
+        int frozenColumns = 0;
+        int splitRows = 0;
+        int splitColumns = 0;
+        XElement? sheetViewsElem = worksheetRoot.Element(XlsxNamespaces.Spreadsheet + "sheetViews");
+        if (sheetViewsElem is not null)
+        {
+            var sheetView = sheetViewsElem.Element(XlsxNamespaces.Spreadsheet + "sheetView");
+            if (sheetView is not null)
+            {
+                string? gridAttr = (string?)sheetView.Attribute("showGridLines");
+                if (gridAttr is "0" or "false")
+                    showGridlines = false;
+
+                var pane = sheetView.Element(XlsxNamespaces.Spreadsheet + "pane");
+                if (pane is not null)
+                {
+                    int yVal = 0;
+                    int xVal = 0;
+                    if (int.TryParse((string?)pane.Attribute("ySplit"), NumberStyles.Integer, CultureInfo.InvariantCulture, out int ySplit))
+                        yVal = Math.Max(0, ySplit);
+                    if (int.TryParse((string?)pane.Attribute("xSplit"), NumberStyles.Integer, CultureInfo.InvariantCulture, out int xSplit))
+                        xVal = Math.Max(0, xSplit);
+
+                    string? state = (string?)pane.Attribute("state");
+                    if (string.Equals(state, "split", StringComparison.OrdinalIgnoreCase))
+                    {
+                        splitRows = yVal;
+                        splitColumns = xVal;
+                    }
+                    else
+                    {
+                        frozenRows = yVal;
+                        frozenColumns = xVal;
+                    }
+                }
+            }
+        }
+
+        var conditionalFormats = new List<ConditionalFormat>();
+        foreach (XElement cfElem in worksheetRoot.Elements(XlsxNamespaces.Spreadsheet + "conditionalFormatting"))
+        {
+            string? sqref = (string?)cfElem.Attribute("sqref");
+            if (string.IsNullOrWhiteSpace(sqref))
+                continue;
+
+            var ranges = new List<CellRangeAddress>();
+            foreach (string token in sqref.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                if (CellRangeAddress.TryParse(token, out CellRangeAddress range))
+                    ranges.Add(range);
+            }
+
+            if (ranges.Count == 0)
+                continue;
+
+            var rules = new List<ConditionalFormatRule>();
+            foreach (XElement ruleElem in cfElem.Elements(XlsxNamespaces.Spreadsheet + "cfRule"))
+            {
+                string? typeStr = (string?)ruleElem.Attribute("type");
+                string? operatorStr = (string?)ruleElem.Attribute("operator");
+                int priority = int.TryParse((string?)ruleElem.Attribute("priority"), NumberStyles.Integer, CultureInfo.InvariantCulture, out int prio) ? prio : 0;
+                bool stopIfTrue = (string?)ruleElem.Attribute("stopIfTrue") is "1" or "true";
+
+                ConditionalFormatStyle? ruleStyle = null;
+                if (int.TryParse((string?)ruleElem.Attribute("dxfId"), NumberStyles.Integer, CultureInfo.InvariantCulture, out int dxfId) &&
+                    dxfStyles is not null && dxfId >= 0 && dxfId < dxfStyles.Count)
+                {
+                    ruleStyle = dxfStyles[dxfId];
+                }
+
+                var formulas = ruleElem.Elements(XlsxNamespaces.Spreadsheet + "formula").Select(f => f.Value).ToList();
+                string? formula1 = formulas.Count > 0 ? formulas[0] : null;
+                string? formula2 = formulas.Count > 1 ? formulas[1] : null;
+
+                var ruleType = ParseRuleType(typeStr);
+                var ruleOp = ParseOperator(operatorStr);
+
+                ColorScaleConfiguration? colorScale = null;
+                if (ruleType == ConditionalFormatRuleType.ColorScale)
+                {
+                    XElement? csElem = ruleElem.Element(XlsxNamespaces.Spreadsheet + "colorScale");
+                    if (csElem is not null)
+                    {
+                        var colors = csElem.Elements(XlsxNamespaces.Spreadsheet + "color")
+                            .Select(c => XlsxCellAppearance.ReadColor(c))
+                            .ToList();
+                        if (colors.Count == 2)
+                            colorScale = new ColorScaleConfiguration(colors[0], colors[1]);
+                        else if (colors.Count >= 3)
+                            colorScale = new ColorScaleConfiguration(colors[0], colors[^1], MidColor: colors[1]);
+                    }
+                }
+
+                string? textAttr = (string?)ruleElem.Attribute("text");
+                if (!string.IsNullOrEmpty(textAttr) && (string.IsNullOrEmpty(formula1) || ruleType == ConditionalFormatRuleType.ContainsText || ruleType == ConditionalFormatRuleType.BeginsWith || ruleType == ConditionalFormatRuleType.EndsWith))
+                {
+                    formula1 = textAttr;
+                }
+
+                rules.Add(new ConditionalFormatRule(
+                    ruleType,
+                    ruleOp,
+                    formula1,
+                    formula2,
+                    ruleStyle,
+                    colorScale,
+                    priority,
+                    stopIfTrue));
+            }
+
+            if (rules.Count > 0)
+                conditionalFormats.Add(new ConditionalFormat(ranges, rules));
+        }
+
+        var dataValidations = new List<DataValidation>();
+        XElement? dvsElem = worksheetRoot.Element(XlsxNamespaces.Spreadsheet + "dataValidations");
+        if (dvsElem is not null)
+        {
+            foreach (XElement dvElem in dvsElem.Elements(XlsxNamespaces.Spreadsheet + "dataValidation"))
+            {
+                string? sqref = (string?)dvElem.Attribute("sqref");
+                if (string.IsNullOrWhiteSpace(sqref))
+                    continue;
+
+                var ranges = new List<CellRangeAddress>();
+                foreach (string token in sqref.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                {
+                    if (CellRangeAddress.TryParse(token, out CellRangeAddress range))
+                        ranges.Add(range);
+                }
+
+                if (ranges.Count == 0)
+                    continue;
+
+                DataValidationType type = ParseDataValidationType((string?)dvElem.Attribute("type"));
+                DataValidationOperator op = ParseDataValidationOperator((string?)dvElem.Attribute("operator"));
+                DataValidationErrorStyle errStyle = ParseDataValidationErrorStyle((string?)dvElem.Attribute("errorStyle"));
+
+                bool allowBlank = (string?)dvElem.Attribute("allowBlank") is "1" or "true";
+                bool showDropDown = (string?)dvElem.Attribute("showDropDown") != "1"; // "1" suppresses dropdown
+                bool showInput = (string?)dvElem.Attribute("showInputMessage") is "1" or "true";
+                bool showError = (string?)dvElem.Attribute("showErrorMessage") is "1" or "true";
+
+                string? inputTitle = (string?)dvElem.Attribute("promptTitle");
+                string? inputMsg = (string?)dvElem.Attribute("prompt");
+                string? errorTitle = (string?)dvElem.Attribute("errorTitle");
+                string? errorMsg = (string?)dvElem.Attribute("error");
+
+                string? f1 = dvElem.Element(XlsxNamespaces.Spreadsheet + "formula1")?.Value;
+                string? f2 = dvElem.Element(XlsxNamespaces.Spreadsheet + "formula2")?.Value;
+
+                dataValidations.Add(new DataValidation(
+                    ranges,
+                    type,
+                    op,
+                    Formula1: f1,
+                    Formula2: f2,
+                    AllowBlank: allowBlank,
+                    ShowDropdown: showDropDown,
+                    ShowInputMessage: showInput,
+                    InputTitle: inputTitle,
+                    InputMessage: inputMsg,
+                    ShowErrorMessage: showError,
+                    ErrorTitle: errorTitle,
+                    ErrorMessage: errorMsg,
+                    ErrorStyle: errStyle));
+            }
+        }
+
+        SpreadsheetAutoFilter? autoFilter = null;
+        XElement? afElem = worksheetRoot.Element(XlsxNamespaces.Spreadsheet + "autoFilter");
+        if (afElem is not null)
+        {
+            string? refAttr = (string?)afElem.Attribute("ref");
+            if (!string.IsNullOrEmpty(refAttr) && CellRangeAddress.TryParse(refAttr, out CellRangeAddress afRange))
+            {
+                var filterColumns = new List<SpreadsheetFilterColumn>();
+                foreach (XElement colElem in afElem.Elements(XlsxNamespaces.Spreadsheet + "filterColumn"))
+                {
+                    if (int.TryParse((string?)colElem.Attribute("colId"), NumberStyles.Integer, CultureInfo.InvariantCulture, out int colId))
+                    {
+                        int absCol = afRange.Start.Column + colId;
+                        XElement? filtersElem = colElem.Element(XlsxNamespaces.Spreadsheet + "filters");
+                        bool includeBlanks = true;
+                        var values = new List<string>();
+                        if (filtersElem is not null)
+                        {
+                            if ((string?)filtersElem.Attribute("blank") is "0" or "false")
+                                includeBlanks = false;
+
+                            foreach (XElement f in filtersElem.Elements(XlsxNamespaces.Spreadsheet + "filter"))
+                            {
+                                string? val = (string?)f.Attribute("val");
+                                if (val is not null)
+                                    values.Add(val);
+                            }
+                        }
+
+                        filterColumns.Add(new SpreadsheetFilterColumn(absCol, values, includeBlanks));
+                    }
+                }
+
+                autoFilter = new SpreadsheetAutoFilter(afRange, filterColumns);
+            }
+        }
+
+        return new SpreadsheetWorksheet(sheetName, rows, columnWidths)
+        {
+            Columns = columns.Count > 0 ? columns : null,
+            SummaryRowsBelow = summaryBelow,
+            SummaryColumnsRight = summaryRight,
+            ShowGridlines = showGridlines,
+            FrozenRows = frozenRows,
+            FrozenColumns = frozenColumns,
+            SplitRows = splitRows,
+            SplitColumns = splitColumns,
+            ConditionalFormats = conditionalFormats.Count > 0 ? conditionalFormats : null,
+            DataValidations = dataValidations.Count > 0 ? dataValidations : null,
+            AutoFilter = autoFilter
+        };
     }
+
+    private static ConditionalFormatRuleType ParseRuleType(string? type) => type switch
+    {
+        "cellIs" => ConditionalFormatRuleType.CellIs,
+        "containsText" => ConditionalFormatRuleType.ContainsText,
+        "notContainsText" => ConditionalFormatRuleType.NotContainsText,
+        "beginsWith" => ConditionalFormatRuleType.BeginsWith,
+        "endsWith" => ConditionalFormatRuleType.EndsWith,
+        "expression" => ConditionalFormatRuleType.Expression,
+        "duplicateValues" => ConditionalFormatRuleType.DuplicateValues,
+        "uniqueValues" => ConditionalFormatRuleType.UniqueValues,
+        "containsBlanks" => ConditionalFormatRuleType.Blanks,
+        "notContainsBlanks" => ConditionalFormatRuleType.NoBlanks,
+        "colorScale" => ConditionalFormatRuleType.ColorScale,
+        _ => ConditionalFormatRuleType.CellIs
+    };
+
+    private static ConditionalFormatOperator ParseOperator(string? op) => op switch
+    {
+        "equal" => ConditionalFormatOperator.Equal,
+        "notEqual" => ConditionalFormatOperator.NotEqual,
+        "greaterThan" => ConditionalFormatOperator.GreaterThan,
+        "greaterThanOrEqual" => ConditionalFormatOperator.GreaterThanOrEqual,
+        "lessThan" => ConditionalFormatOperator.LessThan,
+        "lessThanOrEqual" => ConditionalFormatOperator.LessThanOrEqual,
+        "between" => ConditionalFormatOperator.Between,
+        "notBetween" => ConditionalFormatOperator.NotBetween,
+        _ => ConditionalFormatOperator.None
+    };
+
+    private static DataValidationType ParseDataValidationType(string? type) => type switch
+    {
+        "whole" => DataValidationType.WholeNumber,
+        "decimal" => DataValidationType.Decimal,
+        "list" => DataValidationType.List,
+        "date" => DataValidationType.Date,
+        "time" => DataValidationType.Time,
+        "textLength" => DataValidationType.TextLength,
+        "custom" => DataValidationType.Custom,
+        _ => DataValidationType.None
+    };
+
+    private static DataValidationOperator ParseDataValidationOperator(string? op) => op switch
+    {
+        "notBetween" => DataValidationOperator.NotBetween,
+        "equal" => DataValidationOperator.Equal,
+        "notEqual" => DataValidationOperator.NotEqual,
+        "greaterThan" => DataValidationOperator.GreaterThan,
+        "lessThan" => DataValidationOperator.LessThan,
+        "greaterThanOrEqual" => DataValidationOperator.GreaterThanOrEqual,
+        "lessThanOrEqual" => DataValidationOperator.LessThanOrEqual,
+        _ => DataValidationOperator.Between
+    };
+
+    private static DataValidationErrorStyle ParseDataValidationErrorStyle(string? style) => style switch
+    {
+        "warning" => DataValidationErrorStyle.Warning,
+        "information" => DataValidationErrorStyle.Information,
+        _ => DataValidationErrorStyle.Stop
+    };
 
     private static bool HasCalendarDate(int numFmtId, string? formatCode)
     {
@@ -537,7 +997,10 @@ internal static class XlsxReader
 
             if (!string.IsNullOrEmpty(id) && !string.IsNullOrEmpty(type) && !string.IsNullOrEmpty(target))
             {
-                string resolved = NormalizePath(baseDir, target);
+                string? targetMode = (string?)rel.Attribute("TargetMode");
+                bool isExternal = string.Equals(targetMode, "External", StringComparison.OrdinalIgnoreCase)
+                    || target.Contains("://") || target.StartsWith("mailto:", StringComparison.OrdinalIgnoreCase);
+                string resolved = isExternal ? target : NormalizePath(baseDir, target);
                 result.Add(new XlsxRelationship(id, type, resolved));
             }
         }

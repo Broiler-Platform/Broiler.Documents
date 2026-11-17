@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Xml.Linq;
+using Broiler.Documents.Model;
 using Broiler.Documents.Model.Spreadsheets;
 using Broiler.Graphics.Color;
 
@@ -57,7 +58,7 @@ internal sealed class OdsWriteStyles(Action reportUnsupportedFormat)
         {
             FontFamily = fontFamily, FontSize = cell.Font.FontSize, Foreground = cell.Font.Foreground,
             Bold = cell.Font.Bold, Italic = cell.Font.Italic, Underline = cell.Font.Underline, Strikethrough = cell.Font.Strikethrough,
-        })
+        }, cell.WrapText)
         {
             StatesLeft = cell.Alignment == Broiler.Documents.Model.TextAlignment.Left && (cell.Value.IsNumber || cell.Value.IsBoolean),
         };
@@ -79,6 +80,35 @@ internal sealed class OdsWriteStyles(Action reportUnsupportedFormat)
                 appearance.WriteCell(), appearance.WriteParagraph(), appearance.WriteText()));
         }
         return Reference(name);
+    }
+
+    public string ConditionalFormatStyle(ConditionalFormatStyle style)
+    {
+        BColor fill = (style.Shading.HasValue && style.Shading.Value.A > 0) ? style.Shading.Value : default;
+        var appearance = new OdsCellAppearance(
+            fill,
+            style.Borders ?? default,
+            CellVerticalAlignment.Top,
+            TextAlignment.Left,
+            new Broiler.Documents.Model.InlineStyle
+            {
+                Foreground = style.Foreground ?? default,
+                Bold = style.Bold == true,
+                Italic = style.Italic == true,
+                Underline = style.Underline == true,
+                Strikethrough = style.Strikethrough == true,
+            });
+
+        string name = "cf" + _cells.Count.ToString(CultureInfo.InvariantCulture);
+        _cells.Add((null, appearance), name);
+        XNamespace styleNs = OdsNamespaces.Style;
+        Definitions.Add(new XElement(styleNs + "style",
+            new XAttribute(styleNs + "name", name),
+            new XAttribute(styleNs + "family", "table-cell"),
+            appearance.WriteCell(),
+            appearance.WriteParagraph(),
+            appearance.WriteText()));
+        return name;
     }
 
     private static XAttribute Reference(string name) => new(OdsNamespaces.Table + "style-name", name);

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Immutable;
 
 namespace Broiler.Documents.Model;
 
@@ -35,6 +36,8 @@ namespace Broiler.Documents.Model;
 /// </remarks>
 public sealed record DocumentStyleDefaults
 {
+    public ImmutableArray<NamedParagraphStyle> NamedParagraphStyles { get; init; } = [];
+
     /// <summary>The point size a run inherits when it states none.</summary>
     public const float FallbackFontSizePoints = 12f;
 

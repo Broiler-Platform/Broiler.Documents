@@ -477,6 +477,191 @@ public class TableFormulaTests
             table.KeepTogether);
     }
 
+    [Fact]
+    public void CrossSheet_Formula_Evaluates_With_Explicit_Lookup()
+    {
+        var row = new TableRow([new TableCell(0, 0, 0, formula: "=Sheet2!B1 * 3")]);
+        var table = new DocumentTable(0, 0, [row], name: "Sheet1");
+
+        var result = TableFormulaEngine.Evaluate(table, crossSheetLookup: (sheetName, addr) =>
+        {
+            if (sheetName == "Sheet2" && addr.Row == 0 && addr.Column == 1)
+                return CellValue.FromNumber(14);
+            return CellValue.FromError(FormulaError.Ref);
+        });
+
+        Assert.Equal(42d, result[0, 0].Number);
+    }
+
+    [Fact]
+    public void CrossSheet_Quoted_Name_And_Range_Evaluates_With_Document()
+    {
+        var sheet1Row = new TableRow([new TableCell(0, 0, 0, formula: "=SUM('Sales Data'!A1:A3)")]);
+        var table1 = new DocumentTable(0, 0, [sheet1Row], name: "Summary");
+
+        var sheet2Rows = new List<TableRow>
+        {
+            new TableRow([new TableCell(0, 0, 0, value: CellValue.FromNumber(10))]),
+            new TableRow([new TableCell(0, 0, 0, value: CellValue.FromNumber(20))]),
+            new TableRow([new TableCell(0, 0, 0, value: CellValue.FromNumber(30))]),
+        };
+        var table2 = new DocumentTable(0, 0, sheet2Rows, name: "Sales Data");
+
+        var doc = RichTextDocument.Empty.WithTables([table1, table2]);
+        var result = TableFormulaEngine.Evaluate(table1, document: doc);
+
+        Assert.Equal(60d, result[0, 0].Number);
+    }
+
+    [Fact]
+    public void CrossSheet_Missing_Sheet_Returns_Ref_Error()
+    {
+        var row = new TableRow([new TableCell(0, 0, 0, formula: "=NonExistent!A1 + 1")]);
+        var table = new DocumentTable(0, 0, [row], name: "Sheet1");
+
+        var result = TableFormulaEngine.Evaluate(table, crossSheetLookup: (_, _) => CellValue.FromError(FormulaError.Ref));
+        Assert.Equal(FormulaError.Ref, result[0, 0].Error);
+    }
+
+    [Fact]
+    public void Lookup_VLookup_ExactAndApproximate_MatchesCorrectValues()
+    {
+        var rows = new List<TableRow>
+        {
+            new([new TableCell(0, 0, 0, formula: "=VLOOKUP(20, A2:B4, 2, FALSE)"), new TableCell(0, 0, 1, formula: "=VLOOKUP(25, A2:B4, 2, TRUE)")]),
+            new([new TableCell(0, 0, 0, value: CellValue.FromNumber(10)), new TableCell(0, 0, 1, value: CellValue.FromText("Ten"))]),
+            new([new TableCell(0, 0, 0, value: CellValue.FromNumber(20)), new TableCell(0, 0, 1, value: CellValue.FromText("Twenty"))]),
+            new([new TableCell(0, 0, 0, value: CellValue.FromNumber(30)), new TableCell(0, 0, 1, value: CellValue.FromText("Thirty"))]),
+        };
+        var table = new DocumentTable(0, 0, rows);
+        var result = TableFormulaEngine.Evaluate(table);
+
+        Assert.Equal("Twenty", result[0, 0].Text);
+        Assert.Equal("Twenty", result[0, 1].Text);
+    }
+
+    [Fact]
+    public void Lookup_HLookup_MatchesCorrectValues()
+    {
+        var rows = new List<TableRow>
+        {
+            new([new TableCell(0, 0, 0, formula: "=HLOOKUP(\"B\", A2:C3, 2, FALSE)")]),
+            new([new TableCell(0, 0, 0, value: CellValue.FromText("A")), new TableCell(0, 0, 1, value: CellValue.FromText("B")), new TableCell(0, 0, 2, value: CellValue.FromText("C"))]),
+            new([new TableCell(0, 0, 0, value: CellValue.FromNumber(100)), new TableCell(0, 0, 1, value: CellValue.FromNumber(200)), new TableCell(0, 0, 2, value: CellValue.FromNumber(300))]),
+        };
+        var table = new DocumentTable(0, 0, rows);
+        var result = TableFormulaEngine.Evaluate(table);
+
+        Assert.Equal(200d, result[0, 0].Number);
+    }
+
+    [Fact]
+    public void Lookup_Index_ReturnsValueAtCoordinate()
+    {
+        var rows = new List<TableRow>
+        {
+            new([new TableCell(0, 0, 0, formula: "=INDEX(A2:C3, 2, 3)")]),
+            new([new TableCell(0, 0, 0, value: CellValue.FromNumber(1)), new TableCell(0, 0, 1, value: CellValue.FromNumber(2)), new TableCell(0, 0, 2, value: CellValue.FromNumber(3))]),
+            new([new TableCell(0, 0, 0, value: CellValue.FromNumber(4)), new TableCell(0, 0, 1, value: CellValue.FromNumber(5)), new TableCell(0, 0, 2, value: CellValue.FromNumber(6))]),
+        };
+        var table = new DocumentTable(0, 0, rows);
+        var result = TableFormulaEngine.Evaluate(table);
+
+        Assert.Equal(6d, result[0, 0].Number);
+    }
+
+    [Fact]
+    public void Lookup_Match_ReturnsIndexForTypes()
+    {
+        var rows = new List<TableRow>
+        {
+            new([
+                new TableCell(0, 0, 0, formula: "=MATCH(30, A2:A4, 0)"),
+                new TableCell(0, 0, 1, formula: "=MATCH(25, A2:A4, 1)"),
+                new TableCell(0, 0, 2, formula: "=MATCH(99, A2:A4, 0)")
+            ]),
+            new([new TableCell(0, 0, 0, value: CellValue.FromNumber(10))]),
+            new([new TableCell(0, 0, 0, value: CellValue.FromNumber(20))]),
+            new([new TableCell(0, 0, 0, value: CellValue.FromNumber(30))]),
+        };
+        var table = new DocumentTable(0, 0, rows);
+        var result = TableFormulaEngine.Evaluate(table);
+
+        Assert.Equal(3d, result[0, 0].Number);
+        Assert.Equal(2d, result[0, 1].Number);
+        Assert.Equal(FormulaError.NA, result[0, 2].Error);
+    }
+
+    [Fact]
+    public void Conditional_CountIf_And_SumIf()
+    {
+        var rows = new List<TableRow>
+        {
+            new([
+                new TableCell(0, 0, 0, formula: "=COUNTIF(A2:A5, \">15\")"),
+                new TableCell(0, 0, 1, formula: "=SUMIF(B2:B5, \"Apples\", A2:A5)")
+            ]),
+            new([new TableCell(0, 0, 0, value: CellValue.FromNumber(10)), new TableCell(0, 0, 1, value: CellValue.FromText("Apples"))]),
+            new([new TableCell(0, 0, 0, value: CellValue.FromNumber(20)), new TableCell(0, 0, 1, value: CellValue.FromText("Oranges"))]),
+            new([new TableCell(0, 0, 0, value: CellValue.FromNumber(30)), new TableCell(0, 0, 1, value: CellValue.FromText("Apples"))]),
+            new([new TableCell(0, 0, 0, value: CellValue.FromNumber(40)), new TableCell(0, 0, 1, value: CellValue.FromText("Bananas"))]),
+        };
+        var table = new DocumentTable(0, 0, rows);
+        var result = TableFormulaEngine.Evaluate(table);
+
+        Assert.Equal(3d, result[0, 0].Number);
+        Assert.Equal(40d, result[0, 1].Number);
+    }
+
+    [Fact]
+    public void DateTime_TodayNowDateYearMonthDay()
+    {
+        var rows = new List<TableRow>
+        {
+            new([
+                new TableCell(0, 0, 0, formula: "=DATE(2026, 11, 16)"),
+                new TableCell(0, 0, 1, formula: "=YEAR(DATE(2026, 11, 16))"),
+                new TableCell(0, 0, 2, formula: "=MONTH(DATE(2026, 11, 16))"),
+                new TableCell(0, 0, 3, formula: "=DAY(DATE(2026, 11, 16))"),
+                new TableCell(0, 0, 4, formula: "=TODAY() > 40000"),
+                new TableCell(0, 0, 5, formula: "=NOW() > 40000")
+            ]),
+        };
+        var table = new DocumentTable(0, 0, rows);
+        var result = TableFormulaEngine.Evaluate(table);
+
+        Assert.Equal(2026d, result[0, 1].Number);
+        Assert.Equal(11d, result[0, 2].Number);
+        Assert.Equal(16d, result[0, 3].Number);
+        Assert.True(result[0, 4].Boolean);
+        Assert.True(result[0, 5].Boolean);
+    }
+
+    [Fact]
+    public void Text_LeftRightMidFindSearchSubstitute()
+    {
+        var rows = new List<TableRow>
+        {
+            new([
+                new TableCell(0, 0, 0, formula: "=LEFT(\"Spreadsheet\", 6)"),
+                new TableCell(0, 0, 1, formula: "=RIGHT(\"Spreadsheet\", 5)"),
+                new TableCell(0, 0, 2, formula: "=MID(\"Spreadsheet\", 7, 5)"),
+                new TableCell(0, 0, 3, formula: "=FIND(\"sheet\", \"Spreadsheet\")"),
+                new TableCell(0, 0, 4, formula: "=SEARCH(\"SHEET\", \"Spreadsheet\")"),
+                new TableCell(0, 0, 5, formula: "=SUBSTITUTE(\"foo bar foo\", \"foo\", \"baz\", 2)")
+            ]),
+        };
+        var table = new DocumentTable(0, 0, rows);
+        var result = TableFormulaEngine.Evaluate(table);
+
+        Assert.Equal("Spread", result[0, 0].Text);
+        Assert.Equal("sheet", result[0, 1].Text);
+        Assert.Equal("sheet", result[0, 2].Text);
+        Assert.Equal(7d, result[0, 3].Number);
+        Assert.Equal(7d, result[0, 4].Number);
+        Assert.Equal("foo bar baz", result[0, 5].Text);
+    }
+
     private static CellValue EvaluateFormula(DocumentTable table, string formula)
     {
         var modified = SetFormula(table, 0, 0, formula);

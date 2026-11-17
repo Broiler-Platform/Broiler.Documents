@@ -44,6 +44,7 @@ public sealed class RunningContent
     private readonly DocumentShape[][] _footerShapes;
     private readonly DocumentTable[][] _headerTables;
     private readonly DocumentTable[][] _footerTables;
+    private readonly int _links;
 
     private RunningContent(
         RichTextParagraph[][] headers,
@@ -52,7 +53,8 @@ public sealed class RunningContent
         DocumentShape[][] footerShapes,
         bool differentFirstPage,
         DocumentTable[][]? headerTables = null,
-        DocumentTable[][]? footerTables = null)
+        DocumentTable[][]? footerTables = null,
+        int links = 0)
     {
         _headers = headers;
         _footers = footers;
@@ -61,6 +63,7 @@ public sealed class RunningContent
         _headerTables = headerTables ?? NoBandTables;
         _footerTables = footerTables ?? NoBandTables;
         DifferentFirstPage = differentFirstPage;
+        _links = links;
     }
 
     /// <summary>A document with no header and no footer.</summary>
@@ -95,7 +98,24 @@ public sealed class RunningContent
     /// </remarks>
     public bool DifferentFirstPage { get; }
 
-    /// <summary>True when nothing is set, which is the common case.</summary>
+    /// <summary>Whether any band inherits from the preceding section.</summary>
+    public bool HasLinks => _links != 0;
+
+    public bool IsLinked(PageSelection selection, bool header) => (_links & LinkBit(selection, header)) != 0;
+
+    public RunningContent WithLink(PageSelection selection, bool header)
+    {
+        int links = _links | LinkBit(selection, header);
+        return links == _links ? this :
+            new(_headers, _footers, _headerShapes, _footerShapes, DifferentFirstPage, _headerTables, _footerTables, links);
+    }
+
+    public RunningContent WithoutLinks() => !HasLinks ? this :
+        new(_headers, _footers, _headerShapes, _footerShapes, DifferentFirstPage, _headerTables, _footerTables);
+
+    private static int LinkBit(PageSelection selection, bool header) => 1 << (Index(selection) + (header ? 0 : 3));
+
+    /// <summary>True when there is no local or inherited running content.</summary>
     public bool IsEmpty
     {
         get
@@ -109,7 +129,7 @@ public sealed class RunningContent
                 }
             }
 
-            return true;
+            return !HasLinks;
         }
     }
 
@@ -128,6 +148,10 @@ public sealed class RunningContent
 
     /// <summary>The footer's own shapes for <paramref name="selection"/>, empty when it has none.</summary>
     public IReadOnlyList<DocumentShape> FooterShapes(PageSelection selection) => _footerShapes[Index(selection)];
+
+    public IReadOnlyList<DocumentTable> HeaderTables(PageSelection selection) => _headerTables[Index(selection)];
+
+    public IReadOnlyList<DocumentTable> FooterTables(PageSelection selection) => _footerTables[Index(selection)];
 
     /// <summary>
     /// The header that actually applies to <paramref name="selection"/>: its own
@@ -186,7 +210,8 @@ public sealed class RunningContent
             _footerShapes,
             DifferentFirstPage,
             Replace(_headerTables, selection, tables, NoTables, substitute: null),
-            _footerTables);
+            _footerTables,
+            _links & ~LinkBit(selection, true));
 
     /// <summary>The same running content with <paramref name="selection"/>'s footer replaced.</summary>
     public RunningContent WithFooter(
@@ -201,7 +226,17 @@ public sealed class RunningContent
             Replace(_footerShapes, selection, shapes, NoShapes, substitute: null),
             DifferentFirstPage,
             _headerTables,
-            Replace(_footerTables, selection, tables, NoTables, substitute: null));
+            Replace(_footerTables, selection, tables, NoTables, substitute: null),
+            _links & ~LinkBit(selection, false));
+
+    internal RunningContent WithMappedPictures(PageSelection selection, bool isHeader,
+        IReadOnlyList<RichTextParagraph> paragraphs, IReadOnlyList<DocumentShape> shapes)
+    {
+        RunningContent updated = isHeader
+            ? WithHeader(selection, paragraphs, shapes, HeaderTables(selection))
+            : WithFooter(selection, paragraphs, shapes, FooterTables(selection));
+        return IsLinked(selection, isHeader) ? updated.WithLink(selection, isHeader) : updated;
+    }
 
     /// <summary>
     /// The same running content with <see cref="DifferentFirstPage"/> set or
@@ -210,7 +245,20 @@ public sealed class RunningContent
     public RunningContent WithDifferentFirstPage(bool differentFirstPage) =>
         differentFirstPage == DifferentFirstPage
             ? this
-            : new(_headers, _footers, _headerShapes, _footerShapes, differentFirstPage, _headerTables, _footerTables);
+            : new(_headers, _footers, _headerShapes, _footerShapes, differentFirstPage, _headerTables, _footerTables, _links);
+
+    internal RunningContent ResolveLinks(RunningContent previous)
+    {
+        RunningContent resolved = this;
+        foreach (PageSelection selection in Enum.GetValues<PageSelection>())
+        {
+            if (IsLinked(selection, true))
+                resolved = resolved.WithHeader(selection, previous.Header(selection), previous.HeaderShapes(selection), previous.HeaderTables(selection));
+            if (IsLinked(selection, false))
+                resolved = resolved.WithFooter(selection, previous.Footer(selection), previous.FooterShapes(selection), previous.FooterTables(selection));
+        }
+        return resolved;
+    }
 
     /// <summary>
     /// The selection whose header or footer actually applies: its own when it has

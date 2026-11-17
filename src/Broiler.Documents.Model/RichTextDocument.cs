@@ -12,7 +12,7 @@ namespace Broiler.Documents.Model;
 /// the previous snapshot (copy-on-write), so snapshots are cheap to keep for
 /// undo/redo. Positions produced by one document are only valid against it.
 /// </summary>
-public sealed class RichTextDocument
+public sealed partial class RichTextDocument
 {
     private readonly RichTextParagraph[] _paragraphs;
 
@@ -97,6 +97,28 @@ public sealed class RichTextDocument
     /// See <see cref="DocumentSection"/>.
     /// </summary>
     public IReadOnlyList<DocumentSection> Sections { get; }
+
+    /// <summary>Gets a section's running content with earlier section links resolved.</summary>
+    public RunningContent RunningContentFor(DocumentSection? section)
+    {
+        RunningContent own = section?.RunningContent ?? RunningContent;
+        if (section is null || !own.HasLinks)
+            return own;
+
+        RunningContent previous = RunningContent;
+        int end = 0;
+        foreach (DocumentSection current in Sections)
+        {
+            if (current.ParagraphIndex > end)
+                previous = RunningContent;
+            RunningContent local = current.RunningContent ?? RunningContent;
+            previous = local.HasLinks ? local.ResolveLinks(previous) : local;
+            if (ReferenceEquals(current, section))
+                return previous;
+            end = current.ParagraphEnd;
+        }
+        return own;
+    }
 
     /// <summary>
     /// What every page is painted with under its content, or null for a page
@@ -238,7 +260,10 @@ public sealed class RichTextDocument
         // records no changes of its own. Nor is text typed beside a page field
         // or a style reference, which a header would draw over with the page's
         // own value.
-        return _paragraphs[position.ParagraphIndex].StyleBefore(position.Offset) with
+        RichTextParagraph paragraph = _paragraphs[position.ParagraphIndex];
+        InlineStyle inherited = paragraph.Length == 0 && paragraph.Style.StyleName is not null
+            ? paragraph.MarkStyle : paragraph.StyleBefore(position.Offset);
+        return inherited with
         {
             Revision = null,
             PageField = null,
@@ -273,6 +298,41 @@ public sealed class RichTextDocument
         return new RichTextPosition(position.ParagraphIndex, 0);
     }
 
+    /// <summary>The paragraph formatting at a source position.</summary>
+    public ParagraphStyle ParagraphStyleAt(RichTextPosition position) =>
+        _paragraphs[ClampPosition(position).ParagraphIndex].Style;
+
+    public RichTextParagraph ParagraphAt(RichTextPosition position) =>
+        _paragraphs[ClampPosition(position).ParagraphIndex];
+
+    /// <summary>The body paragraph containing a source position.</summary>
+    public int ParagraphIndexAt(RichTextPosition position) => ClampPosition(position).ParagraphIndex;
+
+    /// <summary>Gets the editor position at a paragraph's UTF-16 text offset.</summary>
+    public RichTextPosition PositionAt(int paragraphIndex, int offset) => ClampPosition(new(paragraphIndex, offset));
+
+    public int OffsetAt(RichTextPosition position) => ClampPosition(position).Offset;
+
+
+    /// <summary>Replaces the page, section, and running-content settings in one snapshot.</summary>
+    public RichTextDocument WithPageStructure(PageGeometry? page, IReadOnlyList<DocumentSection> sections, RunningContent running)
+    {
+        ArgumentNullException.ThrowIfNull(sections);
+        ArgumentNullException.ThrowIfNull(running);
+        int next = 0;
+        foreach (DocumentSection section in sections)
+        {
+            if (section.ParagraphIndex < next || section.ParagraphCount < 1 ||
+                section.ParagraphIndex > ParagraphCount || section.ParagraphCount > ParagraphCount - section.ParagraphIndex)
+                throw new ArgumentException("Sections must be ordered, non-overlapping body ranges.", nameof(sections));
+            next = section.ParagraphEnd;
+        }
+
+        return page == PageGeometry && ReferenceEquals(running, RunningContent) && Sections.SequenceEqual(sections)
+            ? this
+            : new RichTextDocument(_paragraphs, running, Shapes, page, Tables, StyleDefaults, sections, PageBackground, NoteNumbering, ShowsRevisions);
+    }
+
     public RichTextPosition ParagraphEnd(RichTextPosition position)
     {
         position = ClampPosition(position);
@@ -290,7 +350,9 @@ public sealed class RichTextDocument
         // Text typed after a citation is text, not a second citation of the
         // same note: the style it inherits is the citation's without the note,
         // and likewise a page field's or a style reference's without the field.
-        InlineStyle inherited = style ?? target.StyleBefore(at.Offset) with { Note = null, PageField = null, StyleReference = null };
+        InlineStyle inherited = style ??
+            (target.Length == 0 && target.Style.StyleName is not null ? target.MarkStyle : target.StyleBefore(at.Offset))
+            with { Note = null, PageField = null, StyleReference = null };
 
         if (text.IndexOf('\n') < 0)
         {
@@ -307,9 +369,10 @@ public sealed class RichTextDocument
         {
             head.InsertText(head.Length, lines[0], inherited),
         };
+        ParagraphStyle continuation = ContinuedParagraphStyle(target.Style);
         for (int i = 1; i < lines.Length - 1; i++)
-            replacement.Add(RichTextParagraph.Create(lines[i], inherited, target.Style).WithMarkStyle(target.MarkStyle));
-        replacement.Add(tail.InsertText(0, lines[^1], inherited));
+            replacement.Add(RichTextParagraph.Create(lines[i], inherited, continuation).WithMarkStyle(target.MarkStyle));
+        replacement.Add(tail.WithParagraphStyle(continuation).InsertText(0, lines[^1], inherited));
 
         RichTextDocument document = ReplaceRange(at.ParagraphIndex, 1, replacement);
         var caret = new RichTextPosition(at.ParagraphIndex + lines.Length - 1, lines[^1].Length);
@@ -320,9 +383,13 @@ public sealed class RichTextDocument
     {
         at = ClampPosition(at);
         (RichTextParagraph head, RichTextParagraph tail) = _paragraphs[at.ParagraphIndex].SplitAt(at.Offset);
+        tail = tail.WithParagraphStyle(ContinuedParagraphStyle(tail.Style));
         RichTextDocument document = ReplaceRange(at.ParagraphIndex, 1, [head, tail]);
         return new RichTextEditResult(document, new RichTextPosition(at.ParagraphIndex + 1, 0));
     }
+
+    private static ParagraphStyle ContinuedParagraphStyle(ParagraphStyle style) =>
+        style.List is { RestartAt: not null } list ? style with { List = list with { RestartAt = null } } : style;
 
     public RichTextEditResult MergeParagraphs(int firstParagraphIndex)
     {
@@ -388,16 +455,69 @@ public sealed class RichTextDocument
         RichTextPosition start = ClampPosition(range.Start);
         RichTextPosition end = ClampPosition(range.End);
 
-        var paragraphs = new List<RichTextParagraph>(_paragraphs.Length);
-        for (int i = 0; i < _paragraphs.Length; i++)
+        DocumentStyleDefaults defaults = StyleDefaults;
+        NamedParagraphStyle? previous = null;
+        if (delta.DefineStyle is { } definition)
         {
-            if (i >= start.ParagraphIndex && i <= end.ParagraphIndex)
-                paragraphs.Add(_paragraphs[i].WithParagraphStyle(delta.Apply(_paragraphs[i].Style)));
-            else
-                paragraphs.Add(_paragraphs[i]);
+            previous = FindNamedStyle(definition.Name);
+            var definitions = defaults.NamedParagraphStyles;
+            defaults = defaults with
+            {
+                NamedParagraphStyles = previous is null ? definitions.Add(definition) : definitions.Replace(previous, definition),
+            };
         }
 
-        return new RichTextDocument(paragraphs, RunningContent, Shapes, PageGeometry, Tables, StyleDefaults, Sections, PageBackground, NoteNumbering, ShowsRevisions);
+        NamedParagraphStyle? applied = delta.SetStyleName && delta.StyleName is { } name
+            ? defaults.NamedParagraphStyles.FirstOrDefault(candidate => SameStyleName(candidate.Name, name))
+            : null;
+        bool reindexSoftHints = delta.SoftPageBreak is bool desired &&
+            Enumerable.Range(start.ParagraphIndex, end.ParagraphIndex - start.ParagraphIndex + 1)
+                .Any(index => (_paragraphs[index].Style.SoftPageBreakBefore > 0) != desired);
+        var paragraphs = new List<RichTextParagraph>(_paragraphs.Length);
+        int softPage = 1;
+        for (int i = 0; i < _paragraphs.Length; i++)
+        {
+            RichTextParagraph paragraph = _paragraphs[i];
+            if (previous is not null && SameStyleName(paragraph.Style.StyleName, previous.Name))
+                paragraph = ApplyNamedStyle(paragraph, delta.DefineStyle!, previous);
+            if (i >= start.ParagraphIndex && i <= end.ParagraphIndex)
+            {
+                if (applied is not null)
+                    paragraph = ApplyNamedStyle(paragraph, applied, null);
+                else if (delta.SetStyleName && delta.StyleName is null)
+                    paragraph = paragraph.WithParagraphStyle(paragraph.Style with { StyleName = null });
+                paragraph = paragraph.WithParagraphStyle(delta.Apply(paragraph.Style));
+                if (delta.InlinePreset is { } preset)
+                    paragraph = paragraph.ApplyInlineStyle(0, paragraph.Length, preset).WithMarkStyle(preset.Apply(paragraph.MarkStyle));
+            }
+            if (reindexSoftHints && delta.SoftPageBreak is bool setHint)
+            {
+                bool hasHint = i >= start.ParagraphIndex && i <= end.ParagraphIndex
+                    ? setHint
+                    : paragraph.Style.SoftPageBreakBefore > 0;
+                int hint = hasHint ? ++softPage : 0;
+                if (hint != paragraph.Style.SoftPageBreakBefore)
+                    paragraph = paragraph.WithParagraphStyle(paragraph.Style with { SoftPageBreakBefore = hint });
+                if (!paragraph.Style.SoftPageMarkerOffsets.IsDefault)
+                    softPage += paragraph.Style.SoftPageMarkerOffsets.Length;
+            }
+            paragraphs.Add(paragraph);
+        }
+
+        return new RichTextDocument(paragraphs, RunningContent, Shapes, PageGeometry, Tables, defaults, Sections, PageBackground, NoteNumbering, ShowsRevisions);
+    }
+
+    public NamedParagraphStyle? FindNamedStyle(string name) =>
+        StyleDefaults.NamedParagraphStyles.FirstOrDefault(candidate => SameStyleName(candidate.Name, name));
+
+    private static bool SameStyleName(string? first, string? second) =>
+        string.Equals(first, second, StringComparison.OrdinalIgnoreCase);
+
+    private static RichTextParagraph ApplyNamedStyle(RichTextParagraph paragraph, NamedParagraphStyle style, NamedParagraphStyle? previous)
+    {
+        InlineStyle inherited = previous?.Text ?? paragraph.MarkStyle;
+        return paragraph.WithParagraphStyle(style.ApplyTo(paragraph.Style, previous))
+            .MapInlineStyles(run => style.ApplyText(run, inherited));
     }
 
     /// <summary>
@@ -416,7 +536,7 @@ public sealed class RichTextDocument
         {
             RichTextParagraph head = _paragraphs[start.ParagraphIndex].SplitAt(end.Offset).Head;
             RichTextParagraph slice = head.SplitAt(start.Offset).Tail;
-            return new RichTextDocument([slice]);
+            return CreateSlice([slice]);
         }
 
         var paragraphs = new List<RichTextParagraph>(end.ParagraphIndex - start.ParagraphIndex + 1)
@@ -426,7 +546,19 @@ public sealed class RichTextDocument
         for (int i = start.ParagraphIndex + 1; i < end.ParagraphIndex; i++)
             paragraphs.Add(_paragraphs[i]);
         paragraphs.Add(_paragraphs[end.ParagraphIndex].SplitAt(end.Offset).Head);
-        return new RichTextDocument(paragraphs);
+        return CreateSlice(paragraphs);
+    }
+
+    private RichTextDocument CreateSlice(IReadOnlyList<RichTextParagraph> paragraphs)
+    {
+        if (StyleDefaults.NamedParagraphStyles.IsDefaultOrEmpty)
+            return new RichTextDocument(paragraphs);
+
+        var names = new HashSet<string?>(paragraphs.Select(paragraph => paragraph.Style.StyleName), StringComparer.OrdinalIgnoreCase);
+        return new RichTextDocument(paragraphs, styleDefaults: DocumentStyleDefaults.Default with
+        {
+            NamedParagraphStyles = [.. StyleDefaults.NamedParagraphStyles.Where(style => names.Contains(style.Name))],
+        });
     }
 
     /// <summary>
@@ -451,18 +583,57 @@ public sealed class RichTextDocument
             return new RichTextEditResult(WithParagraph(at.ParagraphIndex, merged), caret);
         }
 
-        RichTextParagraph lastContent = content._paragraphs[content.ParagraphCount - 1];
+        var styles = StyleDefaults.NamedParagraphStyles;
+        var imported = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
         var replacement = new List<RichTextParagraph>(content.ParagraphCount)
         {
             head.Append(content._paragraphs[0]),
         };
         for (int i = 1; i < content.ParagraphCount - 1; i++)
-            replacement.Add(content._paragraphs[i]);
+            replacement.Add(ImportStyle(content._paragraphs[i]));
+        RichTextParagraph lastContent = ImportStyle(content._paragraphs[^1]);
         replacement.Add(lastContent.Append(tail));
 
         RichTextDocument document = ReplaceRange(at.ParagraphIndex, 1, replacement);
+        if (styles != StyleDefaults.NamedParagraphStyles)
+            document = document.WithStyleDefaults(StyleDefaults with { NamedParagraphStyles = styles });
         var lastCaret = new RichTextPosition(at.ParagraphIndex + content.ParagraphCount - 1, lastContent.Length);
         return new RichTextEditResult(document, lastCaret);
+
+        RichTextParagraph ImportStyle(RichTextParagraph paragraph)
+        {
+            if (paragraph.Style.StyleName is not { } sourceName)
+                return paragraph;
+
+            if (!imported.TryGetValue(sourceName, out string? targetName))
+            {
+                if (content.FindNamedStyle(sourceName) is { } definition)
+                {
+                    targetName = definition.Name;
+                    for (int suffix = 2; ; suffix++)
+                    {
+                        NamedParagraphStyle? existing = styles.FirstOrDefault(style => SameStyleName(style.Name, targetName));
+                        if (existing is null)
+                        {
+                            styles = styles.Add(new NamedParagraphStyle(targetName, definition.Paragraph, definition.Text));
+                            break;
+                        }
+                        if (existing.Paragraph == definition.Paragraph && existing.Text == definition.Text)
+                        {
+                            targetName = existing.Name;
+                            break;
+                        }
+                        string number = " (" + suffix.ToString(CultureInfo.InvariantCulture) + ")";
+                        int length = Math.Min(definition.Name.Length, 128 - number.Length);
+                        if (char.IsHighSurrogate(definition.Name[length - 1]))
+                            length--;
+                        targetName = definition.Name[..length] + number;
+                    }
+                }
+                imported.Add(sourceName, targetName);
+            }
+            return paragraph.WithParagraphStyle(paragraph.Style with { StyleName = targetName });
+        }
     }
 
     /// <summary>This document with <paramref name="paragraph"/> in place of the one at <paramref name="index"/>.</summary>

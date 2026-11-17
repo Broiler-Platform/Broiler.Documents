@@ -35,6 +35,7 @@ internal static class OdtTableReader
 
         foreach (XElement row in EnumerateRows(table, depth))
         {
+            int rowStart = context.Builder.CurrentParagraphIndex;
             var cells = new List<TableCell>();
             int column = 0;
             XElement? rowProperties = (string?)row.Attribute(OdtNamespaces.Table + "style-name") is string rowStyle &&
@@ -78,6 +79,9 @@ internal static class OdtTableReader
                     int cellStart = context.Builder.CurrentParagraphIndex;
                     var nested = new List<DocumentTable>();
                     context.Builder.PushTableSink(nested);
+                    int? previousSoftTableStart = context.SoftTableStart;
+                    if (context.TableDepth == 0 && position is null)
+                        context.SoftTableStart = rowStart;
                     context.TableDepth++;
                     List<XElement> content = [.. WithoutClosingParagraphAfterTable(DisplayCellContent(cell, context.Styles))];
                     try
@@ -87,6 +91,7 @@ internal static class OdtTableReader
                     finally
                     {
                         context.TableDepth--;
+                        context.SoftTableStart = previousSoftTableStart;
                     }
                     // An empty ODF cell still has an editable paragraph and a
                     // line box in Writer. Leaving its range empty collapses

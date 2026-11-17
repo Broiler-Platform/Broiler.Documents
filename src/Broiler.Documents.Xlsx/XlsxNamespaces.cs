@@ -14,9 +14,12 @@ internal static class XlsxNamespaces
     public const string WorksheetRelationship = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet";
     public const string SharedStringsRelationship = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings";
     public const string StylesRelationship = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles";
+    public const string CommentsRelationship = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments";
+    public const string HyperlinkRelationship = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink";
 
     public const string ContentTypeWorkbook = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml";
     public const string ContentTypeWorksheet = "application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml";
     public const string ContentTypeSharedStrings = "application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml";
     public const string ContentTypeStyles = "application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml";
+    public const string ContentTypeComments = "application/vnd.openxmlformats-officedocument.spreadsheetml.comments+xml";
 }

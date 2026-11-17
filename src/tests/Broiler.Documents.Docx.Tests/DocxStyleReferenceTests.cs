@@ -84,8 +84,14 @@ public sealed class DocxStyleReferenceTests
         Assert.Equal(new StyleReferenceField("Main Index Entry"), FieldAt(paragraph, "x"));
     }
 
+    [Fact]
+    public void A_Named_Paragraph_Style_Reference_Marks_Its_Saved_Result()
+    {
+        RichTextParagraph paragraph = Read(ComplexField(" STYLEREF \"Heading1\" ", "heading"));
+        Assert.Equal(new StyleReferenceField("Heading1") { ParagraphStyle = true }, FieldAt(paragraph, "heading"));
+    }
+
     [Theory]
-    [InlineData(" STYLEREF \"Heading1\" ")]
     [InlineData(" STYLEREF 1 ")]
     [InlineData(" STYLEREF \"Main Index Entry\" \\n ")]
     [InlineData(" STYLEREF \"Main Index Entry\" \\* Upper ")]

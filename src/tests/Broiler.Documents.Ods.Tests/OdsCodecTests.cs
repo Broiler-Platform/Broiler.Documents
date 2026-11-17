@@ -364,4 +364,279 @@ public sealed class OdsCodecTests
         Assert.Equal("", readResult.Document.Paragraphs[3].Text);
         Assert.Equal("Last.", readResult.Document.Paragraphs[4].Text);
     }
+
+    [Fact]
+    public void Cell_Notes_Roundtrip_In_Ods()
+    {
+        var cell = new SpreadsheetCell(new CellAddress(0, 0), CellValue.FromText("Reviewed"))
+        {
+            Note = new CellNote("Checked and verified by auditor", "Auditor")
+        };
+        var workbook = new SpreadsheetWorkbook([new SpreadsheetWorksheet("Sheet1", [new SpreadsheetRow(0, [cell])])]);
+        using var stream = new MemoryStream();
+        Assert.Equal(DocumentResultStatus.Success, _codec.Write(workbook.ToRichTextDocument(), stream).Status);
+
+        stream.Position = 0;
+        var result = Assert.IsType<OdsReadResult>(_codec.Read(stream));
+        var actual = Assert.Single(result.Workbook.Sheets)[0, 0]!;
+        Assert.NotNull(actual.Note);
+        Assert.Equal("Checked and verified by auditor", actual.Note.Text);
+        Assert.Equal("Auditor", actual.Note.Author);
+    }
+
+    [Fact]
+    public void ConditionalFormatting_Roundtrip_In_Ods()
+    {
+        var redFill = Broiler.Graphics.Color.BColor.FromArgb(255, 255, 199, 206);
+        var redText = Broiler.Graphics.Color.BColor.FromArgb(255, 156, 0, 6);
+        var greenFill = Broiler.Graphics.Color.BColor.FromArgb(255, 198, 239, 206);
+        var greenText = Broiler.Graphics.Color.BColor.FromArgb(255, 0, 97, 0);
+
+        var rule1 = new ConditionalFormatRule(
+            ConditionalFormatRuleType.CellIs,
+            ConditionalFormatOperator.GreaterThan,
+            Formula1: "100",
+            Style: new ConditionalFormatStyle(Shading: greenFill, Foreground: greenText, Bold: true));
+
+        var rule2 = new ConditionalFormatRule(
+            ConditionalFormatRuleType.ContainsText,
+            Formula1: "Overdue",
+            Style: new ConditionalFormatStyle(Shading: redFill, Foreground: redText));
+
+        var rule3 = new ConditionalFormatRule(
+            ConditionalFormatRuleType.ColorScale,
+            ColorScale: new ColorScaleConfiguration(
+                Broiler.Graphics.Color.BColor.FromArgb(255, 255, 0, 0),
+                Broiler.Graphics.Color.BColor.FromArgb(255, 0, 255, 0)));
+
+        var cf1 = new ConditionalFormat(
+            [new CellRangeAddress(new CellAddress(0, 0), new CellAddress(9, 2))],
+            [rule1, rule2]);
+
+        var cf2 = new ConditionalFormat(
+            [new CellRangeAddress(new CellAddress(0, 4), new CellAddress(9, 4))],
+            [rule3]);
+
+        var cell = new SpreadsheetCell(new CellAddress(0, 0), CellValue.FromNumber(150));
+        var sheet = new SpreadsheetWorksheet("Report", [new SpreadsheetRow(0, [cell])])
+        {
+            ConditionalFormats = [cf1, cf2]
+        };
+
+        var workbook = new SpreadsheetWorkbook([sheet]);
+        using var stream = new MemoryStream();
+        Assert.Equal(DocumentResultStatus.Success, _codec.Write(workbook.ToRichTextDocument(), stream).Status);
+
+        stream.Position = 0;
+        var result = Assert.IsType<OdsReadResult>(_codec.Read(stream));
+        var readSheet = Assert.Single(result.Workbook.Sheets);
+        Assert.NotNull(readSheet.ConditionalFormats);
+        Assert.Equal(2, readSheet.ConditionalFormats.Count);
+
+        var readCf1 = readSheet.ConditionalFormats[0];
+        Assert.Single(readCf1.Ranges);
+        Assert.Equal(0, readCf1.Ranges[0].StartRow);
+        Assert.Equal(9, readCf1.Ranges[0].EndRow);
+        Assert.Equal(0, readCf1.Ranges[0].StartCol);
+        Assert.Equal(2, readCf1.Ranges[0].EndCol);
+        Assert.Equal(2, readCf1.Rules.Count);
+
+        var readRule1 = readCf1.Rules[0];
+        Assert.Equal(ConditionalFormatRuleType.CellIs, readRule1.Type);
+        Assert.Equal(ConditionalFormatOperator.GreaterThan, readRule1.Operator);
+        Assert.Equal("100", readRule1.Formula1);
+        Assert.NotNull(readRule1.Style);
+        Assert.Equal(greenFill, readRule1.Style.Shading);
+        Assert.Equal(greenText, readRule1.Style.Foreground);
+        Assert.True(readRule1.Style.Bold);
+
+        var readRule2 = readCf1.Rules[1];
+        Assert.Equal(ConditionalFormatRuleType.ContainsText, readRule2.Type);
+        Assert.Equal("Overdue", readRule2.Formula1);
+        Assert.NotNull(readRule2.Style);
+        Assert.Equal(redFill, readRule2.Style.Shading);
+        Assert.Equal(redText, readRule2.Style.Foreground);
+
+        var readCf2 = readSheet.ConditionalFormats[1];
+        Assert.Single(readCf2.Rules);
+        Assert.Equal(ConditionalFormatRuleType.ColorScale, readCf2.Rules[0].Type);
+        Assert.NotNull(readCf2.Rules[0].ColorScale);
+        Assert.Equal(Broiler.Graphics.Color.BColor.FromArgb(255, 255, 0, 0), readCf2.Rules[0].ColorScale!.MinColor);
+        Assert.Equal(Broiler.Graphics.Color.BColor.FromArgb(255, 0, 255, 0), readCf2.Rules[0].ColorScale!.MaxColor);
+    }
+
+    [Fact]
+    public void DataValidation_Roundtrip_In_Ods()
+    {
+        var dvList = new DataValidation(
+            [new CellRangeAddress(new CellAddress(0, 0), new CellAddress(4, 0))],
+            DataValidationType.List,
+            Formula1: "\"Red,Green,Blue\"",
+            AllowBlank: true,
+            ShowDropdown: true,
+            ShowInputMessage: true,
+            InputTitle: "Color",
+            InputMessage: "Choose a color",
+            ShowErrorMessage: true,
+            ErrorTitle: "Invalid",
+            ErrorMessage: "Not a valid color",
+            ErrorStyle: DataValidationErrorStyle.Stop);
+
+        var cell = new SpreadsheetCell(new CellAddress(0, 0), CellValue.FromText("Red"));
+        var worksheet = new SpreadsheetWorksheet("Sheet1", [new SpreadsheetRow(0, [cell])])
+        {
+            DataValidations = [dvList]
+        };
+
+        var workbook = new SpreadsheetWorkbook([worksheet]);
+        using var stream = new MemoryStream();
+        Assert.Equal(DocumentResultStatus.Success, _codec.Write(workbook.ToRichTextDocument(), stream).Status);
+
+        stream.Position = 0;
+        var result = Assert.IsType<OdsReadResult>(_codec.Read(stream));
+        var readSheet = Assert.Single(result.Workbook.Sheets);
+        Assert.NotNull(readSheet.DataValidations);
+        Assert.Single(readSheet.DataValidations);
+
+        var readList = readSheet.DataValidations[0];
+        Assert.Equal(DataValidationType.List, readList.Type);
+        Assert.Equal("\"Red,Green,Blue\"", readList.Formula1);
+        Assert.True(readList.AllowBlank);
+        Assert.True(readList.ShowDropdown);
+        Assert.True(readList.ShowInputMessage);
+        Assert.Equal("Color", readList.InputTitle);
+        Assert.Equal("Choose a color", readList.InputMessage);
+        Assert.True(readList.ShowErrorMessage);
+        Assert.Equal("Invalid", readList.ErrorTitle);
+        Assert.Equal("Not a valid color", readList.ErrorMessage);
+        Assert.Equal(DataValidationErrorStyle.Stop, readList.ErrorStyle);
+    }
+
+    [Fact]
+    public void AutoFilter_And_HiddenRows_Roundtrip()
+    {
+        var row0 = new SpreadsheetRow(0, [
+            new SpreadsheetCell(new CellAddress(0, 0), CellValue.FromText("Dept")),
+            new SpreadsheetCell(new CellAddress(0, 1), CellValue.FromText("Headcount"))
+        ]);
+        var row1 = new SpreadsheetRow(1, [
+            new SpreadsheetCell(new CellAddress(1, 0), CellValue.FromText("Engineering")),
+            new SpreadsheetCell(new CellAddress(1, 1), CellValue.FromNumber(42))
+        ], hidden: false);
+        var row2 = new SpreadsheetRow(2, [
+            new SpreadsheetCell(new CellAddress(2, 0), CellValue.FromText("Marketing")),
+            new SpreadsheetCell(new CellAddress(2, 1), CellValue.FromNumber(15))
+        ], hidden: true);
+
+        var af = new SpreadsheetAutoFilter(
+            new CellRangeAddress(new CellAddress(0, 0), new CellAddress(2, 1)),
+            [new SpreadsheetFilterColumn(0, ["Engineering"])]);
+
+        var worksheet = new SpreadsheetWorksheet("Team", [row0, row1, row2])
+        {
+            AutoFilter = af
+        };
+
+        var workbook = new SpreadsheetWorkbook([worksheet]);
+        using var stream = new MemoryStream();
+        Assert.Equal(DocumentResultStatus.Success, _codec.Write(workbook.ToRichTextDocument(), stream).Status);
+
+        stream.Position = 0;
+        var result = Assert.IsType<OdsReadResult>(_codec.Read(stream));
+        var readSheet = Assert.Single(result.Workbook.Sheets);
+
+        Assert.Equal(3, readSheet.Rows.Count);
+        Assert.False(readSheet.Rows[0].Hidden);
+        Assert.False(readSheet.Rows[1].Hidden);
+        Assert.True(readSheet.Rows[2].Hidden);
+
+        Assert.NotNull(readSheet.AutoFilter);
+        Assert.Equal("A1:B3", readSheet.AutoFilter!.Range.Format());
+        var col0 = Assert.Single(readSheet.AutoFilter.Columns);
+        Assert.Equal(0, col0.ColumnIndex);
+        Assert.Equal(["Engineering"], col0.Values);
+    }
+
+    [Fact]
+    public void Cell_Hyperlinks_Roundtrip()
+    {
+        var extCell = new SpreadsheetCell(new CellAddress(0, 0), CellValue.FromText("OpenDocument Spec"))
+        {
+            Hyperlink = new CellHyperlink("https://docs.oasis-open.org/office/v1.2", "ODF Specification")
+        };
+        var intCell = new SpreadsheetCell(new CellAddress(1, 0), CellValue.FromText("Sheet Link"))
+        {
+            Hyperlink = new CellHyperlink("#Sheet2.A1", "Internal Link")
+        };
+
+        var worksheet = new SpreadsheetWorksheet("Sheet1", [
+            new SpreadsheetRow(0, [extCell]),
+            new SpreadsheetRow(1, [intCell])
+        ]);
+
+        var workbook = new SpreadsheetWorkbook([worksheet]);
+        using var stream = new MemoryStream();
+        Assert.Equal(DocumentResultStatus.Success, _codec.Write(workbook.ToRichTextDocument(), stream).Status);
+
+        stream.Position = 0;
+        var result = Assert.IsType<OdsReadResult>(_codec.Read(stream));
+        var readSheet = Assert.Single(result.Workbook.Sheets);
+
+        var readExt = readSheet[0, 0];
+        Assert.NotNull(readExt);
+        Assert.NotNull(readExt!.Hyperlink);
+        Assert.Equal("https://docs.oasis-open.org/office/v1.2", readExt.Hyperlink!.Target);
+        Assert.Equal("ODF Specification", readExt.Hyperlink.Tooltip);
+
+        var readInt = readSheet[1, 0];
+        Assert.NotNull(readInt);
+        Assert.NotNull(readInt!.Hyperlink);
+        Assert.Equal("#Sheet2.A1", readInt.Hyperlink!.Target);
+        Assert.Equal("Internal Link", readInt.Hyperlink.Tooltip);
+    }
+
+    [Fact]
+    public void Outline_And_Grouping_Properties_Roundtrip()
+    {
+        var row0 = new SpreadsheetRow(0, [new SpreadsheetCell(new CellAddress(0, 0), CellValue.FromText("Group 1 Header"))], outlineLevel: 0, collapsed: false);
+        var row1 = new SpreadsheetRow(1, [new SpreadsheetCell(new CellAddress(1, 0), CellValue.FromText("Detail 1"))], outlineLevel: 1, collapsed: true, hidden: true);
+        var row2 = new SpreadsheetRow(2, [new SpreadsheetCell(new CellAddress(2, 0), CellValue.FromText("Sub-Detail 1"))], outlineLevel: 2, collapsed: true, hidden: true);
+        var row3 = new SpreadsheetRow(3, [new SpreadsheetCell(new CellAddress(3, 0), CellValue.FromText("Summary"))], outlineLevel: 0, collapsed: false);
+
+        var col0 = new SpreadsheetColumn(0, width: 80.0, hidden: false, outlineLevel: 0, collapsed: false);
+        var col1 = new SpreadsheetColumn(1, width: 60.0, hidden: true, outlineLevel: 1, collapsed: true);
+
+        var worksheet = new SpreadsheetWorksheet("Outlines", [row0, row1, row2, row3], [80.0, 60.0])
+        {
+            Columns = [col0, col1],
+        };
+
+        var workbook = new SpreadsheetWorkbook([worksheet]);
+        using var stream = new MemoryStream();
+        Assert.Equal(DocumentResultStatus.Success, _codec.Write(workbook.ToRichTextDocument(), stream).Status);
+
+        stream.Position = 0;
+        var result = Assert.IsType<OdsReadResult>(_codec.Read(stream));
+        var readSheet = Assert.Single(result.Workbook.Sheets);
+
+        Assert.Equal(4, readSheet.Rows.Count);
+        Assert.Equal(0, readSheet.Rows[0].OutlineLevel);
+        Assert.False(readSheet.Rows[0].Collapsed);
+        Assert.False(readSheet.Rows[0].Hidden);
+
+        Assert.Equal(1, readSheet.Rows[1].OutlineLevel);
+        Assert.True(readSheet.Rows[1].Collapsed);
+        Assert.True(readSheet.Rows[1].Hidden);
+
+        Assert.Equal(2, readSheet.Rows[2].OutlineLevel);
+        Assert.True(readSheet.Rows[2].Collapsed);
+        Assert.True(readSheet.Rows[2].Hidden);
+
+        Assert.NotNull(readSheet.Columns);
+        var rCol1 = readSheet.Columns!.FirstOrDefault(c => c.ColumnIndex == 1);
+        Assert.NotNull(rCol1);
+        Assert.Equal(1, rCol1!.OutlineLevel);
+        Assert.True(rCol1.Collapsed);
+        Assert.True(rCol1.Hidden);
+    }
 }

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Immutable;
 using Broiler.Graphics.Color;
 
 namespace Broiler.Documents.Model;
@@ -19,8 +20,13 @@ public readonly record struct ParagraphBorder(CellBorders Edges, TableCellPaddin
 /// </remarks>
 public readonly record struct ParagraphStyle
 {
+    /// <summary>The name of the reusable style this paragraph uses.</summary>
+    public string? StyleName { get; init; }
+
     /// <summary>The saved page number of a leading layout hint, or zero when absent.</summary>
     public int SoftPageBreakBefore { get; init; }
+    /// <summary>Saved in-paragraph layout markers in UTF-16 coordinates.</summary>
+    public ImmutableArray<int> SoftPageMarkerOffsets { get; init; }
 
     public ParagraphBorder? Border { get; init; }
 

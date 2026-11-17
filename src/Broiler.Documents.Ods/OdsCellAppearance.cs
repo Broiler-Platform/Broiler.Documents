@@ -8,7 +8,7 @@ using Broiler.Graphics.Color;
 namespace Broiler.Documents.Ods;
 
 internal readonly record struct OdsCellAppearance(BColor Fill, CellBorders Borders,
-    CellVerticalAlignment Vertical, TextAlignment Alignment, InlineStyle Font)
+    CellVerticalAlignment Vertical, TextAlignment Alignment, InlineStyle Font, bool WrapText = false)
 {
     private static readonly XNamespace Style = OdsNamespaces.Style;
     private static readonly XNamespace Fo = OdsNamespaces.Fo;
@@ -58,13 +58,15 @@ internal readonly record struct OdsCellAppearance(BColor Fill, CellBorders Borde
                 Italic = (string?)text?.Attribute(Fo + "font-style") is "italic" or "oblique",
                 Underline = (string?)text?.Attribute(Style + "text-underline-style") is not (null or "none"),
                 Strikethrough = (string?)text?.Attribute(Style + "text-line-through-style") is not (null or "none"),
-            });
+            },
+            (string?)cell?.Attribute(Fo + "wrap-option") == "wrap");
     }
 
     public XElement? WriteCell()
     {
         var cell = new XElement(Style + "table-cell-properties",
             !WritesAlignment ? null : new XAttribute(Style + "text-align-source", "fix"),
+            WrapText ? new XAttribute(Fo + "wrap-option", "wrap") : null,
             Fill.A > 0 ? new XAttribute(Fo + "background-color", Color(Fill)) : null,
             Vertical == CellVerticalAlignment.Bottom ? null :
                 new XAttribute(Style + "vertical-align", Vertical == CellVerticalAlignment.Center ? "middle" : "top"),

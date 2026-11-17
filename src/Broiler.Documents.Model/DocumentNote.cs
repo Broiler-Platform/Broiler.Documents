@@ -74,7 +74,7 @@ public sealed class DocumentNote
     public NoteKind Kind { get; }
 
     /// <summary>The note's text, never empty.</summary>
-    public IReadOnlyList<RichTextParagraph> Paragraphs { get; }
+    public IReadOnlyList<RichTextParagraph> Paragraphs { get; private set; }
 
     /// <summary>The label the author chose, or null for a note that is numbered.</summary>
     public string? CustomMark { get; }
@@ -88,6 +88,16 @@ public sealed class DocumentNote
 
     /// <summary>The section collecting this note at its end, or null for ordinary placement.</summary>
     public SectionFootnotes? Section { get; init; }
+
+    internal DocumentNote WithMappedPictures(IReadOnlyList<RichTextParagraph> paragraphs)
+    {
+        if (ReferenceEquals(paragraphs, Paragraphs))
+            return this;
+
+        var copy = (DocumentNote)MemberwiseClone();
+        copy.Paragraphs = paragraphs;
+        return copy;
+    }
 
     /// <summary>The note's paragraphs joined with newlines.</summary>
     public string PlainText

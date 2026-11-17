@@ -519,7 +519,7 @@ public abstract class DocumentInput : IDisposable
         public override void SetLength(long value) => throw new NotSupportedException();
 
         public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
-    }
+    }
     private sealed class SpoolingDocumentInput(Stream source, DocumentSpoolPolicy policy, bool leaveOpen) : DocumentInput
     {
         private byte[] _prefix = [];

@@ -62,4 +62,50 @@ public sealed class SpreadsheetModelTests
         Assert.Equal("=SUM(B2:B2)", restored.Sheets[0][2, 1]?.Formula);
         Assert.Equal("$#,##0.00", restored.Sheets[0][1, 1]?.NumberFormat);
     }
+
+    [Fact]
+    public void AutoFilter_And_HiddenRows_Preserved_In_RichTextDocument_Roundtrip()
+    {
+        var row0 = new SpreadsheetRow(0, [
+            new SpreadsheetCell(new CellAddress(0, 0), CellValue.FromText("Category")),
+            new SpreadsheetCell(new CellAddress(0, 1), CellValue.FromText("Value"))
+        ]);
+        var row1 = new SpreadsheetRow(1, [
+            new SpreadsheetCell(new CellAddress(1, 0), CellValue.FromText("A")),
+            new SpreadsheetCell(new CellAddress(1, 1), CellValue.FromNumber(10))
+        ], hidden: false);
+        var row2 = new SpreadsheetRow(2, [
+            new SpreadsheetCell(new CellAddress(2, 0), CellValue.FromText("B")),
+            new SpreadsheetCell(new CellAddress(2, 1), CellValue.FromNumber(20))
+        ], hidden: true);
+
+        var filterRange = new CellRangeAddress(new CellAddress(0, 0), new CellAddress(2, 1));
+        var filter = new SpreadsheetAutoFilter(filterRange, [
+            new SpreadsheetFilterColumn(0, ["A"], includeBlanks: false)
+        ]);
+
+        var sheet = new SpreadsheetWorksheet("Data", [row0, row1, row2])
+        {
+            AutoFilter = filter
+        };
+        var workbook = new SpreadsheetWorkbook([sheet]);
+
+        var doc = workbook.ToRichTextDocument();
+        Assert.NotNull(doc.Tables[0].AutoFilter);
+        Assert.Equal("A1:B3", doc.Tables[0].AutoFilter!.Range.Format());
+        Assert.False(doc.Tables[0].Rows[1].IsHidden);
+        Assert.True(doc.Tables[0].Rows[2].IsHidden);
+
+        var restored = SpreadsheetWorkbook.FromRichTextDocument(doc);
+        var restoredSheet = restored.Sheets[0];
+        Assert.NotNull(restoredSheet.AutoFilter);
+        Assert.Equal("A1:B3", restoredSheet.AutoFilter!.Range.Format());
+        Assert.Single(restoredSheet.AutoFilter.Columns);
+        Assert.Equal(0, restoredSheet.AutoFilter.Columns[0].ColumnIndex);
+        Assert.Equal(["A"], restoredSheet.AutoFilter.Columns[0].Values);
+        Assert.False(restoredSheet.AutoFilter.Columns[0].IncludeBlanks);
+
+        Assert.False(restoredSheet.Rows[1].Hidden);
+        Assert.True(restoredSheet.Rows[2].Hidden);
+    }
 }

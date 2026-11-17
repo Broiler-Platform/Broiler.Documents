@@ -124,7 +124,7 @@ public sealed class DocumentShape(
     public string? NextFrameName { get; } = string.IsNullOrEmpty(nextFrameName) ? null : nextFrameName;
 
     /// <summary>How the box is painted, or null when it is not filled.</summary>
-    public ShapeFill? Fill { get; } = fill;
+    public ShapeFill? Fill { get; private set; } = fill;
 
     /// <summary>The outline colour; <see cref="BColor.Empty"/> for no outline.</summary>
     public BColor Outline { get; } = outline;
@@ -139,7 +139,7 @@ public sealed class DocumentShape(
     /// frame, so the size the document stated for the frame is the size it draws
     /// at, and <see cref="InlineImage.Width"/> is not consulted again.
     /// </summary>
-    public InlineImage? Image { get; } = image;
+    public InlineImage? Image { get; private set; } = image;
 
     /// <summary>
     /// True when the shape draws under the body text, false when it draws over it.
@@ -489,7 +489,7 @@ public sealed class DocumentShape(
         };
 
     /// <summary>The shape's own text, empty when it holds none.</summary>
-    public IReadOnlyList<RichTextParagraph> Paragraphs { get; } = paragraphs is null || paragraphs.Count == 0
+    public IReadOnlyList<RichTextParagraph> Paragraphs { get; private set; } = paragraphs is null || paragraphs.Count == 0
             ? []
             : [.. paragraphs];
 
@@ -498,6 +498,20 @@ public sealed class DocumentShape(
 
     /// <summary>Tables in this shape's own paragraph coordinate space.</summary>
     public IReadOnlyList<DocumentTable> Tables { get; } = tables is null ? [] : [.. tables];
+
+    internal DocumentShape WithMappedPictures(InlineImage? picture, ShapeFill? background, IReadOnlyList<RichTextParagraph> text)
+    {
+        if (ReferenceEquals(picture, Image) && ReferenceEquals(background, Fill) && ReferenceEquals(text, Paragraphs))
+            return this;
+
+        // Paragraph indices stay fixed, so the existing tables and all other
+        // placement and shape properties can be shared by the new snapshot.
+        var copy = (DocumentShape)MemberwiseClone();
+        copy.Image = picture;
+        copy.Fill = background;
+        copy.Paragraphs = text;
+        return copy;
+    }
 
     /// <summary>True when the shape is a floating picture.</summary>
     public bool HasImage => Image is not null;

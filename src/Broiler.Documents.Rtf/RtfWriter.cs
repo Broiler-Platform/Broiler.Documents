@@ -873,7 +873,7 @@ public static class RtfWriter
             int styleId = CanWriteCharacterStyle(style.CharacterStyle) ? lists.CharacterStyle(style.CharacterStyle!) : 0;
             if (styleId != 0)
                 sb.Append("{\\cs").Append(styleId).Append(' ');
-            if (style.StyleReference is { } reference && CanWriteCharacterStyle(reference.StyleName))
+            if (style.StyleReference is { ParagraphStyle: false } reference && CanWriteCharacterStyle(reference.StyleName))
             {
                 lists.CharacterStyle(reference.StyleName);
                 sb.Append("{\\field{\\*\\fldinst STYLEREF \"");

@@ -21,3 +21,7 @@ public sealed record ApplyInlineStyleOperation(RichTextRange Range, InlineStyleD
 public sealed record ApplyParagraphStyleOperation(RichTextRange Range, ParagraphStyleDelta Delta) : RichTextOperation;
 
 public sealed record InsertDocumentOperation(RichTextPosition At) : RichTextOperation;
+
+public sealed record ApplyPageStructureOperation : RichTextOperation;
+
+public sealed record ApplyDocumentEditOperation : RichTextOperation;

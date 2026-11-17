@@ -679,6 +679,7 @@ problem document lost.
 | `odt.fill.opacity` | Unequal gradient endpoint opacities were written with the start opacity for both. |
 | `odt.section.page` | A section states paper size or top/bottom margins, or the body switches master pages; an ODF `text:section` cannot state either. Relative left and right margins are written as `fo:margin-left` and `fo:margin-right` on `style:section-properties`. |
 | `odt.section.page-number` | A section restarts the page count, which a document written with one master page cannot state. |
+| `odt.page.soft-break` | Some saved page hints could not be written at their original positions. The writer retains leading hints in visible body paragraphs and at inline table row boundaries, and preserves inline markers within table cells. |
 | `odt.list.label` | A label whose numbers are not the levels ending at its own joined by full stops lost the text between them, or a multi-character bullet kept only its first character. |
 | `odt.list.format` | Leading-zero numbering was written as plain decimal. |
 | `odt.list.legal` | DOCX legal numbering has no ODF form. |

@@ -260,9 +260,6 @@ internal sealed class OfficeReferences
         return run;
     }
 
-
-
-
     public static LibreOfficeRun Pdf(LibreOfficeTool tool, ExtrasSample sample, string workspace,
         Func<string> nextProfile, TimeSpan timeout)
     {

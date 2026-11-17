@@ -26,6 +26,56 @@ public sealed class RichTextEditorUndoGroupingTests
     // ---- Typing ----
 
     [Fact]
+    public void Splitting_A_Restarted_List_Item_Uses_The_Same_Identity_Without_Another_Restart()
+    {
+        var definition = new ListDefinition([ListLevel.DecimalAt(0)]);
+        var paragraph = RichTextParagraph.Plain("before after").WithParagraphStyle(ParagraphStyle.Default with
+        {
+            ListKind = ListKind.Numbered, IndentLevel = 1, List = new ListReference(definition, 0, 4),
+        });
+        var original = RichTextDocument.FromParagraphs([paragraph]);
+        foreach (RichTextDocument edited in new[]
+        {
+            original.SplitParagraph(Pos(0, 6)).Document,
+            original.InsertText(Pos(0, 6), "\n").Document,
+        })
+        {
+            var numberer = new ListNumberer();
+            Assert.Equal(["4.", "5."], edited.Paragraphs.Select(item => numberer.Advance(item.Style)));
+            Assert.Same(definition, edited.Paragraphs[1].Style.List?.Definition);
+            Assert.Null(edited.Paragraphs[1].Style.List?.RestartAt);
+        }
+    }
+
+    [Fact]
+    public void Inline_Properties_Compose_At_The_Caret_And_Are_Undoable()
+    {
+        RichTextEditor editor = Editor("before ", 7);
+        editor.ApplyInlineStyle(InlineStyleDelta.WithCapitalization(TextCapitalization.SmallCaps));
+        editor.ApplyInlineStyle(editor.Selection, InlineStyleDelta.WithHidden(true));
+        editor.ApplyInlineStyle(editor.Selection, InlineStyleDelta.WithLanguage("tr"));
+        editor.ApplyInlineStyle(editor.Selection, InlineStyleDelta.WithBaselineShift(BaselineShift.Subscript()));
+        editor.ApplyInlineStyle(editor.Selection, InlineStyleDelta.WithCharacterStyle("Reference"));
+        Assert.True(editor.TypeText("i"));
+
+        InlineStyle style = editor.Document.Paragraphs[0].StyleAt(7);
+        Assert.True(style.Hidden);
+        Assert.Equal("tr", style.Language);
+        Assert.Equal(BaselineShift.Subscript(), style.Shift);
+        Assert.Equal("Reference", style.CharacterStyle);
+        Assert.Equal(TextCapitalization.SmallCaps, style.Capitalization);
+        Assert.False(editor.Document.Paragraphs[0].StyleAt(0).Hidden);
+        Assert.True(editor.Undo());
+        Assert.Equal("before ", editor.GetPlainText());
+        Assert.True(editor.Redo());
+        Assert.Equal(style, editor.Document.Paragraphs[0].StyleAt(7));
+        editor.SetSelection(new RichTextRange(Pos(0, 7), Pos(0, 8)));
+        Assert.True(editor.ClearFormatting());
+        Assert.Equal(InlineStyle.Default, editor.Document.Paragraphs[0].StyleAt(7));
+        Assert.Equal("before i", editor.GetPlainText());
+    }
+
+    [Fact]
     public void Typing_A_Word_Is_One_Undo_Step()
     {
         var editor = new RichTextEditor();

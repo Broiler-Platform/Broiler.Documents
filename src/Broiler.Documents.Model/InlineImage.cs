@@ -574,6 +574,16 @@ public sealed class InlineImage(
         new(Resource, ResourceId, Width, Height, AltText, Name, presentation, IsMissingPayload, MarksMissingPayload);
 
     /// <summary>
+    /// Returns this picture with a new payload and no resource grant. Admit the
+    /// replacement into the conversion context before transferring its bytes.
+    /// </summary>
+    public InlineImage WithResource(BImageResource resource)
+    {
+        ArgumentNullException.ThrowIfNull(resource);
+        return new InlineImage(resource, default, Width, Height, AltText, Name, Presentation, marksMissingPayload: MarksMissingPayload);
+    }
+
+    /// <summary>
     /// Returns the same image bound to a different conversion context's entry,
     /// which is what admitting a pasted or merged picture produces.
     /// </summary>

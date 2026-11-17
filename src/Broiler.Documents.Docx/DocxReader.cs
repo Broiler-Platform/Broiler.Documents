@@ -113,12 +113,13 @@ internal static class DocxReader
                 compatibilityMode,
                 splitPgBreakAndParaMark,
                 gutterAtTop);
-            document = document.WithRunningContent(running[^1]);
+            document = document.WithRunningContent(running[^1].WithoutLinks());
             document = document.WithPageGeometry(page);
             document = document.WithSections(sections.ToModel(document.ParagraphCount, page, running,
                 HasCompatFlag(settings.Root, "noColumnBalance")));
             document = document.WithStyleDefaults(ReadStyleDefaults(styles) with
             {
+                NamedParagraphStyles = ReadNamedParagraphStyles(styles, numbering),
                 ShrinksJustifiedLines = compatibilityMode >= 15,
                 TabsOverMargin = compatibilityMode <= 14,
                 UndecoratedLinks = true,
@@ -484,6 +485,8 @@ internal static class DocxReader
                 content = isHeader
                     ? content.WithHeader(selection, paragraphs, shapes, tables)
                     : content.WithFooter(selection, paragraphs, shapes, tables);
+                if (!ReferenceEquals(reference.Parent, sections[index]))
+                    content = content.WithLink(selection, isHeader);
             }
 
             content = WithPageBorder(content, sections[index]);
@@ -3641,9 +3644,31 @@ internal static class DocxReader
         style = style with { Border = ReadParagraphBorder(chain, pPr, context.Styles.Theme) };
         style = ApplyList(style, chain, pPr, paragraphStyleId, context.Numbering);
         style = ApplyAutoSpacing(style, chain, pPr, paragraph, context.Styles.HtmlParagraphAutoSpacing);
+        style = style with { StyleName = context.Styles.ParagraphStyleName(paragraphStyleId) };
         return context.Styles.HtmlParagraphAutoSpacing && style.ListKind != ListKind.None && paragraph is not null
             ? TrimListAutoSpacing(style, chain, pPr, paragraph, paragraphStyleId)
             : style;
+    }
+
+    private static System.Collections.Immutable.ImmutableArray<NamedParagraphStyle> ReadNamedParagraphStyles(DocxStyles styles, DocxNumbering numbering)
+    {
+        var result = System.Collections.Immutable.ImmutableArray.CreateBuilder<NamedParagraphStyle>();
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach ((string id, string name) in styles.NamedParagraphStyles)
+        {
+            if (!NamedParagraphStyle.IsValidName(name) || !names.Add(name))
+                continue;
+            IReadOnlyList<XElement> chain = styles.ParagraphProperties(id);
+            ParagraphStyle paragraph = ParagraphStyle.Default;
+            foreach (XElement properties in chain)
+                paragraph = ApplyParagraphProperties(properties, numbering, paragraph, styles.Theme);
+            paragraph = paragraph with { Border = ReadParagraphBorder(chain, null, styles.Theme) };
+            InlineStyle text = InlineStyle.Default;
+            foreach (XElement properties in styles.RunPropertiesForParagraph(id))
+                text = ApplyRunProperties(properties, text, styles.Theme);
+            result.Add(new NamedParagraphStyle(name, paragraph, text));
+        }
+        return result.ToImmutable();
     }
 
     /// <summary>
@@ -3890,6 +3915,10 @@ internal static class DocxReader
             }
             style = style with { TabStops = new ParagraphTabStops(resolved.Values) };
         }
+
+        if (DocxValueReader.TryReadInt(pPr.Element(DocxNamespaces.Wordprocessing + "outlineLvl")?
+                .Attribute(DocxNamespaces.Wordprocessing + "val"), out int outline))
+            style = style with { HeadingLevel = outline is >= 0 and <= 8 ? outline + 1 : null };
 
         // A w:jc names an alignment outright, including the default one. Leaving
         // "left" to fall through would make it mean "whatever was inherited",
@@ -4145,6 +4174,16 @@ internal static class DocxReader
             "baseline" => style with { Shift = null },
             _ => style,
         };
+
+        XElement? language = rPr.Element(DocxNamespaces.Wordprocessing + "lang");
+        if (language is not null)
+        {
+            string? tag = DocxValueReader.WordValue(language) ??
+                (string?)language.Attribute(DocxNamespaces.Wordprocessing + "eastAsia") ??
+                (string?)language.Attribute(DocxNamespaces.Wordprocessing + "bidi");
+            if (!string.IsNullOrWhiteSpace(tag))
+                style = style with { Language = tag };
+        }
 
         XElement? position = rPr.Element(DocxNamespaces.Wordprocessing + "position");
         if (DocxValueReader.TryReadInt(position?.Attribute(DocxNamespaces.Wordprocessing + "val"), out int offset))

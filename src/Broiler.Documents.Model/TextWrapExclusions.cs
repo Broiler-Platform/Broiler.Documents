@@ -202,6 +202,11 @@ public sealed class TextWrapExclusions
         _kernel.Add(new ExclusionObstacle(rect, wrapKind, sidePolicy));
     }
 
+    /// <summary>Resolves a line relative to the original column origin.</summary>
+    /// <remarks>Retains the four-parameter signature used by published RichEdit assemblies.</remarks>
+    public TextBand Resolve(ref double top, double height, double columnWidth, out double skip) =>
+        Resolve(ref top, height, columnWidth, out skip, columnLeft: 0);
+
     /// <summary>
     /// The span a line starting at <paramref name="top"/> has, after moving it
     /// down past anything that leaves it no room to be written in.
@@ -214,7 +219,7 @@ public sealed class TextWrapExclusions
     /// of contents frame and onto a page of its own, where LibreOffice sets it
     /// under the short frame beside it.
     /// </remarks>
-    public TextBand Resolve(ref double top, double height, double columnWidth, out double skip, double columnLeft = 0.0)
+    public TextBand Resolve(ref double top, double height, double columnWidth, out double skip, double columnLeft)
     {
         var band = _kernel.ResolveLine(
             ref top,

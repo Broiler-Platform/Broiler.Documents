@@ -377,13 +377,41 @@ public readonly record struct CellRangeAddress
         }
     }
 
+    /// <summary>Returns true if this range contains the given row and column coordinates.</summary>
+    public bool Contains(int row, int col) =>
+        row >= StartRow && row <= EndRow && col >= StartCol && col <= EndCol;
+
+    /// <summary>Returns true if this range contains the given cell address.</summary>
+    public bool Contains(CellAddress address) =>
+        Contains(address.Row, address.Column);
+
+    /// <summary>Formats this range address as an A1-style reference (e.g. "A1:B10", "A:C", "1:5").</summary>
+    public string Format()
+    {
+        if (IsWholeColumn)
+            return $"{CellAddress.ColumnToLetters(StartCol)}:{CellAddress.ColumnToLetters(EndCol)}";
+        if (IsWholeRow)
+            return $"{StartRow + 1}:{EndRow + 1}";
+        return $"{Start.Format()}:{End.Format()}";
+    }
+
+    public override string ToString() => Format();
+
     /// <summary>Attempts to parse a range address string (e.g. "A1:B3", "A:C", "1:5").</summary>
     public static bool TryParse(ReadOnlySpan<char> span, out CellRangeAddress range)
     {
         range = default;
         ReadOnlySpan<char> s = span.Trim();
         int colonIdx = s.IndexOf(':');
-        if (colonIdx < 0) return false;
+        if (colonIdx < 0)
+        {
+            if (CellAddress.TryParse(s, out var singleCell))
+            {
+                range = new CellRangeAddress(singleCell, singleCell);
+                return true;
+            }
+            return false;
+        }
 
         var left = s[..colonIdx].Trim();
         var right = s[(colonIdx + 1)..].Trim();
@@ -432,7 +460,11 @@ public sealed record LiteralNode(CellValue Value) : FormulaNode;
 
 public sealed record CellRefNode(CellAddress Address) : FormulaNode;
 
+public sealed record SheetRefNode(string SheetName, CellAddress Address) : FormulaNode;
+
 public sealed record CellRangeNode(CellRangeAddress Range) : FormulaNode;
+
+public sealed record SheetRangeNode(string SheetName, CellRangeAddress Range) : FormulaNode;
 
 public sealed record DirectionalRangeNode(DirectionalRangeKind Kind) : FormulaNode;
 
@@ -477,6 +509,7 @@ public static class FormulaParser
         RParen,
         Comma,
         Colon,
+        Exclamation,
         EndOfInput
     }
 
@@ -556,6 +589,36 @@ public static class FormulaParser
                     }
                 }
                 tokens.Add(new Token(TokenType.String, sb.ToString()));
+                continue;
+            }
+
+            // Single-quoted sheet name: 'Sheet Name'
+            if (ch == '\'')
+            {
+                i++;
+                var sb = new StringBuilder();
+                while (i < n)
+                {
+                    if (formula[i] == '\'')
+                    {
+                        if (i + 1 < n && formula[i + 1] == '\'')
+                        {
+                            sb.Append('\'');
+                            i += 2;
+                        }
+                        else
+                        {
+                            i++; // closing quote
+                            break;
+                        }
+                    }
+                    else
+                    {
+                        sb.Append(formula[i]);
+                        i++;
+                    }
+                }
+                tokens.Add(new Token(TokenType.Identifier, sb.ToString()));
                 continue;
             }
 
@@ -654,7 +717,8 @@ public static class FormulaParser
                     }
                     else
                     {
-                        throw new FormatException($"Unexpected character '!' at position {i}");
+                        tokens.Add(new Token(TokenType.Exclamation, "!"));
+                        i++;
                     }
                     break;
                 default:
@@ -793,6 +857,44 @@ public static class FormulaParser
                     }
                     Expect(TokenType.RParen);
                     return new FunctionCallNode(text.ToUpperInvariant(), args);
+                }
+
+                // Cross-sheet reference: Sheet1!A1, 'Sheet 2'!A1:B3, Sheet1!A:B
+                if (Peek().Type == TokenType.Exclamation)
+                {
+                    Next(); // consume '!'
+                    var refToken = Next();
+                    if (refToken.Type != TokenType.Identifier)
+                        throw new FormatException($"Expected cell reference after '!' but got {refToken.Type}");
+
+                    string cellRefText = refToken.StringValue;
+                    if (CellAddress.TryParse(cellRefText, out var sheetCellAddr))
+                    {
+                        if (Peek().Type == TokenType.Colon)
+                        {
+                            Next(); // consume ':'
+                            var nextTok = Next();
+                            if (nextTok.Type == TokenType.Identifier && CellAddress.TryParse(nextTok.StringValue, out var endAddr))
+                            {
+                                return new SheetRangeNode(text, new CellRangeAddress(sheetCellAddr, endAddr));
+                            }
+                            throw new FormatException($"Invalid range endpoint after ':' at {nextTok.StringValue}");
+                        }
+                        return new SheetRefNode(text, sheetCellAddr);
+                    }
+
+                    string cleanRef = cellRefText.Replace("$", "");
+                    if (CellAddress.TryLettersToColumn(cleanRef, out int sheetCol1) && Peek().Type == TokenType.Colon)
+                    {
+                        Next(); // consume ':'
+                        var nextTok = Next();
+                        if (nextTok.Type == TokenType.Identifier && CellAddress.TryLettersToColumn(nextTok.StringValue.Replace("$", ""), out int sheetCol2))
+                        {
+                            return new SheetRangeNode(text, CellRangeAddress.ForColumns(sheetCol1, sheetCol2));
+                        }
+                    }
+
+                    throw new FormatException($"Invalid cell reference '{cellRefText}' after '{text}!'");
                 }
 
                 // Boolean literals
@@ -981,7 +1083,8 @@ public static class TableFormulaEngine
     public static TableEvaluationResult Evaluate(
         DocumentTable table,
         RichTextDocument? document = null,
-        IReadOnlyDictionary<CellAddress, CellValue>? initialValues = null)
+        IReadOnlyDictionary<CellAddress, CellValue>? initialValues = null,
+        Func<string, CellAddress, CellValue>? crossSheetLookup = null)
     {
         var grid = TableGrid.FromTable(table);
         int rowCount = grid.RowCount;
@@ -994,71 +1097,78 @@ public static class TableFormulaEngine
         var evaluatedValues = new Dictionary<CellAddress, CellValue>();
 
         // 1. Gather all cells and detect formulas vs static values
-        for (int r = 0; r < rowCount; r++)
+        foreach (var slot in grid.NonEmptySlots)
         {
-            for (int c = 0; c < colCount; c++)
+            if (!slot.IsRoot || slot.RootCell is null)
+                continue;
+
+            int r = slot.Row;
+            int c = slot.Column;
+            var addr = new CellAddress(r, c);
+            var cell = slot.RootCell;
+
+            // Check explicit formula
+            if (!string.IsNullOrWhiteSpace(cell.Formula))
             {
-                var slot = grid.GetSlot(r, c);
-                if (!slot.IsRoot || slot.RootCell is null)
-                    continue;
+                formulaTexts[addr] = cell.Formula;
+                continue;
+            }
 
-                var addr = new CellAddress(r, c);
-                var cell = slot.RootCell;
+            // Explicit initial value override for cells without formula
+            if (initialValues != null && initialValues.TryGetValue(addr, out var initVal))
+            {
+                staticValues[addr] = initVal;
+                continue;
+            }
 
-                // Check explicit formula
-                if (!string.IsNullOrWhiteSpace(cell.Formula))
+            // Check cell explicit value
+            if (cell.Value.HasValue)
+            {
+                staticValues[addr] = cell.Value.Value;
+                continue;
+            }
+
+            // Check document text
+            string cellText = string.Empty;
+            if (document != null && cell.ParagraphCount > 0 && cell.ParagraphIndex < document.Paragraphs.Count)
+            {
+                if (cell.ParagraphCount == 1)
                 {
-                    formulaTexts[addr] = cell.Formula;
-                    continue;
-                }
-
-                // Explicit initial value override for cells without formula
-                if (initialValues != null && initialValues.TryGetValue(addr, out var initVal))
-                {
-                    staticValues[addr] = initVal;
-                    continue;
-                }
-
-                // Check cell explicit value
-                if (cell.Value.HasValue)
-                {
-                    staticValues[addr] = cell.Value.Value;
-                    continue;
-                }
-
-                // Check document text
-                string cellText = string.Empty;
-                if (document != null && cell.ParagraphCount > 0 && cell.ParagraphIndex < document.Paragraphs.Count)
-                {
-                    if (cell.ParagraphCount == 1)
-                    {
-                        cellText = document.Paragraphs[cell.ParagraphIndex].Text;
-                    }
-                    else
-                    {
-                        var sb = new StringBuilder();
-                        for (int pi = 0; pi < cell.ParagraphCount; pi++)
-                        {
-                            int pIdx = cell.ParagraphIndex + pi;
-                            if (pIdx < document.Paragraphs.Count)
-                            {
-                                if (sb.Length > 0) sb.Append('\n');
-                                sb.Append(document.Paragraphs[pIdx].Text);
-                            }
-                        }
-                        cellText = sb.ToString();
-                    }
-                }
-
-                string trimmed = cellText.Trim();
-                if (trimmed.StartsWith('='))
-                {
-                    formulaTexts[addr] = trimmed;
+                    cellText = document.Paragraphs[cell.ParagraphIndex].Text;
                 }
                 else
                 {
-                    staticValues[addr] = CellValue.Parse(cellText);
+                    var sb = new StringBuilder();
+                    for (int pi = 0; pi < cell.ParagraphCount; pi++)
+                    {
+                        int pIdx = cell.ParagraphIndex + pi;
+                        if (pIdx < document.Paragraphs.Count)
+                        {
+                            if (sb.Length > 0) sb.Append('\n');
+                            sb.Append(document.Paragraphs[pIdx].Text);
+                        }
+                    }
+                    cellText = sb.ToString();
                 }
+            }
+
+            string trimmed = cellText.Trim();
+            if (trimmed.StartsWith('='))
+            {
+                formulaTexts[addr] = trimmed;
+            }
+            else
+            {
+                staticValues[addr] = CellValue.Parse(cellText);
+            }
+        }
+
+        if (initialValues != null)
+        {
+            foreach (var (addr, initVal) in initialValues)
+            {
+                if (!staticValues.ContainsKey(addr) && !formulaTexts.ContainsKey(addr))
+                    staticValues[addr] = initVal;
             }
         }
 
@@ -1140,8 +1250,36 @@ public static class TableFormulaEngine
             evaluatedValues[cyclic] = CellValue.FromError(FormulaError.Cycle);
         }
 
+        if (crossSheetLookup == null && document != null && document.Tables.Count > 1)
+        {
+            var tableMap = new Dictionary<string, DocumentTable>(StringComparer.OrdinalIgnoreCase);
+            for (int t = 0; t < document.Tables.Count; t++)
+            {
+                var docTable = document.Tables[t];
+                string name = !string.IsNullOrWhiteSpace(docTable.Name) ? docTable.Name : $"Sheet{t + 1}";
+                tableMap[name] = docTable;
+            }
+
+            crossSheetLookup = (sName, cAddr) =>
+            {
+                if (!tableMap.TryGetValue(sName, out var targetTable))
+                    return CellValue.FromError(FormulaError.Ref);
+                var targetGrid = TableGrid.FromTable(targetTable);
+                if (cAddr.Row < 0 || cAddr.Row >= targetGrid.RowCount || cAddr.Column < 0 || cAddr.Column >= targetGrid.ColumnCount)
+                    return CellValue.FromError(FormulaError.Ref);
+                var slot = targetGrid.GetSlot(cAddr.Row, cAddr.Column);
+                if (!slot.IsOccupied || slot.IsContinuation || slot.RootCell is null)
+                    return CellValue.Empty;
+                if (slot.RootCell.Value.HasValue)
+                    return slot.RootCell.Value.Value;
+                if (document != null && slot.RootCell.ParagraphCount > 0 && slot.RootCell.ParagraphIndex < document.ParagraphCount)
+                    return CellValue.Parse(document.Paragraphs[slot.RootCell.ParagraphIndex].Text);
+                return CellValue.Empty;
+            };
+        }
+
         // 4. Evaluate acyclic formulas in topological order
-        var evalContext = new FormulaContext(rowCount, colCount, grid, staticValues, evaluatedValues);
+        var evalContext = new FormulaContext(rowCount, colCount, grid, staticValues, evaluatedValues, crossSheetLookup);
 
         foreach (var addr in topoOrder)
         {
@@ -1197,6 +1335,10 @@ public static class TableFormulaEngine
         {
             case CellRefNode cellRef:
                 AddCellDependency(cellRef.Address, totalRows, totalCols, grid, deps);
+                break;
+
+            case SheetRefNode:
+            case SheetRangeNode:
                 break;
 
             case CellRangeNode rangeNode:
@@ -1278,7 +1420,8 @@ public static class TableFormulaEngine
         int totalCols,
         TableGrid grid,
         Dictionary<CellAddress, CellValue> staticValues,
-        Dictionary<CellAddress, CellValue> evaluatedValues)
+        Dictionary<CellAddress, CellValue> evaluatedValues,
+        Func<string, CellAddress, CellValue>? crossSheetLookup = null)
     {
         public int TotalRows => totalRows;
         public int TotalCols => totalCols;
@@ -1305,6 +1448,28 @@ public static class TableFormulaEngine
 
             return CellValue.Empty;
         }
+
+        public CellValue GetSheetCellValue(string sheetName, CellAddress addr)
+        {
+            if (crossSheetLookup != null)
+                return crossSheetLookup(sheetName, addr);
+            return CellValue.FromError(FormulaError.Ref);
+        }
+
+        public IEnumerable<CellValue> GetSheetRangeValues(string sheetName, CellRangeAddress range)
+        {
+            if (crossSheetLookup != null)
+            {
+                int maxR = Math.Min(range.EndRow, 1000);
+                int maxC = Math.Min(range.EndCol, 256);
+                var values = new List<CellValue>();
+                for (int r = range.StartRow; r <= maxR; r++)
+                    for (int c = range.StartCol; c <= maxC; c++)
+                        values.Add(crossSheetLookup(sheetName, new CellAddress(r, c)));
+                return values;
+            }
+            return [CellValue.FromError(FormulaError.Ref)];
+        }
     }
 
     private static CellValue EvaluateNode(FormulaNode node, FormulaContext ctx)
@@ -1317,10 +1482,17 @@ public static class TableFormulaEngine
             case CellRefNode cellRef:
                 return ctx.GetCellValue(cellRef.Address);
 
+            case SheetRefNode sheetRef:
+                return ctx.GetSheetCellValue(sheetRef.SheetName, sheetRef.Address);
+
             case CellRangeNode range:
                 // Scalar evaluation takes the top-left cell
                 var first = range.Range.EnumerateCells(ctx.TotalRows, ctx.TotalCols).FirstOrDefault();
                 return ctx.GetCellValue(first);
+
+            case SheetRangeNode sheetRange:
+                var firstSheet = ctx.GetSheetRangeValues(sheetRange.SheetName, sheetRange.Range).FirstOrDefault();
+                return firstSheet;
 
             case DirectionalRangeNode dir:
                 var dirFirst = EnumerateDirectionalCells(dir.Kind, ctx.CurrentCell, ctx.TotalRows, ctx.TotalCols).FirstOrDefault();
@@ -1785,7 +1957,596 @@ public static class TableFormulaEngine
             return CellValue.FromText(val.Format().Trim());
         }
 
+        if (name == "LEFT")
+        {
+            if (func.Arguments.Count < 1 || func.Arguments.Count > 2) return CellValue.FromError(FormulaError.Value);
+            var val = EvaluateNode(func.Arguments[0], ctx);
+            if (val.IsError) return val;
+            string text = val.Format();
+            int numChars = 1;
+            if (func.Arguments.Count > 1)
+            {
+                var nVal = EvaluateNode(func.Arguments[1], ctx);
+                if (nVal.IsError) return nVal;
+                if (!nVal.AsDouble(out double dChars)) return CellValue.FromError(FormulaError.Value);
+                numChars = (int)dChars;
+            }
+            if (numChars < 0) return CellValue.FromError(FormulaError.Value);
+            if (numChars >= text.Length) return CellValue.FromText(text);
+            return CellValue.FromText(text[..numChars]);
+        }
+
+        if (name == "RIGHT")
+        {
+            if (func.Arguments.Count < 1 || func.Arguments.Count > 2) return CellValue.FromError(FormulaError.Value);
+            var val = EvaluateNode(func.Arguments[0], ctx);
+            if (val.IsError) return val;
+            string text = val.Format();
+            int numChars = 1;
+            if (func.Arguments.Count > 1)
+            {
+                var nVal = EvaluateNode(func.Arguments[1], ctx);
+                if (nVal.IsError) return nVal;
+                if (!nVal.AsDouble(out double dChars)) return CellValue.FromError(FormulaError.Value);
+                numChars = (int)dChars;
+            }
+            if (numChars < 0) return CellValue.FromError(FormulaError.Value);
+            if (numChars >= text.Length) return CellValue.FromText(text);
+            return CellValue.FromText(text[^numChars..]);
+        }
+
+        if (name == "MID")
+        {
+            if (func.Arguments.Count != 3) return CellValue.FromError(FormulaError.Value);
+            var val = EvaluateNode(func.Arguments[0], ctx);
+            if (val.IsError) return val;
+            var sVal = EvaluateNode(func.Arguments[1], ctx);
+            if (sVal.IsError) return sVal;
+            var nVal = EvaluateNode(func.Arguments[2], ctx);
+            if (nVal.IsError) return nVal;
+
+            if (!sVal.AsDouble(out double dStart) || !nVal.AsDouble(out double dChars))
+                return CellValue.FromError(FormulaError.Value);
+
+            int start = (int)dStart;
+            int numChars = (int)dChars;
+            if (start < 1 || numChars < 0) return CellValue.FromError(FormulaError.Value);
+
+            string text = val.Format();
+            if (start > text.Length) return CellValue.FromText(string.Empty);
+            int idx = start - 1;
+            int len = Math.Min(numChars, text.Length - idx);
+            return CellValue.FromText(text.Substring(idx, len));
+        }
+
+        if (name is "FIND" or "SEARCH")
+        {
+            if (func.Arguments.Count < 2 || func.Arguments.Count > 3) return CellValue.FromError(FormulaError.Value);
+            var findVal = EvaluateNode(func.Arguments[0], ctx);
+            if (findVal.IsError) return findVal;
+            var withinVal = EvaluateNode(func.Arguments[1], ctx);
+            if (withinVal.IsError) return withinVal;
+
+            string findText = findVal.Format();
+            string withinText = withinVal.Format();
+            int start = 1;
+            if (func.Arguments.Count > 2)
+            {
+                var sVal = EvaluateNode(func.Arguments[2], ctx);
+                if (sVal.IsError) return sVal;
+                if (!sVal.AsDouble(out double ds)) return CellValue.FromError(FormulaError.Value);
+                start = (int)ds;
+            }
+            if (start < 1 || start > withinText.Length + 1) return CellValue.FromError(FormulaError.Value);
+            if (findText.Length == 0) return CellValue.FromNumber(start);
+
+            var comparison = name == "FIND" ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
+            int index = withinText.IndexOf(findText, start - 1, comparison);
+            if (index < 0) return CellValue.FromError(FormulaError.Value);
+            return CellValue.FromNumber(index + 1);
+        }
+
+        if (name == "SUBSTITUTE")
+        {
+            if (func.Arguments.Count < 3 || func.Arguments.Count > 4) return CellValue.FromError(FormulaError.Value);
+            var textVal = EvaluateNode(func.Arguments[0], ctx);
+            if (textVal.IsError) return textVal;
+            var oldVal = EvaluateNode(func.Arguments[1], ctx);
+            if (oldVal.IsError) return oldVal;
+            var newVal = EvaluateNode(func.Arguments[2], ctx);
+            if (newVal.IsError) return newVal;
+
+            string text = textVal.Format();
+            string oldText = oldVal.Format();
+            string newText = newVal.Format();
+            if (oldText.Length == 0) return CellValue.FromText(text);
+
+            if (func.Arguments.Count > 3)
+            {
+                var instVal = EvaluateNode(func.Arguments[3], ctx);
+                if (instVal.IsError) return instVal;
+                if (!instVal.AsDouble(out double dInst)) return CellValue.FromError(FormulaError.Value);
+                int instance = (int)dInst;
+                if (instance < 1) return CellValue.FromError(FormulaError.Value);
+
+                int count = 0;
+                int pos = 0;
+                while ((pos = text.IndexOf(oldText, pos, StringComparison.Ordinal)) >= 0)
+                {
+                    count++;
+                    if (count == instance)
+                    {
+                        text = text.Remove(pos, oldText.Length).Insert(pos, newText);
+                        break;
+                    }
+                    pos += oldText.Length;
+                }
+                return CellValue.FromText(text);
+            }
+
+            return CellValue.FromText(text.Replace(oldText, newText));
+        }
+
+        // 6. Date & Time Functions
+        if (name == "TODAY")
+        {
+            if (func.Arguments.Count != 0) return CellValue.FromError(FormulaError.Value);
+            return CellValue.FromNumber(CellDateSerial.ToSerial(DateTime.Today));
+        }
+
+        if (name == "NOW")
+        {
+            if (func.Arguments.Count != 0) return CellValue.FromError(FormulaError.Value);
+            return CellValue.FromNumber(CellDateSerial.ToSerial(DateTime.Now));
+        }
+
+        if (name == "DATE")
+        {
+            if (func.Arguments.Count != 3) return CellValue.FromError(FormulaError.Value);
+            var yVal = EvaluateNode(func.Arguments[0], ctx);
+            if (yVal.IsError) return yVal;
+            var mVal = EvaluateNode(func.Arguments[1], ctx);
+            if (mVal.IsError) return mVal;
+            var dVal = EvaluateNode(func.Arguments[2], ctx);
+            if (dVal.IsError) return dVal;
+
+            if (!yVal.AsDouble(out double dy) || !mVal.AsDouble(out double dm) || !dVal.AsDouble(out double dd))
+                return CellValue.FromError(FormulaError.Value);
+
+            int y = (int)dy;
+            int m = (int)dm;
+            int d = (int)dd;
+
+            if (y < 0 || y > 9999) return CellValue.FromError(FormulaError.Num);
+            if (y < 1900) y += 1900;
+
+            try
+            {
+                var dt = new DateTime(y, 1, 1).AddMonths(m - 1).AddDays(d - 1);
+                return CellValue.FromNumber(CellDateSerial.ToSerial(dt));
+            }
+            catch
+            {
+                return CellValue.FromError(FormulaError.Num);
+            }
+        }
+
+        if (name is "YEAR" or "MONTH" or "DAY")
+        {
+            if (func.Arguments.Count != 1) return CellValue.FromError(FormulaError.Value);
+            var val = EvaluateNode(func.Arguments[0], ctx);
+            if (val.IsError) return val;
+            if (!val.AsDouble(out double serial))
+            {
+                if (CellCoercion.TryCoerceToDateTime(val.Format(), out var parsedDt))
+                    serial = CellDateSerial.ToSerial(parsedDt);
+                else
+                    return CellValue.FromError(FormulaError.Value);
+            }
+
+            var dt = CellDateSerial.FromSerial(serial);
+            return name switch
+            {
+                "YEAR" => CellValue.FromNumber(dt.Year),
+                "MONTH" => CellValue.FromNumber(dt.Month),
+                "DAY" => CellValue.FromNumber(dt.Day),
+                _ => CellValue.FromError(FormulaError.Name)
+            };
+        }
+
+        // 7. Lookup & Reference Functions
+        if (name == "INDEX")
+        {
+            if (func.Arguments.Count < 2 || func.Arguments.Count > 3)
+                return CellValue.FromError(FormulaError.Value);
+
+            if (!TryGetRangeDimensions(func.Arguments[0], ctx, out int rowCount, out int colCount, out var getCell))
+                return CellValue.FromError(FormulaError.Value);
+
+            var rowArg = EvaluateNode(func.Arguments[1], ctx);
+            if (rowArg.IsError) return rowArg;
+            if (!rowArg.AsDouble(out double dRow)) return CellValue.FromError(FormulaError.Value);
+            int rowNum = (int)dRow;
+
+            int colNum = 1;
+            if (func.Arguments.Count > 2)
+            {
+                var colArg = EvaluateNode(func.Arguments[2], ctx);
+                if (colArg.IsError) return colArg;
+                if (!colArg.AsDouble(out double dCol)) return CellValue.FromError(FormulaError.Value);
+                colNum = (int)dCol;
+            }
+            else if (rowCount == 1)
+            {
+                colNum = rowNum;
+                rowNum = 1;
+            }
+
+            if (rowNum < 1 || rowNum > rowCount || colNum < 1 || colNum > colCount)
+                return CellValue.FromError(FormulaError.Ref);
+
+            return getCell(rowNum - 1, colNum - 1);
+        }
+
+        if (name == "MATCH")
+        {
+            if (func.Arguments.Count < 2 || func.Arguments.Count > 3)
+                return CellValue.FromError(FormulaError.Value);
+
+            var target = EvaluateNode(func.Arguments[0], ctx);
+            if (target.IsError) return target;
+
+            if (!TryGetRangeDimensions(func.Arguments[1], ctx, out int rowCount, out int colCount, out var getCell))
+                return CellValue.FromError(FormulaError.Value);
+
+            int matchType = 1;
+            if (func.Arguments.Count > 2)
+            {
+                var mArg = EvaluateNode(func.Arguments[2], ctx);
+                if (mArg.IsError) return mArg;
+                if (!mArg.AsDouble(out double dMatch)) return CellValue.FromError(FormulaError.Value);
+                matchType = (int)dMatch;
+            }
+
+            bool isRow = rowCount == 1;
+            bool isCol = colCount == 1;
+            if (!isRow && !isCol)
+                return CellValue.FromError(FormulaError.NA);
+
+            int length = isRow ? colCount : rowCount;
+            CellValue GetItem(int idx) => isRow ? getCell(0, idx) : getCell(idx, 0);
+
+            if (matchType == 0)
+            {
+                for (int i = 0; i < length; i++)
+                {
+                    var item = GetItem(i);
+                    if (ValuesEqual(target, item))
+                        return CellValue.FromNumber(i + 1);
+                }
+                return CellValue.FromError(FormulaError.NA);
+            }
+            else if (matchType > 0)
+            {
+                int lastMatch = -1;
+                for (int i = 0; i < length; i++)
+                {
+                    var item = GetItem(i);
+                    int comp = CompareValues(item, target);
+                    if (comp <= 0)
+                        lastMatch = i;
+                    else if (comp > 0)
+                        break;
+                }
+                if (lastMatch >= 0)
+                    return CellValue.FromNumber(lastMatch + 1);
+                return CellValue.FromError(FormulaError.NA);
+            }
+            else
+            {
+                int lastMatch = -1;
+                for (int i = 0; i < length; i++)
+                {
+                    var item = GetItem(i);
+                    int comp = CompareValues(item, target);
+                    if (comp >= 0)
+                        lastMatch = i;
+                    else if (comp < 0)
+                        break;
+                }
+                if (lastMatch >= 0)
+                    return CellValue.FromNumber(lastMatch + 1);
+                return CellValue.FromError(FormulaError.NA);
+            }
+        }
+
+        if (name == "VLOOKUP")
+        {
+            if (func.Arguments.Count < 3 || func.Arguments.Count > 4)
+                return CellValue.FromError(FormulaError.Value);
+
+            var target = EvaluateNode(func.Arguments[0], ctx);
+            if (target.IsError) return target;
+
+            if (!TryGetRangeDimensions(func.Arguments[1], ctx, out int rowCount, out int colCount, out var getCell))
+                return CellValue.FromError(FormulaError.Value);
+
+            var colArg = EvaluateNode(func.Arguments[2], ctx);
+            if (colArg.IsError) return colArg;
+            if (!colArg.AsDouble(out double dCol)) return CellValue.FromError(FormulaError.Value);
+            int colIndex = (int)dCol;
+
+            if (colIndex < 1 || colIndex > colCount)
+                return CellValue.FromError(FormulaError.Ref);
+
+            bool rangeLookup = true;
+            if (func.Arguments.Count > 3)
+            {
+                var rArg = EvaluateNode(func.Arguments[3], ctx);
+                if (rArg.IsError) return rArg;
+                if (!rArg.AsBoolean(out rangeLookup))
+                {
+                    if (rArg.AsDouble(out double dBool))
+                        rangeLookup = dBool != 0;
+                    else
+                        return CellValue.FromError(FormulaError.Value);
+                }
+            }
+
+            if (!rangeLookup)
+            {
+                for (int r = 0; r < rowCount; r++)
+                {
+                    var key = getCell(r, 0);
+                    if (ValuesEqual(target, key))
+                        return getCell(r, colIndex - 1);
+                }
+                return CellValue.FromError(FormulaError.NA);
+            }
+            else
+            {
+                int lastRow = -1;
+                for (int r = 0; r < rowCount; r++)
+                {
+                    var key = getCell(r, 0);
+                    int comp = CompareValues(key, target);
+                    if (comp <= 0)
+                        lastRow = r;
+                    else if (comp > 0)
+                        break;
+                }
+                if (lastRow >= 0)
+                    return getCell(lastRow, colIndex - 1);
+                return CellValue.FromError(FormulaError.NA);
+            }
+        }
+
+        if (name == "HLOOKUP")
+        {
+            if (func.Arguments.Count < 3 || func.Arguments.Count > 4)
+                return CellValue.FromError(FormulaError.Value);
+
+            var target = EvaluateNode(func.Arguments[0], ctx);
+            if (target.IsError) return target;
+
+            if (!TryGetRangeDimensions(func.Arguments[1], ctx, out int rowCount, out int colCount, out var getCell))
+                return CellValue.FromError(FormulaError.Value);
+
+            var rowArg = EvaluateNode(func.Arguments[2], ctx);
+            if (rowArg.IsError) return rowArg;
+            if (!rowArg.AsDouble(out double dRow)) return CellValue.FromError(FormulaError.Value);
+            int rowIndex = (int)dRow;
+
+            if (rowIndex < 1 || rowIndex > rowCount)
+                return CellValue.FromError(FormulaError.Ref);
+
+            bool rangeLookup = true;
+            if (func.Arguments.Count > 3)
+            {
+                var rArg = EvaluateNode(func.Arguments[3], ctx);
+                if (rArg.IsError) return rArg;
+                if (!rArg.AsBoolean(out rangeLookup))
+                {
+                    if (rArg.AsDouble(out double dBool))
+                        rangeLookup = dBool != 0;
+                    else
+                        return CellValue.FromError(FormulaError.Value);
+                }
+            }
+
+            if (!rangeLookup)
+            {
+                for (int c = 0; c < colCount; c++)
+                {
+                    var key = getCell(0, c);
+                    if (ValuesEqual(target, key))
+                        return getCell(rowIndex - 1, c);
+                }
+                return CellValue.FromError(FormulaError.NA);
+            }
+            else
+            {
+                int lastCol = -1;
+                for (int c = 0; c < colCount; c++)
+                {
+                    var key = getCell(0, c);
+                    int comp = CompareValues(key, target);
+                    if (comp <= 0)
+                        lastCol = c;
+                    else if (comp > 0)
+                        break;
+                }
+                if (lastCol >= 0)
+                    return getCell(rowIndex - 1, lastCol);
+                return CellValue.FromError(FormulaError.NA);
+            }
+        }
+
+        // 8. Conditional Aggregates
+        if (name == "COUNTIF")
+        {
+            if (func.Arguments.Count != 2) return CellValue.FromError(FormulaError.Value);
+            if (!TryGetRangeDimensions(func.Arguments[0], ctx, out int rowCount, out int colCount, out var getCell))
+                return CellValue.FromError(FormulaError.Value);
+
+            var critVal = EvaluateNode(func.Arguments[1], ctx);
+            if (critVal.IsError) return critVal;
+
+            int count = 0;
+            for (int r = 0; r < rowCount; r++)
+            {
+                for (int c = 0; c < colCount; c++)
+                {
+                    var cell = getCell(r, c);
+                    if (MatchesCriteria(cell, critVal))
+                        count++;
+                }
+            }
+            return CellValue.FromNumber(count);
+        }
+
+        if (name == "SUMIF")
+        {
+            if (func.Arguments.Count < 2 || func.Arguments.Count > 3) return CellValue.FromError(FormulaError.Value);
+            if (!TryGetRangeDimensions(func.Arguments[0], ctx, out int rowCount, out int colCount, out var getCell))
+                return CellValue.FromError(FormulaError.Value);
+
+            var critVal = EvaluateNode(func.Arguments[1], ctx);
+            if (critVal.IsError) return critVal;
+
+            Func<int, int, CellValue> getSumCell = getCell;
+            if (func.Arguments.Count > 2)
+            {
+                if (!TryGetRangeDimensions(func.Arguments[2], ctx, out _, out _, out var sumCellFunc))
+                    return CellValue.FromError(FormulaError.Value);
+                getSumCell = sumCellFunc;
+            }
+
+            double sum = 0;
+            for (int r = 0; r < rowCount; r++)
+            {
+                for (int c = 0; c < colCount; c++)
+                {
+                    var cell = getCell(r, c);
+                    if (MatchesCriteria(cell, critVal))
+                    {
+                        var sumVal = getSumCell(r, c);
+                        if (sumVal.IsNumber) sum += sumVal.Number;
+                        else if (sumVal.AsDouble(out double d)) sum += d;
+                    }
+                }
+            }
+            return CellValue.FromNumber(sum);
+        }
+
         return CellValue.FromError(FormulaError.Name);
+    }
+
+    private static bool TryGetRangeDimensions(
+        FormulaNode node,
+        FormulaContext ctx,
+        out int rowCount,
+        out int colCount,
+        out Func<int, int, CellValue> getCell)
+    {
+        if (node is CellRangeNode cr)
+        {
+            int r1 = cr.Range.StartRow;
+            int r2 = cr.Range.IsWholeColumn ? ctx.TotalRows - 1 : Math.Min(cr.Range.EndRow, ctx.TotalRows - 1);
+            int c1 = cr.Range.StartCol;
+            int c2 = cr.Range.IsWholeRow ? ctx.TotalCols - 1 : Math.Min(cr.Range.EndCol, ctx.TotalCols - 1);
+            rowCount = Math.Max(0, r2 - r1 + 1);
+            colCount = Math.Max(0, c2 - c1 + 1);
+            getCell = (r, c) => ctx.GetCellValue(new CellAddress(r1 + r, c1 + c));
+            return true;
+        }
+        if (node is SheetRangeNode sr)
+        {
+            int r1 = sr.Range.StartRow;
+            int r2 = sr.Range.IsWholeColumn ? 1000 : Math.Min(sr.Range.EndRow, 1000);
+            int c1 = sr.Range.StartCol;
+            int c2 = sr.Range.IsWholeRow ? 256 : Math.Min(sr.Range.EndCol, 256);
+            rowCount = Math.Max(0, r2 - r1 + 1);
+            colCount = Math.Max(0, c2 - c1 + 1);
+            getCell = (r, c) => ctx.GetSheetCellValue(sr.SheetName, new CellAddress(r1 + r, c1 + c));
+            return true;
+        }
+        if (node is CellRefNode cellRef)
+        {
+            rowCount = 1;
+            colCount = 1;
+            getCell = (r, c) => r == 0 && c == 0 ? ctx.GetCellValue(cellRef.Address) : CellValue.FromError(FormulaError.Ref);
+            return true;
+        }
+        if (node is SheetRefNode sheetRef)
+        {
+            rowCount = 1;
+            colCount = 1;
+            getCell = (r, c) => r == 0 && c == 0 ? ctx.GetSheetCellValue(sheetRef.SheetName, sheetRef.Address) : CellValue.FromError(FormulaError.Ref);
+            return true;
+        }
+        rowCount = 0;
+        colCount = 0;
+        getCell = null!;
+        return false;
+    }
+
+    private static bool ValuesEqual(CellValue a, CellValue b)
+    {
+        if (a.IsEmpty && b.IsEmpty) return true;
+        if (a.IsNumber && b.IsNumber) return Math.Abs(a.Number - b.Number) < 1e-9;
+        if (a.IsBoolean && b.IsBoolean) return a.Boolean == b.Boolean;
+        if (a.IsNumber && b.AsDouble(out double bn)) return Math.Abs(a.Number - bn) < 1e-9;
+        if (b.IsNumber && a.AsDouble(out double an)) return Math.Abs(an - b.Number) < 1e-9;
+        return string.Equals(a.Format(), b.Format(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool MatchesCriteria(CellValue cellVal, CellValue critVal)
+    {
+        string crit = critVal.Format().Trim();
+        if (crit.StartsWith(">="))
+        {
+            if (double.TryParse(crit[2..], NumberStyles.Float, CultureInfo.InvariantCulture, out double n))
+                return cellVal.IsNumber && cellVal.Number >= n;
+            return false;
+        }
+        if (crit.StartsWith("<="))
+        {
+            if (double.TryParse(crit[2..], NumberStyles.Float, CultureInfo.InvariantCulture, out double n))
+                return cellVal.IsNumber && cellVal.Number <= n;
+            return false;
+        }
+        if (crit.StartsWith("<>"))
+        {
+            string expected = crit[2..];
+            if (double.TryParse(expected, NumberStyles.Float, CultureInfo.InvariantCulture, out double n))
+                return !cellVal.IsNumber || cellVal.Number != n;
+            return !string.Equals(cellVal.Format(), expected, StringComparison.OrdinalIgnoreCase);
+        }
+        if (crit.StartsWith('>'))
+        {
+            if (double.TryParse(crit[1..], NumberStyles.Float, CultureInfo.InvariantCulture, out double n))
+                return cellVal.IsNumber && cellVal.Number > n;
+            return false;
+        }
+        if (crit.StartsWith('<'))
+        {
+            if (double.TryParse(crit[1..], NumberStyles.Float, CultureInfo.InvariantCulture, out double n))
+                return cellVal.IsNumber && cellVal.Number < n;
+            return false;
+        }
+        if (crit.StartsWith('='))
+        {
+            crit = crit[1..];
+        }
+
+        if (critVal.IsNumber && cellVal.IsNumber)
+            return Math.Abs(cellVal.Number - critVal.Number) < 1e-9;
+
+        if (double.TryParse(crit, NumberStyles.Float, CultureInfo.InvariantCulture, out double parsedN))
+            return cellVal.IsNumber && Math.Abs(cellVal.Number - parsedN) < 1e-9;
+
+        return string.Equals(cellVal.Format(), crit, StringComparison.OrdinalIgnoreCase);
     }
 
     private static List<(CellValue Value, bool FromCell)> FlattenArguments(
@@ -1800,6 +2561,15 @@ public static class TableFormulaEngine
             {
                 foreach (var addr in rangeNode.Range.EnumerateCells(ctx.TotalRows, ctx.TotalCols))
                     list.Add((ctx.GetCellValue(addr), true));
+            }
+            else if (arg is SheetRangeNode sheetRange)
+            {
+                foreach (var val in ctx.GetSheetRangeValues(sheetRange.SheetName, sheetRange.Range))
+                    list.Add((val, true));
+            }
+            else if (arg is SheetRefNode sheetRef)
+            {
+                list.Add((ctx.GetSheetCellValue(sheetRef.SheetName, sheetRef.Address), true));
             }
             else if (arg is DirectionalRangeNode dirNode)
             {

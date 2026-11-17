@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
+using System.Linq;
 
 namespace Broiler.Documents.Model;
 
@@ -95,6 +97,26 @@ public sealed class RichTextParagraph
     /// <summary>Returns this paragraph with <paramref name="style"/> as its <see cref="MarkStyle"/>.</summary>
     public RichTextParagraph WithMarkStyle(InlineStyle style) => new(Text, Style, Runs, style);
 
+    internal RichTextParagraph MapInlineStyles(Func<InlineStyle, InlineStyle> map)
+    {
+        List<StyleRun>? updated = null;
+        for (int index = 0; index < Runs.Count; index++)
+        {
+            StyleRun run = Runs[index];
+            InlineStyle style = map(run.Style);
+            if (!style.Equals(run.Style))
+            {
+                updated ??= [.. Runs];
+                updated[index] = new StyleRun(run.Length, style);
+            }
+        }
+
+        InlineStyle mark = map(MarkStyle);
+        return updated is null && mark.Equals(MarkStyle)
+            ? this
+            : new RichTextParagraph(Text, Style, updated is null ? Runs : Normalize(updated), mark);
+    }
+
     public RichTextParagraph InsertText(int offset, string text, InlineStyle style)
     {
         if (string.IsNullOrEmpty(text))
@@ -128,7 +150,11 @@ public sealed class RichTextParagraph
             runs.Add(new StyleRun(text.Length, style));
 
         string newText = string.Concat(Text.AsSpan(0, offset), text, Text.AsSpan(offset));
-        return new RichTextParagraph(newText, Style, Normalize(runs), MarkStyle);
+        var styleAfterInsert = Style.SoftPageMarkerOffsets.IsDefaultOrEmpty ? Style : Style with
+        {
+            SoftPageMarkerOffsets = [.. Style.SoftPageMarkerOffsets.Select(marker => marker >= offset ? marker + text.Length : marker)],
+        };
+        return new RichTextParagraph(newText, styleAfterInsert, Normalize(runs), MarkStyle);
     }
 
     public RichTextParagraph RemoveRange(int start, int length)
@@ -152,7 +178,11 @@ public sealed class RichTextParagraph
             pos = runEnd;
         }
 
-        return new RichTextParagraph(Text.Remove(start, length), Style, Normalize(runs), MarkStyle);
+        var styleAfterRemove = Style.SoftPageMarkerOffsets.IsDefaultOrEmpty ? Style : Style with
+        {
+            SoftPageMarkerOffsets = [.. Style.SoftPageMarkerOffsets.Select(marker => marker <= start ? marker : Math.Max(start, marker - length))],
+        };
+        return new RichTextParagraph(Text.Remove(start, length), styleAfterRemove, Normalize(runs), MarkStyle);
     }
 
     public RichTextParagraph ApplyInlineStyle(int start, int length, InlineStyleDelta delta)
@@ -207,10 +237,17 @@ public sealed class RichTextParagraph
         //
         // Merge needs no equivalent care: Append keeps the first paragraph's
         // style, so the surviving break is the one that was already there.
-        var head = new RichTextParagraph(Text[..offset], Style, SliceRuns(0, offset), MarkStyle);
+        var headStyle = Style;
+        var tailStyle = Style with { PageBreakBefore = false, ColumnBreakBefore = false, SoftPageBreakBefore = 0 };
+        if (!Style.SoftPageMarkerOffsets.IsDefaultOrEmpty)
+        {
+            headStyle = headStyle with { SoftPageMarkerOffsets = [.. Style.SoftPageMarkerOffsets.Where(marker => marker <= offset)] };
+            tailStyle = tailStyle with { SoftPageMarkerOffsets = [.. Style.SoftPageMarkerOffsets.Where(marker => marker > offset).Select(marker => marker - offset)] };
+        }
+        var head = new RichTextParagraph(Text[..offset], headStyle, SliceRuns(0, offset), MarkStyle);
         var tail = new RichTextParagraph(
             Text[offset..],
-            Style with { PageBreakBefore = false, ColumnBreakBefore = false },
+            tailStyle,
             SliceRuns(offset, Text.Length - offset),
             MarkStyle);
         return (head, tail);
@@ -222,7 +259,17 @@ public sealed class RichTextParagraph
         var combined = new List<StyleRun>(Runs.Count + other.Runs.Count);
         combined.AddRange(Runs);
         combined.AddRange(other.Runs);
-        return new RichTextParagraph(Text + other.Text, Style, Normalize(combined), MarkStyle);
+        var style = Style;
+        if (other.Style.SoftPageBreakBefore > 0 || !other.Style.SoftPageMarkerOffsets.IsDefaultOrEmpty)
+        {
+            var markers = Style.SoftPageMarkerOffsets.IsDefault ? ImmutableArray<int>.Empty : Style.SoftPageMarkerOffsets;
+            if (other.Style.SoftPageBreakBefore > 0)
+                markers = markers.Add(Length);
+            if (!other.Style.SoftPageMarkerOffsets.IsDefaultOrEmpty)
+                markers = markers.AddRange(other.Style.SoftPageMarkerOffsets.Select(marker => marker + Length));
+            style = Style with { SoftPageMarkerOffsets = markers };
+        }
+        return new RichTextParagraph(Text + other.Text, style, Normalize(combined), MarkStyle);
     }
 
     private StyleRun[] SliceRuns(int start, int length)

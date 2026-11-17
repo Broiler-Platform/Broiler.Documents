@@ -44,6 +44,8 @@ public static class OdtWriter
         {
             Notes = new NoteNumberer(document.NoteNumbering),
         };
+        foreach (NamedParagraphStyle style in document.StyleDefaults.NamedParagraphStyles)
+            context.AddNamedParagraphStyle(style);
 
         // The caller's metadata, never the source document's.
         DocumentMetadata metadata = writeOptions.Metadata;
@@ -337,7 +339,7 @@ public static class OdtWriter
         int written = 0;
         foreach (DocumentSection section in WrittenSections(document))
         {
-            foreach (XElement block in BuildBlocks(document, document.Tables, index, section.ParagraphIndex, context))
+            foreach (XElement block in BuildBlocks(document, document.Tables, index, section.ParagraphIndex, context, bodyFlow: true))
                 text.Add(block);
 
             var element = new XElement(
@@ -350,15 +352,23 @@ public static class OdtWriter
                     "Section" + (++written).ToString(CultureInfo.InvariantCulture)));
             if (section.Hidden)
                 element.Add(new XAttribute(OdtNamespaces.Text + "display", "none"));
-            foreach (XElement block in BuildBlocks(document, document.Tables, section.ParagraphIndex, section.ParagraphEnd, context))
+            foreach (XElement block in BuildBlocks(document, document.Tables, section.ParagraphIndex, section.ParagraphEnd, context,
+                bodyFlow: !section.Hidden))
                 element.Add(block);
 
             text.Add(element);
             index = section.ParagraphEnd;
         }
 
-        foreach (XElement block in BuildBlocks(document, document.Tables, index, document.ParagraphCount, context))
+        foreach (XElement block in BuildBlocks(document, document.Tables, index, document.ParagraphCount, context, bodyFlow: true))
             text.Add(block);
+
+        if (context.SoftPageNumber > 1)
+            text.SetAttributeValue(OdtNamespaces.Text + "use-soft-page-breaks", "true");
+        if (context.WrittenSoftHints != document.Paragraphs.Count(paragraph => paragraph.Style.SoftPageBreakBefore > 0) ||
+            context.SoftPageNumber - 1 - context.WrittenSoftHints != document.Paragraphs.Sum(paragraph =>
+                paragraph.Style.SoftPageMarkerOffsets.IsDefault ? 0 : paragraph.Style.SoftPageMarkerOffsets.Length))
+            context.AddDiagnosticOnce("odt.page.soft-break", "Some saved page hints could not be represented at their original positions.");
 
         // The tracked changes the body's marks name, listed ahead of all of it.
         if (context.Regions.Count > 0)
@@ -483,7 +493,8 @@ public static class OdtWriter
         tables.Any(table => section.ParagraphIndex >= table.ParagraphIndex && section.ParagraphEnd <= table.ParagraphEnd &&
             (section.ParagraphIndex > table.ParagraphIndex || section.ParagraphEnd < table.ParagraphEnd));
 
-    private static IEnumerable<XElement> BuildCellBlocks(RichTextDocument document, TableCell cell, OdtWriteContext context)
+    private static IEnumerable<XElement> BuildCellBlocks(RichTextDocument document, TableCell cell, OdtWriteContext context,
+        bool bodyFlow, int? softTableStart)
     {
         int index = cell.ParagraphIndex;
         foreach (DocumentSection section in document.Sections.Where(section => section.Hidden &&
@@ -491,7 +502,7 @@ public static class OdtWriter
             !InsideTable(section, cell.Tables)).OrderBy(section => section.ParagraphIndex))
         {
             if (section.ParagraphIndex < index) continue;
-            foreach (XElement block in BuildBlocks(document, cell.Tables, index, section.ParagraphIndex, context))
+            foreach (XElement block in BuildBlocks(document, cell.Tables, index, section.ParagraphIndex, context, bodyFlow, softTableStart))
                 yield return block;
             var hidden = new XElement(OdtNamespaces.Text + "section",
                 new XAttribute(OdtNamespaces.Text + "name", "Hidden" + section.ParagraphIndex.ToString(CultureInfo.InvariantCulture)),
@@ -501,7 +512,7 @@ public static class OdtWriter
             yield return hidden;
             index = section.ParagraphEnd;
         }
-        foreach (XElement block in BuildBlocks(document, cell.Tables, index, cell.ParagraphEnd, context))
+        foreach (XElement block in BuildBlocks(document, cell.Tables, index, cell.ParagraphEnd, context, bodyFlow, softTableStart))
             yield return block;
     }
 
@@ -524,7 +535,9 @@ public static class OdtWriter
         IReadOnlyList<DocumentTable> tables,
         int from,
         int to,
-        OdtWriteContext context)
+        OdtWriteContext context,
+        bool bodyFlow = false,
+        int? softTableStart = null)
     {
         IReadOnlyList<RichTextParagraph> paragraphs = document.Paragraphs;
         int index = Math.Max(0, from);
@@ -534,7 +547,8 @@ public static class OdtWriter
         {
             if (DocumentTable.StartingAt(tables, index) is DocumentTable table)
             {
-                yield return BuildTable(document, table, context);
+                bool tableFlow = bodyFlow && table.Position is null;
+                yield return BuildTable(document, table, context, tableFlow, softTableStart);
                 index = table.ParagraphEnd;
                 continue;
             }
@@ -552,7 +566,7 @@ public static class OdtWriter
                     definedEnd++;
                 }
 
-                yield return BuildDefinedList(paragraphs, index, definedEnd, defined.Definition, context);
+                yield return BuildDefinedList(paragraphs, index, definedEnd, defined.Definition, context, bodyFlow, softTableStart);
                 index = definedEnd;
                 continue;
             }
@@ -560,12 +574,16 @@ public static class OdtWriter
             ListKind kind = paragraphs[index].Style.ListKind;
             if (kind == ListKind.None)
             {
-                XElement element = BuildParagraph(paragraphs[index], context, inList: false);
+                XElement element = BuildParagraph(paragraphs[index], context, inList: false, bodyFlow);
                 // ODF anchors a shape to a paragraph by putting it inside one, so
                 // it goes first and the text follows it.
                 foreach (DocumentShape shape in ShapesAnchoredTo(document, index).Reverse())
                     element.AddFirst(BuildShape(shape, context));
 
+                if (bodyFlow)
+                    AddSoftPageBreak(element, paragraphs[index], context,
+                        allowLeading: softTableStart is null || index == softTableStart,
+                        hasFollowingBlock: index + 1 < end || index == softTableStart);
                 yield return element;
                 index++;
                 continue;
@@ -577,9 +595,23 @@ public static class OdtWriter
             while (listEnd < end && paragraphs[listEnd].Style.ListKind == kind && paragraphs[listEnd].Style.List is null)
                 listEnd++;
 
-            yield return BuildList(paragraphs, index, listEnd, kind, context);
+            yield return BuildList(paragraphs, index, listEnd, context.UseListStyle(kind), context, bodyFlow, softTableStart);
             index = listEnd;
         }
+    }
+
+    private static void AddSoftPageBreak(XElement element, RichTextParagraph paragraph, OdtWriteContext context,
+        bool allowLeading, bool hasFollowingBlock = false)
+    {
+        if (allowLeading && paragraph.Style.SoftPageBreakBefore == context.SoftPageNumber + 1 &&
+            (element.FirstNode is not null || hasFollowingBlock))
+        {
+            element.AddFirst(new XElement(OdtNamespaces.Text + "soft-page-break"));
+            context.SoftPageNumber++;
+            context.WrittenSoftHints++;
+        }
+        if (!paragraph.Style.SoftPageMarkerOffsets.IsDefault)
+            context.SoftPageNumber += paragraph.Style.SoftPageMarkerOffsets.Length;
     }
 
     /// <summary>
@@ -591,7 +623,8 @@ public static class OdtWriter
     /// covers is written as a <c>table:covered-table-cell</c> - which is what ODF
     /// requires, and what keeps every row the same number of columns wide.
     /// </remarks>
-    private static XElement BuildTable(RichTextDocument document, DocumentTable table, OdtWriteContext context)
+    private static XElement BuildTable(RichTextDocument document, DocumentTable table, OdtWriteContext context,
+        bool bodyFlow = false, int? softTableStart = null)
     {
         var element = new XElement(
             OdtNamespaces.Table + "table",
@@ -612,6 +645,7 @@ public static class OdtWriter
 
         foreach (TableRow row in table.Rows)
         {
+            int? softRowStart = softTableStart ?? TableSoftPageBreaks.FirstParagraph(row);
             var tr = new XElement(OdtNamespaces.Table + "table-row");
             if (row.MinHeight > 0 || !row.CanSplit || row.KeepWithNext)
             {
@@ -631,7 +665,7 @@ public static class OdtWriter
                     continue;
                 }
 
-                tr.Add(BuildTableCell(document, table, cell, context));
+                tr.Add(BuildTableCell(document, table, cell, context, bodyFlow, softRowStart));
                 column += cell.ColumnSpan;
 
                 // ODF wants a covered cell for every position a span swallowed.
@@ -666,7 +700,8 @@ public static class OdtWriter
         return element;
     }
 
-    private static XElement BuildTableCell(RichTextDocument document, DocumentTable table, TableCell cell, OdtWriteContext context)
+    private static XElement BuildTableCell(RichTextDocument document, DocumentTable table, TableCell cell, OdtWriteContext context,
+        bool bodyFlow, int? softTableStart)
     {
         var element = new XElement(OdtNamespaces.Table + "table-cell");
         if (context.GetCellStyleName(cell, cell.PaddingFor(table)) is string styleName)
@@ -687,7 +722,7 @@ public static class OdtWriter
         }
 
         bool empty = true;
-        foreach (XElement block in BuildCellBlocks(document, cell, context))
+        foreach (XElement block in BuildCellBlocks(document, cell, context, bodyFlow, softTableStart))
         {
             element.Add(block);
             empty = false;
@@ -733,14 +768,6 @@ public static class OdtWriter
     /// deeper level inside the <c>text:list-item</c> it belongs to, so a level
     /// change is a push or a pop rather than a new sibling list.
     /// </summary>
-    private static XElement BuildList(
-        IReadOnlyList<RichTextParagraph> paragraphs,
-        int start,
-        int end,
-        ListKind kind,
-        OdtWriteContext context) =>
-        BuildList(paragraphs, start, end, context.UseListStyle(kind), context);
-
     /// <summary>
     /// Builds one <c>text:list</c> from a run of paragraphs numbered in
     /// <paramref name="definition"/>, nested by their list level. A run of a list
@@ -753,10 +780,12 @@ public static class OdtWriter
         int start,
         int end,
         ListDefinition definition,
-        OdtWriteContext context)
+        OdtWriteContext context,
+        bool bodyFlow,
+        int? softTableStart)
     {
         bool continues = context.HasListStyle(definition);
-        XElement list = BuildList(paragraphs, start, end, context.UseListStyle(definition), context,
+        XElement list = BuildList(paragraphs, start, end, context.UseListStyle(definition), context, bodyFlow, softTableStart,
             continueNestedAtStart: continues);
         if (continues)
             list.Add(new XAttribute(OdtNamespaces.Text + "continue-numbering", "true"));
@@ -770,6 +799,8 @@ public static class OdtWriter
         int end,
         string styleName,
         OdtWriteContext context,
+        bool bodyFlow,
+        int? softTableStart,
         bool continueNestedAtStart = false)
     {
         var root = new XElement(
@@ -809,9 +840,12 @@ public static class OdtWriter
                 open.Add(nested);
             }
 
+            XElement text = BuildParagraph(paragraph, context, inList: true, bodyFlow);
+            if (bodyFlow)
+                AddSoftPageBreak(text, paragraph, context, allowLeading: softTableStart is null || i == softTableStart);
             var item = new XElement(
                 OdtNamespaces.Text + "list-item",
-                BuildParagraph(paragraph, context, inList: true));
+                text);
             if (paragraph.Style.List is { RestartAt: int restart })
                 item.Add(new XAttribute(OdtNamespaces.Text + "start-value", restart.ToString(CultureInfo.InvariantCulture)));
 
@@ -824,16 +858,22 @@ public static class OdtWriter
     private static XElement BuildParagraph(
         RichTextParagraph paragraph,
         OdtWriteContext context,
-        bool inList)
+        bool inList,
+        bool bodyFlow = false)
     {
-        var element = new XElement(OdtNamespaces.Text + "p");
+        NamedParagraphStyle? previous = context.ActiveParagraphStyle;
+        context.ActiveParagraphStyle = context.FindNamedParagraphStyle(paragraph.Style.StyleName);
+        int? level = paragraph.Style.HeadingLevel;
+        var element = level is >= 1 and <= 9
+            ? new XElement(OdtNamespaces.Text + "h", new XAttribute(OdtNamespaces.Text + "outline-level", level.Value))
+            : new XElement(OdtNamespaces.Text + "p");
         int listLevel = Math.Clamp(paragraph.Style.List is ListReference reference ? reference.Level + 1 :
             Math.Max(1, paragraph.Style.IndentLevel), 1, MaxListLevels);
         bool defaultListPosition = Math.Abs(paragraph.Style.LeftIndentIn() - listLevel * OdtUnits.PointsPerIndentLevel) < 0.001 &&
             paragraph.Style.FirstLineIndentIn == 0;
         if (inList && !defaultListPosition && (paragraph.Style.LeftIndent.HasValue || paragraph.Style.FirstLineIndent.HasValue))
             context.AddDiagnosticOnce("odt.list.indent", "Exact list offsets were written using the list level's default positioning; non-list paragraph indents are preserved.");
-        string? styleName = context.GetParagraphStyleName(BuildParagraphProperties(paragraph.Style, inList));
+        string? styleName = context.GetParagraphStyleName(BuildParagraphProperties(paragraph.Style, inList), paragraph.Style.StyleName);
         if (styleName is not null)
             element.Add(new XAttribute(OdtNamespaces.Text + "style-name", styleName));
 
@@ -842,6 +882,9 @@ public static class OdtWriter
         var state = new ParagraphState(BodyText(paragraph));
         int offset = 0;
         int bodyOffset = 0;
+        var markers = paragraph.Style.SoftPageMarkerOffsets;
+        int markerIndex = 0;
+        int markerCount = bodyFlow && !markers.IsDefault ? markers.Length : 0;
         IReadOnlyList<StyleRun> runs = paragraph.Runs;
         for (int i = 0; i < runs.Count;)
         {
@@ -878,10 +921,14 @@ public static class OdtWriter
 
             for (int k = i; k < end; k++)
             {
-                string text = paragraph.Text.Substring(offset, runs[k].Length);
-                AddRun(element, text, bodyOffset, runs[k].Style with { Revision = null }, state, context);
-                offset += runs[k].Length;
-                bodyOffset += runs[k].Length;
+                int runEnd = offset + runs[k].Length;
+                while (markerIndex < markerCount && markers[markerIndex] < runEnd)
+                {
+                    int cut = Math.Max(offset, markers[markerIndex]);
+                    WriteText(cut, runs[k].Style);
+                    AddMarker();
+                }
+                WriteText(runEnd, runs[k].Style);
             }
 
             if (id is not null)
@@ -890,7 +937,28 @@ public static class OdtWriter
             i = end;
         }
 
+        while (markerIndex < markerCount)
+            AddMarker();
+        context.ActiveParagraphStyle = previous;
         return element;
+
+        void WriteText(int end, InlineStyle style)
+        {
+            int length = end - offset;
+            if (length == 0)
+                return;
+            AddRun(element, paragraph.Text.Substring(offset, length), bodyOffset, style with { Revision = null }, state, context);
+            offset = end;
+            bodyOffset += length;
+        }
+
+        void AddMarker()
+        {
+            var marker = new XElement(OdtNamespaces.Text + "soft-page-break");
+            // Keep a retained inline marker distinct from a paragraph-leading hint.
+            element.Add(element.FirstNode is null ? new XElement(OdtNamespaces.Text + "span", marker) : marker);
+            markerIndex++;
+        }
     }
 
     /// <summary>The paragraph's text without the runs a change deleted.</summary>
@@ -1495,6 +1563,8 @@ public static class OdtWriter
             properties.Add(new XAttribute(OdtNamespaces.Fo + "text-align", "end"));
         else if (style.Alignment == TextAlignment.Justify)
             properties.Add(new XAttribute(OdtNamespaces.Fo + "text-align", "justify"));
+        else if (style.HeadingLevel is >= 1 and <= 9)
+            properties.Add(new XAttribute(OdtNamespaces.Fo + "text-align", "start"));
 
         if (Math.Abs(style.SpacingBefore) > 0.001f)
         {
@@ -1579,10 +1649,10 @@ public static class OdtWriter
     {
         var properties = new XElement(OdtNamespaces.Style + "text-properties");
 
-        if (style.Bold)
-            properties.Add(new XAttribute(OdtNamespaces.Fo + "font-weight", "bold"));
-        if (style.Italic)
-            properties.Add(new XAttribute(OdtNamespaces.Fo + "font-style", "italic"));
+        if (style.Bold || context.ActiveParagraphStyle?.Text.Bold == true)
+            properties.Add(new XAttribute(OdtNamespaces.Fo + "font-weight", style.Bold ? "bold" : "normal"));
+        if (style.Italic || context.ActiveParagraphStyle?.Text.Italic == true)
+            properties.Add(new XAttribute(OdtNamespaces.Fo + "font-style", style.Italic ? "italic" : "normal"));
         if (style.Underline)
         {
             properties.Add(new XAttribute(OdtNamespaces.Style + "text-underline-style", "solid"));
@@ -2168,6 +2238,7 @@ public static class OdtWriter
                     new XAttribute(OdtNamespaces.Style + "family", "paragraph"),
                     new XAttribute(OdtNamespaces.Style + "class", "text")),
                 BuildPageGradient(background),
+                context.NamedParagraphStyleElements,
                 context.PatternDefinitions,
                 BuildNotesConfigurations(noteNumbering, context)),
             new XElement(
@@ -2293,6 +2364,8 @@ public static class OdtWriter
 
     private sealed class OdtWriteContext(DocumentConversionContext resources)
     {
+        public int SoftPageNumber { get; set; } = 1;
+        public int WrittenSoftHints { get; set; }
         private readonly Dictionary<string, string> _paragraphStyleNames = new(StringComparer.Ordinal);
         private readonly Dictionary<string, string> _textStyleNames = new(StringComparer.Ordinal);
         private readonly List<XElement> _automaticStyles = [];
@@ -2835,8 +2908,60 @@ public static class OdtWriter
         /// use. Null when there are no properties at all: a paragraph that names
         /// no style is the shortest and the most faithful way to say "default".
         /// </summary>
-        public string? GetParagraphStyleName(XElement properties) =>
-            GetStyleName(properties, _paragraphStyleNames, "P", OdtStyles.ParagraphFamily, "Standard");
+        private readonly Dictionary<string, (string Id, NamedParagraphStyle Definition)> _namedParagraphStyles = new(StringComparer.OrdinalIgnoreCase);
+        public List<XElement> NamedParagraphStyleElements { get; } = [];
+        public NamedParagraphStyle? ActiveParagraphStyle { get; set; }
+
+        public NamedParagraphStyle? FindNamedParagraphStyle(string? name) =>
+            name is not null && _namedParagraphStyles.TryGetValue(name, out var entry) ? entry.Definition : null;
+
+        public void AddNamedParagraphStyle(NamedParagraphStyle definition)
+        {
+            string id = "NamedParagraph" + (_namedParagraphStyles.Count + 1).ToString(CultureInfo.InvariantCulture);
+            if (!_namedParagraphStyles.TryAdd(definition.Name, (id, definition)))
+                return;
+
+            XElement paragraph = BuildParagraphProperties(definition.Paragraph, inList: false);
+            NamedParagraphStyleElements.Add(new XElement(OdtNamespaces.Style + "style",
+                new XAttribute(OdtNamespaces.Style + "name", id),
+                new XAttribute(OdtNamespaces.Style + "display-name", definition.Name),
+                new XAttribute(OdtNamespaces.Style + "family", OdtStyles.ParagraphFamily),
+                definition.Paragraph.HeadingLevel is >= 1 and <= 9
+                    ? new XAttribute(OdtNamespaces.Style + "default-outline-level", definition.Paragraph.HeadingLevel.Value) : null,
+                paragraph, BuildTextProperties(definition.Text, this)));
+        }
+
+        public string? GetParagraphStyleName(XElement properties, string? namedStyle = null)
+        {
+            if (namedStyle is null || !_namedParagraphStyles.TryGetValue(namedStyle, out var entry))
+                return GetStyleName(properties, _paragraphStyleNames, "P", OdtStyles.ParagraphFamily, "Standard");
+
+            XElement inherited = BuildParagraphProperties(entry.Definition.Paragraph, inList: false);
+            foreach (XAttribute attribute in inherited.Attributes())
+            {
+                if (properties.Attribute(attribute.Name) is not null)
+                    continue;
+                string? reset = attribute.Name.LocalName switch
+                {
+                    "text-align" => "start",
+                    "margin-top" or "margin-bottom" or "margin-left" or "margin-right" or "text-indent" => "0pt",
+                    "background-color" => "transparent",
+                    "border-left" or "border-top" or "border-right" or "border-bottom" => "none",
+                    "padding-left" or "padding-top" or "padding-right" or "padding-bottom" => "0pt",
+                    _ => null,
+                };
+                if (reset is not null)
+                    properties.SetAttributeValue(attribute.Name, reset);
+            }
+            if (inherited.Element(OdtNamespaces.Style + "tab-stops") is not null && properties.Element(OdtNamespaces.Style + "tab-stops") is null)
+                properties.Add(new XElement(OdtNamespaces.Style + "tab-stops"));
+            if (entry.Definition.Paragraph.LineHeightRule != LineHeightRule.Proportional &&
+                properties.Attribute(OdtNamespaces.Fo + "line-height") is null &&
+                properties.Attribute(OdtNamespaces.Style + "line-height-at-least") is null &&
+                properties.Attribute(OdtNamespaces.Style + "line-spacing") is null)
+                properties.SetAttributeValue(OdtNamespaces.Fo + "line-height", "100%");
+            return GetStyleName(properties, _paragraphStyleNames, "P", OdtStyles.ParagraphFamily, entry.Id) ?? entry.Id;
+        }
 
         /// <summary>The automatic text style for these properties, created on first use.</summary>
         public string? GetTextStyleName(XElement properties) =>
@@ -2852,7 +2977,7 @@ public static class OdtWriter
             if (!properties.HasAttributes && !properties.HasElements)
                 return null;
 
-            string key = string.Join(
+            string key = (parentStyleName ?? "") + "\u0001" + string.Join(
                 "",
                 properties.Attributes().Select(attribute => attribute.Name + "=" + attribute.Value));
             if (properties.HasElements)

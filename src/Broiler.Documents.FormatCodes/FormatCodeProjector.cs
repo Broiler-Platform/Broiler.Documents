@@ -11,7 +11,7 @@ namespace Broiler.Documents.FormatCodes;
 /// <summary>Projects normalized Broiler rich-text state into grammar-version 1 tokens.</summary>
 public sealed class FormatCodeProjector
 {
-    private const int InlinePropertyCount = 10;
+    private const int InlinePropertyCount = 14;
 
     public static FormatCodeProjection Project(RichTextDocument document, FormatCodeProjectionOptions? options = null, CancellationToken cancellationToken = default)
     {
@@ -439,6 +439,10 @@ public sealed class FormatCodeProjector
         7 => left.Background != right.Background,
         8 => !string.Equals(NormalizeLink(left.LinkHref), NormalizeLink(right.LinkHref), StringComparison.Ordinal),
         9 => left.Capitalization != right.Capitalization,
+        10 => left.Hidden != right.Hidden,
+        11 => left.Shift != right.Shift,
+        12 => left.Language != right.Language,
+        13 => left.CharacterStyle != right.CharacterStyle,
         _ => throw new ArgumentOutOfRangeException(nameof(property)),
     };
 
@@ -456,10 +460,21 @@ public sealed class FormatCodeProjector
             7 => InlineStyleDelta.WithBackground(BColor.Empty),
             8 => InlineStyleDelta.WithLink(null),
             9 => InlineStyleDelta.WithCapitalization(TextCapitalization.None),
+            10 => InlineStyleDelta.WithHidden(false),
+            11 => InlineStyleDelta.WithBaselineShift(null),
+            12 => InlineStyleDelta.WithLanguage(null),
+            13 => InlineStyleDelta.WithCharacterStyle(null),
             _ => throw new ArgumentOutOfRangeException(nameof(property)),
         };
         return new FormatCodeTokenEditDescriptor(
-            (FormatCodeProperty)((int)FormatCodeProperty.Bold + property),
+            property switch
+            {
+                10 => FormatCodeProperty.Hidden,
+                11 => FormatCodeProperty.BaselineShift,
+                12 => FormatCodeProperty.Language,
+                13 => FormatCodeProperty.CharacterStyle,
+                _ => (FormatCodeProperty)((int)FormatCodeProperty.Bold + property),
+            },
             new ApplyFormatCodeInlineIntent(range, delta));
     }
 
@@ -486,6 +501,10 @@ public sealed class FormatCodeProjector
         7 => !style.Background.IsEmpty,
         8 => NormalizeLink(style.LinkHref) is not null,
         9 => style.Capitalization is TextCapitalization.AllCaps or TextCapitalization.SmallCaps,
+        10 => style.Hidden,
+        11 => style.Shift is { IsNone: false },
+        12 => !string.IsNullOrEmpty(style.Language),
+        13 => !string.IsNullOrEmpty(style.CharacterStyle),
         _ => throw new ArgumentOutOfRangeException(nameof(property)),
     };
 
@@ -501,6 +520,10 @@ public sealed class FormatCodeProjector
         7 => "[Highlight NONE]",
         8 => "[Link OFF]",
         9 => "[Caps OFF]",
+        10 => "[Hidden OFF]",
+        11 => "[Baseline DEFAULT]",
+        12 => "[Language DEFAULT]",
+        13 => "[Character Style DEFAULT]",
         _ => throw new ArgumentOutOfRangeException(nameof(property)),
     };
 
@@ -519,6 +542,15 @@ public sealed class FormatCodeProjector
         7 => $"[Highlight {FormatColor(style.Background)}]",
         8 => $"[Link \"{EscapeQuoted(NormalizeLink(style.LinkHref)!, options)}\"]",
         9 => style.Capitalization == TextCapitalization.SmallCaps ? "[Small Caps ON]" : "[All Caps ON]",
+        10 => "[Hidden ON]",
+        11 => style.Shift!.Value.Position switch
+        {
+            BaselinePosition.AutoSuperscript => "[Superscript ON]",
+            BaselinePosition.AutoSubscript => "[Subscript ON]",
+            _ => FormattableString.Invariant($"[Baseline {style.Shift.Value.Offset:P0}, {style.Shift.Value.Scale:P0}]"),
+        },
+        12 => $"[Language \"{EscapeQuoted(style.Language!, options)}\"]",
+        13 => $"[Character Style \"{EscapeQuoted(style.CharacterStyle!, options)}\"]",
         _ => throw new ArgumentOutOfRangeException(nameof(property)),
     };
 

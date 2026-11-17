@@ -223,6 +223,7 @@ internal static class OdtReader
         document = document.WithPageGeometry(document.PageGeometry ?? page);
         document = document.WithStyleDefaults(ReadStyleDefaults(styles) with
         {
+            NamedParagraphStyles = ReadNamedParagraphStyles(styles),
             ShrinksJustifiedLines = OdtRevisions.ConfigFlag(settings, "JustifyLinesWithShrinking"),
             TabsOverMargin = OdtRevisions.ConfigFlag(settings, "TabOverMargin"),
             UndecoratedLinks = styles.StyledLinks,
@@ -3213,7 +3214,11 @@ internal static class OdtReader
         string? styleName = (string?)paragraph.Attribute(OdtNamespaces.Text + "style-name") ?? UnstyledHeadingStyle(paragraph, context.Styles) ??
             context.NoteParagraphStyle;
 
-        ParagraphStyle paragraphStyle = ParagraphStyle.Default;
+        ParagraphStyle paragraphStyle = ParagraphStyle.Default with
+        {
+            HeadingLevel = ReadHeadingLevel(paragraph),
+            StyleName = context.Styles.NamedParagraphStyleFor(styleName),
+        };
         string? breakAfter = null;
         foreach (XElement properties in context.Styles.ParagraphProperties(styleName))
         {
@@ -3230,16 +3235,15 @@ internal static class OdtReader
                 breakAfter = after;
         }
 
-        // A leading soft marker in a text paragraph records an earlier
-        // layout. Reflow the text, while preserving a marker that constitutes
-        // the entire paragraph (there is no text from which to infer it).
         if (context.SelectPageStyle?.Invoke("paragraph", styleName, context.Builder.CurrentParagraphIndex) == true)
             paragraphStyle = paragraphStyle with { PageBreakBefore = true, ColumnBreakBefore = false };
-        if (context.UsesSoftPageBreaks && context.TableDepth == 0 && context.HiddenSectionDepth == 0)
+        if (context.UsesSoftPageBreaks && context.HiddenSectionDepth == 0)
         {
             XName softPageBreak = OdtNamespaces.Text + "soft-page-break";
-            if (paragraph.FirstNode is XElement softBreak && softBreak.Name == softPageBreak &&
-                !softBreak.NodesAfterSelf().Any() && paragraph.ElementsAfterSelf().Any())
+            // Preserve a leading hint. A marker alone at the end of a
+            // container can be an artifact of the saved layout.
+            if (CanLeadSoftPage(context) && paragraph.FirstNode is XElement softBreak && softBreak.Name == softPageBreak &&
+                (softBreak.NodesAfterSelf().Any() || paragraph.ElementsAfterSelf().Any() || context.TableDepth > 0))
             {
                 paragraphStyle = paragraphStyle with { SoftPageBreakBefore = context.SoftPageNumber + 1 };
             }
@@ -3369,6 +3373,34 @@ internal static class OdtReader
         return styles.HeadingStyleName(level);
     }
 
+    private static int? ReadHeadingLevel(XElement paragraph)
+    {
+        if (paragraph.Name != OdtNamespaces.Text + "h")
+            return null;
+        return int.TryParse((string?)paragraph.Attribute(OdtNamespaces.Text + "outline-level"),
+            NumberStyles.None, CultureInfo.InvariantCulture, out int level) && level is >= 1 and <= 9 ? level : 1;
+    }
+
+    private static System.Collections.Immutable.ImmutableArray<NamedParagraphStyle> ReadNamedParagraphStyles(OdtStyles styles)
+    {
+        var result = System.Collections.Immutable.ImmutableArray.CreateBuilder<NamedParagraphStyle>();
+        var scratch = new OdtDocumentBuilder(DocumentLimits.Default, []);
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach ((string id, string name) in styles.NamedParagraphStyles)
+        {
+            if (!NamedParagraphStyle.IsValidName(name) || !names.Add(name))
+                continue;
+            ParagraphStyle paragraph = ParagraphStyle.Default;
+            foreach (XElement properties in styles.ParagraphProperties(id))
+                paragraph = ApplyParagraphProperties(properties, paragraph, scratch, styles);
+            InlineStyle text = InlineStyle.Default;
+            foreach (XElement properties in styles.TextPropertiesForParagraph(id))
+                text = ApplyTextProperties(properties, text, styles, scratch);
+            result.Add(new NamedParagraphStyle(name, paragraph with { HeadingLevel = styles.OutlineLevelFor(id) }, text));
+        }
+        return result.ToImmutable();
+    }
+
     /// <summary>
     /// The place a heading outside any list has in the document's outline
     /// numbering, or null when the document numbers no outline.
@@ -3440,6 +3472,17 @@ internal static class OdtReader
                 continue;
 
             XName name = element.Name;
+
+            if (name == OdtNamespaces.Text + "soft-page-break" && context.UsesSoftPageBreaks &&
+                context.HiddenSectionDepth == 0)
+            {
+                bool leading = CanLeadSoftPage(context) && ReferenceEquals(parent.FirstNode, element) &&
+                    (parent.Name == OdtNamespaces.Text + "p" || parent.Name == OdtNamespaces.Text + "h") &&
+                    (element.NodesAfterSelf().Any() || parent.ElementsAfterSelf().Any() || context.TableDepth > 0);
+                if (!leading)
+                    builder.AddSoftPageMarker();
+                continue;
+            }
 
             if (name == OdtNamespaces.Text + "span")
             {
@@ -3616,6 +3659,9 @@ internal static class OdtReader
                 ReadInlineContent(element, context, style, depth + 1);
         }
     }
+
+    private static bool CanLeadSoftPage(OdtReadContext context) =>
+        context.TableDepth == 0 || context.SoftTableStart == context.Builder.CurrentParagraphIndex;
 
     /// <summary>
     /// The text LibreOffice shows for a date field it formats again on load,
@@ -3923,7 +3969,7 @@ internal static class OdtReader
     {
         string? styleName = (string?)paragraph.Attribute(OdtNamespaces.Text + "style-name") ?? UnstyledHeadingStyle(paragraph, context.Styles) ??
             context.NoteParagraphStyle;
-        ParagraphStyle style = ParagraphStyle.Default;
+        ParagraphStyle style = ParagraphStyle.Default with { HeadingLevel = ReadHeadingLevel(paragraph) };
         foreach (XElement properties in context.Styles.ParagraphProperties(styleName))
             style = ApplyParagraphProperties(properties, style, context.Builder, context.Styles);
 

@@ -19,6 +19,13 @@ public readonly record struct InlineStyleDelta
     public bool? Strikethrough { get; init; }
 
     public TextCapitalization? Capitalization { get; init; }
+    public bool? Hidden { get; init; }
+    public bool SetLanguage { get; init; }
+    public string? Language { get; init; }
+    public bool SetBaselineShift { get; init; }
+    public BaselineShift? BaselineShift { get; init; }
+    public bool SetCharacterStyle { get; init; }
+    public string? CharacterStyle { get; init; }
 
     public BColor? Foreground { get; init; }
 
@@ -49,6 +56,10 @@ public readonly record struct InlineStyleDelta
         Underline = Underline ?? style.Underline,
         Strikethrough = Strikethrough ?? style.Strikethrough,
         Capitalization = Capitalization ?? style.Capitalization,
+        Hidden = Hidden ?? style.Hidden,
+        Language = SetLanguage ? Language : style.Language,
+        Shift = SetBaselineShift ? BaselineShift : style.Shift,
+        CharacterStyle = SetCharacterStyle ? CharacterStyle : style.CharacterStyle,
         Foreground = Foreground ?? style.Foreground,
         Background = Background ?? style.Background,
         FontFamily = SetFontFamily ? FontFamily : style.FontFamily,
@@ -66,6 +77,11 @@ public readonly record struct InlineStyleDelta
 
     public static InlineStyleDelta WithCapitalization(TextCapitalization capitalization) =>
         new() { Capitalization = capitalization };
+
+    public static InlineStyleDelta WithHidden(bool hidden) => new() { Hidden = hidden };
+    public static InlineStyleDelta WithLanguage(string? language) => new() { SetLanguage = true, Language = language };
+    public static InlineStyleDelta WithBaselineShift(BaselineShift? shift) => new() { SetBaselineShift = true, BaselineShift = shift };
+    public static InlineStyleDelta WithCharacterStyle(string? name) => new() { SetCharacterStyle = true, CharacterStyle = name };
 
     public static InlineStyleDelta WithForeground(BColor color) => new() { Foreground = color };
 
@@ -85,6 +101,10 @@ public readonly record struct InlineStyleDelta
         Underline = false,
         Strikethrough = false,
         Capitalization = TextCapitalization.None,
+        Hidden = false,
+        SetLanguage = true,
+        SetBaselineShift = true,
+        SetCharacterStyle = true,
         Foreground = BColor.Empty,
         Background = BColor.Empty,
         SetFontFamily = true,

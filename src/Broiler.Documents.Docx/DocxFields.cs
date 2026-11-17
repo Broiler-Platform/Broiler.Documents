@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
@@ -395,6 +396,10 @@ internal sealed class DocxFields
             }
         }
 
+        var paragraph = styles.NamedParagraphStyles.FirstOrDefault(style =>
+            string.Equals(style.Name, tokens[1], StringComparison.OrdinalIgnoreCase));
+        if (paragraph.Name is { } paragraphName)
+            return new StyleReferenceField(paragraphName, fromBottom) { ParagraphStyle = true };
         return styles.CharacterStyleCalled(tokens[1]) is string name ? new StyleReferenceField(name, fromBottom) : null;
     }
 

@@ -403,6 +403,14 @@ internal sealed class DocxStyles
         return NameOf(style);
     }
 
+    public IEnumerable<(string Id, string Name)> NamedParagraphStyles =>
+        _styles.Values.Where(style => style.Type == "paragraph" && style.Id != _defaultParagraphStyleId)
+            .Select(style => (style.Id, NameOf(style)));
+
+    public string? ParagraphStyleName(string? id) =>
+        id is not null && id != _defaultParagraphStyleId && _styles.TryGetValue(id, out StyleDefinition? style) &&
+        style.Type == "paragraph" ? NameOf(style) : null;
+
     /// <summary>
     /// The name of the character style a field instruction calls
     /// <paramref name="name"/>, or null where it names no character style.

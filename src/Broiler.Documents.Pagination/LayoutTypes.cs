@@ -100,7 +100,7 @@ public sealed class LayoutPiece(string text, BFontStyle font, BColor color, BCol
     /// where on a page a page's text starts, for a header that shows text found
     /// on its page (<see cref="StyleReferenceField"/>).
     /// </summary>
-    internal int SourceOffset { get; set; } = -1;
+    public int SourceOffset { get; internal set; } = -1;
 }
 
 /// <summary>One laid-out line, positioned on its page.</summary>
@@ -175,6 +175,10 @@ public sealed class LayoutLine : IPaginatedLineArtifact
 
     /// <summary>Which model paragraph this line came from. Carried through for diagnostics.</summary>
     public int ParagraphIndex { get; internal set; }
+
+    /// <summary>The note and its local paragraph, when this line is drawn in a note.</summary>
+    public DocumentNote? SourceNote { get; internal set; }
+    public int NoteParagraphIndex { get; internal set; } = -1;
 
     /// <summary>The column/cell text area's origin, before paragraph indent.</summary>
     internal double TextAreaLeft { get; set; }
@@ -430,6 +434,11 @@ public sealed class LayoutPage : IPaginatedPageArtifact
     public double HeightPoints { get; }
 
     public IReadOnlyList<LayoutLine> Lines => _lines;
+    public IReadOnlyList<LayoutLine> HeaderLines { get; internal init; } = [];
+    public IReadOnlyList<LayoutLine> FooterLines { get; internal init; } = [];
+    public RunningContent? RunningContentSource { get; internal init; }
+    public PageSelection HeaderSelection { get; internal init; }
+    public PageSelection FooterSelection { get; internal init; }
     IReadOnlyList<IPaginatedLineArtifact> IPaginatedPageArtifact.Lines => _lines;
 
     public IReadOnlyList<LayoutFloatingTable> FloatingTables { get; }

@@ -1,4 +1,6 @@
 ﻿using System.IO.Compression;
+using System.Xml.Linq;
+using Broiler.Documents.Resources;
 
 namespace Broiler.Documents.Docx.Tests;
 
@@ -223,6 +225,81 @@ public sealed class DocxRunningContentTests
     }
 
     [Fact]
+    public void Header_And_Footer_Pictures_And_Links_Use_Part_Local_Relationships()
+    {
+        const string headerLink = "https://example.test/header";
+        const string bodyLink = "https://example.test/body";
+        var resources = new DocumentConversionContextBuilder(DocumentResourcePolicy.AllowOwnDocuments);
+        InlineImage picture = resources.AdmitImage(
+            new InlineImage(DocxTestPackage.OnePixelPng, "image/png", 12, 12, "letterhead"),
+            DocumentResourceProvenance.CallerSupplied, DocumentResourceDisposition.Embedded);
+        RichTextParagraph header = Link("Header link", headerLink)
+            .InsertText("Header link".Length, InlineImage.PlaceholderText, InlineStyle.Default with { Image = picture });
+        RichTextParagraph footer = RichTextParagraph.Create(
+            InlineImage.PlaceholderText, InlineStyle.Default with { Image = picture });
+        var source = RichTextDocument.FromParagraphs([Link("Body link", bodyLink)]).WithRunningContent(
+            RunningContent.Empty.WithHeader(PageSelection.First, [header])
+                .WithFooter(PageSelection.Default, [footer])
+                .WithFooter(PageSelection.Even, [RichTextParagraph.Plain("Text only")])
+                .WithDifferentFirstPage(true));
+
+        byte[] bytes = DocxDocumentCodec.WriteToArray(source, new DocumentWriteOptions(resources: resources.Build()));
+        using var stream = new MemoryStream(bytes, writable: false);
+        using (var archive = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: true))
+        {
+            AssertPart("header1.xml", headerLink);
+            AssertPart("footer1.xml");
+            Assert.Null(archive.GetEntry("word/_rels/footer2.xml.rels"));
+
+            void AssertPart(string part, string? link = null)
+            {
+                XDocument xml = ReadXml("word/" + part);
+                XDocument rels = ReadXml("word/_rels/" + part + ".rels");
+                XElement[] relationships = rels.Root!.Elements(DocxNamespaces.PackageRelationships + "Relationship").ToArray();
+                Assert.Equal(link is null ? 1 : 2, relationships.Length);
+                XAttribute imageId = Assert.Single(xml.Descendants().Attributes(DocxNamespaces.Relationships + "embed"));
+                XElement media = Assert.Single(relationships, item => (string?)item.Attribute("Id") == imageId.Value);
+                Assert.Equal(DocxNamespaces.ImageRelationship, (string?)media.Attribute("Type"));
+                Assert.NotNull(archive.GetEntry("word/" + (string?)media.Attribute("Target")));
+                if (link is not null)
+                {
+                    XAttribute linkId = Assert.Single(xml.Descendants(DocxNamespaces.Wordprocessing + "hyperlink")
+                        .Attributes(DocxNamespaces.Relationships + "id"));
+                    XElement target = Assert.Single(relationships, item => (string?)item.Attribute("Id") == linkId.Value);
+                    Assert.Equal(link, (string?)target.Attribute("Target"));
+                    Assert.Equal("External", (string?)target.Attribute("TargetMode"));
+                }
+            }
+
+            XDocument ReadXml(string path)
+            {
+                using Stream entry = Assert.IsType<ZipArchiveEntry>(archive.GetEntry(path)).Open();
+                return XDocument.Load(entry);
+            }
+        }
+
+        stream.Position = 0;
+        var read = new DocxDocumentCodec().Read(stream,
+            new DocumentReadOptions(resourcePolicy: DocumentResourcePolicy.AllowOwnDocuments));
+        RunningContent running = read.Document.RunningContent;
+        RichTextParagraph readHeader = Assert.Single(running.Header(PageSelection.First));
+        Assert.Equal(headerLink, readHeader.StyleAt(0).LinkHref);
+        AssertPicture(readHeader);
+        AssertPicture(Assert.Single(running.Footer(PageSelection.Default)));
+        Assert.Equal("Text only", TextOf(running.Footer(PageSelection.Even)));
+
+        static RichTextParagraph Link(string text, string url) =>
+            RichTextParagraph.Create(text, InlineStyle.Default with { LinkHref = url });
+
+        static void AssertPicture(RichTextParagraph paragraph)
+        {
+            InlineImage image = Assert.Single(paragraph.Runs.Select(run => run.Style.Image).OfType<InlineImage>());
+            Assert.Equal(DocxTestPackage.OnePixelPng, image.Data.ToArray());
+            Assert.Equal("letterhead", image.AltText);
+        }
+    }
+
+    [Fact]
     public void Editing_The_Body_Does_Not_Lose_The_Running_Content()
     {
         RichTextDocument document = Read(
@@ -356,8 +433,12 @@ public sealed class DocxRunningContentTests
         Assert.Equal("the letterhead", TextOf(running.Header(PageSelection.Default)));
         Assert.Equal("page one", TextOf(running.Footer(PageSelection.Default)));
 
-        // Every section carries the same parts, so none keeps a set of its own.
-        Assert.All(result.Document.Sections, section => Assert.Null(section.RunningContent));
+        Assert.Equal(3, result.Document.Sections.Count);
+        Assert.All(result.Document.Sections.Skip(1), section =>
+        {
+            Assert.True(section.RunningContent!.IsLinked(PageSelection.Default, header: true));
+            Assert.True(section.RunningContent.IsLinked(PageSelection.Default, header: false));
+        });
         Assert.DoesNotContain(result.Diagnostics, diagnostic => diagnostic.Code == "docx.section.multiple");
     }
 

@@ -18,6 +18,9 @@ internal static partial class OdsNumberStyles
 
     public static XElement? Write(string format)
     {
+        if (format == "@")
+            return new XElement(Number + "text-style", new XElement(Number + "text-content"));
+
         if (DateParts(format) is { } date)
             return new XElement(Number + "date-style",
                 DatePart(date.First), new XElement(Number + "text", date.Separator),
@@ -47,6 +50,9 @@ internal static partial class OdsNumberStyles
 
     public static string? Read(XElement style)
     {
+        if (style.Name == Number + "text-style")
+            return "@";
+
         if (style.Name == Number + "date-style")
         {
             XElement[] parts = style.Elements().ToArray();

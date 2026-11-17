@@ -11,11 +11,25 @@ namespace Broiler.Documents.Model.Tests;
 /// </summary>
 public sealed class TextWrapExclusionsIssue242Tests
 {
+    private delegate TextBand LegacyResolve(ref double top, double height, double columnWidth, out double skip);
+
     private static TextWrapExclusions Frame()
     {
         var wrap = new TextWrapExclusions();
         wrap.Add(new DocumentShape(0, 0, 0, 200, 100, wrap: ShapeWrap.TopAndBottom), 50, 1, null, null);
         return wrap;
+    }
+
+    [Fact]
+    public void The_Published_Four_Argument_Overload_Uses_The_Original_Column_Origin()
+    {
+        LegacyResolve resolve = Frame().Resolve;
+        double top = 60;
+        TextBand band = resolve(ref top, 12, 220, out double skip);
+
+        Assert.Equal(150, top, 3);
+        Assert.Equal(90, skip, 3);
+        Assert.Equal(220, band.Width, 3);
     }
 
     [Fact]

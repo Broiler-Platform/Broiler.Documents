@@ -40,6 +40,7 @@ internal sealed record OdtReadContext(
     public bool UsesSoftPageBreaks { get; init; }
     public int SoftPageNumber { get; set; } = 1;
     public int TableDepth { get; set; }
+    public int? SoftTableStart { get; set; }
     public int HiddenSectionDepth { get; set; }
 
     /// <summary>True for the document body's own flow: not a header, footer, note or shape's text.</summary>

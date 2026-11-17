@@ -434,7 +434,7 @@ internal sealed class DocxSections
             if (end > start)
             {
                 PageGeometry? own = SamePage(_sections[i].Page, page) ? null : _sections[i].Page;
-                RunningContent? ownRunning = hasRunning && !SameRunning(running![i], running[^1]) ? running[i] : null;
+                RunningContent? ownRunning = hasRunning && (running![i].HasLinks || !SameRunning(running[i], running[^1])) ? running[i] : null;
                 differ |= own is not null || ownRunning is not null || _sections[i].BreakType != SectionBreakType.NextPage ||
                           _sections[i].PageNumberStart is not null || _sections[i].PageNumberFormat is not null;
                 sections.Add(new DocumentSection(

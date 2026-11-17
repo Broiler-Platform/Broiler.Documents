@@ -503,6 +503,9 @@ LibreOffice's `DomainMapperTableHandler` does:
 
 ### Headers and footers
 
+- A written header or footer gets its own relationships part when its XML
+  references an embedded picture or hyperlink. The relationships resolve the
+  IDs used by that part and reuse the package's existing media entries.
 - `w:titlePg` gives a `first` part meaning and makes a band the first page
   does not name *empty* rather than the default (a letterhead: first-page
   header, default footer, no footer on page one). Written whenever a First
