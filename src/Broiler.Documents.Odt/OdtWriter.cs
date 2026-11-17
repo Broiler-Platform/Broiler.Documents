@@ -643,6 +643,8 @@ public static class OdtWriter
             element.Add(column);
         }
 
+        XElement? headers = null;
+        bool inHeader = true;
         foreach (TableRow row in table.Rows)
         {
             int? softRowStart = softTableStart ?? TableSoftPageBreaks.FirstParagraph(row);
@@ -676,7 +678,20 @@ public static class OdtWriter
             for (; column < columns; column++)
                 tr.Add(new XElement(OdtNamespaces.Table + "table-cell"));
 
-            element.Add(tr);
+            if (inHeader && row.IsHeader)
+            {
+                if (headers is null)
+                {
+                    headers = new XElement(OdtNamespaces.Table + "table-header-rows");
+                    element.Add(headers);
+                }
+                headers.Add(tr);
+            }
+            else
+            {
+                inHeader = false;
+                element.Add(tr);
+            }
         }
 
         if (table.Position is TablePosition pos)

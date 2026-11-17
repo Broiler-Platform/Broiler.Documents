@@ -682,7 +682,7 @@ public sealed partial class RichTextDocument
         return new RichTextDocument(
             paragraphs,
             RunningContent,
-            Shapes,
+            ShiftShapes(index, removeCount, insert.Count, paragraphs.Count),
             PageGeometry,
             ShiftTables(index, removeCount, insert.Count),
             StyleDefaults,
@@ -690,6 +690,20 @@ public sealed partial class RichTextDocument
             PageBackground,
             NoteNumbering,
             ShowsRevisions);
+    }
+
+    /// <summary>Keep floating objects attached to their surviving paragraph when the body changes length.</summary>
+    private IReadOnlyList<DocumentShape> ShiftShapes(int at, int removed, int inserted, int paragraphCount)
+    {
+        if (Shapes.Count == 0 || removed == inserted) return Shapes;
+        return [.. Shapes.Select(shape =>
+        {
+            if (shape.IsPageAnchored || shape.ParagraphIndex < at) return shape;
+            int anchor = shape.ParagraphIndex >= at + removed
+                ? shape.ParagraphIndex + inserted - removed : at;
+            anchor = Math.Clamp(anchor, 0, Math.Max(0, paragraphCount - 1));
+            return anchor == shape.ParagraphIndex ? shape : shape.WithParagraphIndex(anchor);
+        })];
     }
 
     /// <summary>This document's tables, moved for an edit at <paramref name="at"/>.</summary>

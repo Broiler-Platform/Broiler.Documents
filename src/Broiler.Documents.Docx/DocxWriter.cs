@@ -1997,7 +1997,7 @@ public static class DocxWriter
                 new XAttribute("y", "0")),
             new XElement(
                 DocxNamespaces.WordDrawing + "positionH",
-                new XAttribute("relativeFrom", "column"),
+                new XAttribute("relativeFrom", shape.OffsetXFromColumn || shape.OffsetXFromCell ? "column" : "margin"),
                 new XElement(DocxNamespaces.WordDrawing + "posOffset", PointsToEmu(shape.OffsetX))),
             new XElement(
                 DocxNamespaces.WordDrawing + "positionV",
