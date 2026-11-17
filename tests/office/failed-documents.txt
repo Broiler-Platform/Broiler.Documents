@@ -65,6 +65,7 @@ layout/data/tdf144450.fodt
 layout/data/tdf148897.odt
 layout/data/tdf149089.fodt
 layout/data/tdf150606-1-min.odt
+layout/data/tdf152106.odt
 layout/data/tdf152142-donotmirror.fodt
 layout/data/tdf152142.fodt
 layout/data/tdf152307.odt
@@ -90,6 +91,7 @@ layout/data/tdf171275-grid-no-extra-leading.fodt
 layout/data/tdf171708.docx
 layout/data/tdf172932-grow-all-scripts.fodt
 layout/data/tdf173389_smart_hyphenation_nl.odt
+layout/data/tdf54465_ColumnsWithFootnoteDoNotOccupyEntirePage_New.odt
 layout/data/tdf54465_ColumnsWithFootnoteDoNotOccupyEntirePage_Old.odt
 layout/data/tdf69647_text.docx
 layout/data/toc-inline-heading-order.fodt
@@ -423,7 +425,6 @@ rtfimport/data/tdf167254.rtf
 rtfimport/data/tdf169298.rtf
 rtfimport/data/tdf59454.rtf
 rtfimport/data/tdf59699.rtf
-tiledrendering/data/3pages-shape.odt
 tiledrendering/data/comments-on-load.docx
 uiwriter/data/AsCharTxBxTest.docx
 uiwriter/data/FrameInHiddenSection.fodt
@@ -485,4 +486,3 @@ ww8export/data/tdf79186_noLayoutInCell.odt
 ww8export/data/tdf79435_legacyInputFields.docx
 ww8export/data/tdf91083.odt
 ww8export/data/tdf91083_tableKeep2.odt
-ww8export/data/tdf91083_tableKeep3.odt
