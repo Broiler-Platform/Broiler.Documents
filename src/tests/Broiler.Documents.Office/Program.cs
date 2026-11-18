@@ -1115,7 +1115,7 @@ internal static class Program
             output.WriteLine("  --font-set <name>        The name the baseline stamp records for that set.");
             output.WriteLine("  --axis <kind>            semantic, pixel, or all. (default all)");
             output.WriteLine("  --incremental            Recheck only previously failed documents tracked in the repository.");
-            output.WriteLine("  --failed-documents <path> Path to tracked failed documents file (default tests/office/failed-documents.txt).");
+            output.WriteLine("  --failed-documents <path> Override tracked list (tests/office/failed-documents.txt; --resave uses resave-failed-documents.txt).");
             output.WriteLine("  --sample <id>            Exact extras ID to evaluate alone without a sample list file.");
             output.WriteLine("  --sample-list <path>     Exact extras IDs, one per line; fails if any is missing.");
             output.WriteLine("  --triage-dir <path>      Write structured triage, Markdown summary and top-sample replay list.");

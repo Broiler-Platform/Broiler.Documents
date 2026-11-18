@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
 using Broiler.Documents.Model;
 using Broiler.Documents.Model.Fonts;
 using Broiler.Documents.Model.Text;
@@ -22,6 +21,39 @@ internal sealed class LineWrapper(double tabStopPoints, IDocumentTextMeasurer? t
     /// </summary>
     internal List<List<LayoutPiece>> Wrap(List<LayoutToken> tokens, double maxWidth) =>
         Wrap(tokens, _ => new TextBand(0, maxWidth), bands: null);
+
+    private List<List<LayoutPiece>> WrapMeasured(List<LayoutToken> tokens, Func<int, TextBand> bandFor,
+        List<TextBand>? bands, List<int>? rowStarts, int sourceStart)
+    {
+        var rows = new List<List<LayoutPiece>>();
+        int start = 0;
+        for (int end = 0; end <= tokens.Count; end++)
+        {
+            if (end < tokens.Count && !tokens[end].IsForcedBreak)
+                continue;
+
+            int firstRow = rows.Count;
+            foreach (var line in ParagraphComposer.ComposeLines(
+                tokens.Skip(start).Take(end - start).Select(token => new ParagraphItem<LayoutToken>(token, token.Width, token.IsWhitespace)),
+                index =>
+                {
+                    TextBand band = bandFor(firstRow + index);
+                    bands?.Add(band);
+                    return band.Width;
+                },
+                (token, width) => BreakToken(token, width).Select(part => new ParagraphItem<LayoutToken>(part, part.Width)),
+                discretionaryBreak: token => token.Hyphen is { } hyphen
+                    ? new ParagraphItem<LayoutToken>(LayoutToken.Single(hyphen), hyphen.Width) : null))
+            {
+                rows.Add(line.Items.SelectMany(token => token.Pieces).ToList());
+                rowStarts?.Add(sourceStart);
+            }
+            if (end < tokens.Count && tokens[end].BreakSourceOffset >= 0)
+                sourceStart = tokens[end].BreakSourceOffset + 1;
+            start = end + 1;
+        }
+        return rows;
+    }
 
     /// <remarks>
     /// <para>
@@ -49,8 +81,12 @@ internal sealed class LineWrapper(double tabStopPoints, IDocumentTextMeasurer? t
     /// </para>
     /// </remarks>
     internal List<List<LayoutPiece>> Wrap(List<LayoutToken> tokens, Func<int, TextBand> bandFor, List<TextBand>? bands,
-        ParagraphTabStops? tabStops = null, double indent = 0, bool shrinks = false, bool tabsOverMargin = false)
+        ParagraphTabStops? tabStops = null, double indent = 0, bool shrinks = false, bool tabsOverMargin = false,
+        List<int>? rowStarts = null, int sourceStart = 0, bool useSharedComposition = false)
     {
+        if (useSharedComposition && !shrinks && tokens.All(token => !token.IsTab))
+            return WrapMeasured(tokens, bandFor, bands, rowStarts, sourceStart);
+
         var rows = new List<List<LayoutPiece>>();
         var current = new List<LayoutPiece>();
         var pendingSpace = new List<LayoutToken>();
@@ -80,6 +116,7 @@ internal sealed class LineWrapper(double tabStopPoints, IDocumentTextMeasurer? t
                 current.Add(hyphen);
 
             rows.Add(current);
+            rowStarts?.Add(sourceStart);
             current = [];
             currentWidth = 0;
             pendingSpace.Clear();
@@ -111,6 +148,8 @@ internal sealed class LineWrapper(double tabStopPoints, IDocumentTextMeasurer? t
                 pendingSpace.Clear();
                 pendingWidth = 0;
                 Flush(wraps: false);
+                if (token.BreakSourceOffset >= 0)
+                    sourceStart = token.BreakSourceOffset + 1;
                 continue;
             }
 
@@ -157,13 +196,7 @@ internal sealed class LineWrapper(double tabStopPoints, IDocumentTextMeasurer? t
                             trailing = tokens[next].IsWhitespace ? trailing + tokens[next].Width : 0;
                         }
                         segmentWidth -= trailing;
-                        double alignment = selected.Alignment switch
-                        {
-                            TabAlignment.Right => segmentWidth,
-                            TabAlignment.Center => segmentWidth / 2,
-                            TabAlignment.Decimal => decimalWidth ?? segmentWidth,
-                            _ => 0,
-                        };
+                        double alignment = ParagraphTabGeometry.FieldAnchor(selected.Alignment, segmentWidth, decimalWidth);
                         // Writer brings a right-aligned stop back to a narrow
                         // text frame's edge. TOC styles often retain the wider
                         // page's stop even when their paragraphs live in a frame.
@@ -253,6 +286,7 @@ internal sealed class LineWrapper(double tabStopPoints, IDocumentTextMeasurer? t
 
         KeepTrailingLeaders();
         rows.Add(current);
+        rowStarts?.Add(sourceStart);
         return rows;
 
         // A tab with a leader that ends the paragraph, or the line a forced break
@@ -341,37 +375,9 @@ internal sealed class LineWrapper(double tabStopPoints, IDocumentTextMeasurer? t
                 continue;
             }
 
-            var clusters = UnicodeBoundaryClassifier.GetGraphemeClusters(piece.Text);
-            var builder = new StringBuilder();
-            double width = 0;
-            int consumed = 0;
-
-            foreach (var cluster in clusters)
-            {
-                double advance = _textMeasurer is not null ? _textMeasurer.MeasureAdvance(cluster.Text, piece.Font) : BTextMeasurer.MeasureAdvance(cluster.Text, piece.Font);
-                if (builder.Length > 0 && width + advance > maxWidth)
-                {
-                    yield return LayoutToken.Single(Retext(piece, builder.ToString(), width, consumed));
-                    consumed += builder.Length;
-                    builder.Clear();
-                    width = 0;
-                }
-
-                builder.Append(cluster.Text);
-                width += advance;
-
-                // When a single indivisible cluster exceeds maxWidth on an empty row, terminate row
-                if (builder.Length > 0 && width > maxWidth)
-                {
-                    yield return LayoutToken.Single(Retext(piece, builder.ToString(), width, consumed));
-                    consumed += builder.Length;
-                    builder.Clear();
-                    width = 0;
-                }
-            }
-
-            if (builder.Length > 0)
-                yield return LayoutToken.Single(Retext(piece, builder.ToString(), width, consumed));
+            foreach (var (offset, length, width) in ParagraphComposer.SplitText(piece.Text, maxWidth,
+                text => _textMeasurer?.MeasureAdvance(text, piece.Font) ?? BTextMeasurer.MeasureAdvance(text, piece.Font)))
+                yield return LayoutToken.Single(Retext(piece, piece.Text.Substring(offset, length), width, offset));
         }
     }
 
@@ -384,6 +390,7 @@ internal sealed class LineWrapper(double tabStopPoints, IDocumentTextMeasurer? t
             lineGap: piece.LineGap * factor)
         {
             SourceOffset = piece.SourceOffset,
+            SourceMap = piece.SourceMap,
         };
     }
 
@@ -400,6 +407,7 @@ internal sealed class LineWrapper(double tabStopPoints, IDocumentTextMeasurer? t
             Revised = source.Revised,
             Doubled = source.Doubled,
             SourceOffset = source.SourceOffset < 0 ? -1 : source.SourceOffset + skipped,
+            SourceMap = source.SourceMap?.Slice(skipped, text.Length),
         };
 
     /// <summary>
@@ -410,6 +418,6 @@ internal sealed class LineWrapper(double tabStopPoints, IDocumentTextMeasurer? t
     private double NextTabStop(double used)
     {
         double stop = _tabStopPoints > 0 ? _tabStopPoints : 36.0;
-        return (Math.Floor(Math.Max(0, used) / stop) + 1) * stop;
+        return ParagraphTabGeometry.NextStop(used, stop);
     }
 }

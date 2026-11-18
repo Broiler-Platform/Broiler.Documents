@@ -1123,8 +1123,15 @@ The issue and Actions summary group outcomes and show representative samples;
 full reports and reproduction commands remain in workflow artifacts.
 
 Complete runs replace `tests/office/resave-failed-documents.txt` with the current
-failures, independently of the semantic/pixel failure list. This also removes
-stale byte-comparison failures. `--failed-documents <path>` overrides this path.
+failures, independently of the semantic/pixel failure list at
+`tests/office/failed-documents.txt`. Incremental mode reads and updates only the
+list for the selected mode. The two lists share a text format and can contain
+overlapping sample IDs, but are separate files. Neither GitHub workflow passes
+`--failed-documents`, so they use these separate defaults; normal conformance's
+persistence job commits only `failed-documents.txt`, while re-save uploads only
+its own updated list. An explicit `--failed-documents` override can intentionally
+select a shared path; use distinct custom paths to retain isolation. This also
+removes stale byte-comparison failures. `--failed-documents <path>` overrides this path.
 Incremental runs prune passing or explicitly skipped samples and preserve
 unevaluated entries when filtered or capped. Focused non-incremental runs do not
 change the list. Workflow artifacts do not commit the list back to the repository;

@@ -101,6 +101,32 @@ public sealed class LayoutPiece(string text, BFontStyle font, BColor color, BCol
     /// on its page (<see cref="StyleReferenceField"/>).
     /// </summary>
     public int SourceOffset { get; internal set; } = -1;
+
+    /// <summary>
+    /// Mapping from source clusters to the final allocated advance. Empty for generated pieces
+    /// or when <see cref="LayoutSettings.IncludeSourceGeometry"/> is disabled.
+    /// </summary>
+    public IReadOnlyList<LayoutSourceCluster> SourceClusters =>
+        SourceMap is null ? [] : _sourceClusters ??= SourceMap.Measure(this);
+
+    /// <summary>
+    /// Whether this run has usable inline geometry. Bidirectional runs require visual
+    /// positions from the renderer. Source offsets remain available without positions.
+    /// </summary>
+    public bool HasVisualSourceGeometry
+    {
+        get
+        {
+            _ = SourceClusters;
+            return HasResolvedVisualSourceGeometry;
+        }
+    }
+
+    internal bool HasResolvedVisualSourceGeometry { get; set; }
+
+    internal LayoutSourceMap? SourceMap { get; set; }
+    internal double SourceExtraSpace { get; set; }
+    private IReadOnlyList<LayoutSourceCluster>? _sourceClusters;
 }
 
 /// <summary>One laid-out line, positioned on its page.</summary>
@@ -175,6 +201,9 @@ public sealed class LayoutLine : IPaginatedLineArtifact
 
     /// <summary>Which model paragraph this line came from. Carried through for diagnostics.</summary>
     public int ParagraphIndex { get; internal set; }
+
+    /// <summary>The source caret position of an empty line, including lines between explicit breaks.</summary>
+    public int? EmptyLineSourceOffset { get; internal set; }
 
     /// <summary>The note and its local paragraph, when this line is drawn in a note.</summary>
     public DocumentNote? SourceNote { get; internal set; }
@@ -496,6 +525,15 @@ public sealed class LayoutResult : IPaginatedDocumentArtifact
 /// </remarks>
 public sealed record LayoutSettings
 {
+    /// <summary>Retains body text source geometry for editing without changing layout or painting.</summary>
+    public bool IncludeSourceGeometry { get; init; }
+
+    /// <summary>Optional visual geometry for bidirectional display runs in editing layouts.</summary>
+    public LayoutVisualTextMeasurer? VisualTextMeasurer { get; init; }
+
+    /// <summary>Use the common line composer for ordinary paragraphs.</summary>
+    public bool UseSharedParagraphComposition { get; init; } = true;
+
     public IDocumentTextMeasurer? TextMeasurer { get; init; }
 
     /// <summary>The family used by runs that name none.</summary>

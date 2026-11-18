@@ -121,6 +121,48 @@ public sealed class ReSaveTests : IDisposable
         Assert.NotEqual(FailedDocuments.DefaultPath(root), ReSaveConformance.DefaultFailedPath(root));
     }
     [Fact]
+    public async Task Incremental_Default_List_Is_Isolated_From_Normal_Conformance()
+    {
+        string repository = Path.Combine(_directory, "repository");
+        string controls = Path.Combine(repository, "tests", "office");
+        Directory.CreateDirectory(controls);
+        foreach (string file in new[] { "extras-crash-regressions.json", "resave-known-rejections.json" })
+            File.Copy(Path.Combine(RepositoryRoot(), "tests", "office", file), Path.Combine(controls, file));
+        string source = Path.Combine(_directory, "corpus");
+        Directory.CreateDirectory(source);
+        File.WriteAllText(Path.Combine(source, "resave-pass.md"), "hello\n");
+
+        string normalList = FailedDocuments.DefaultPath(repository);
+        string resaveList = ReSaveConformance.DefaultFailedPath(repository);
+        FailedDocuments.Save(normalList, ["normal-only.md"]);
+        FailedDocuments.Save(resaveList, ["resave-pass.md", "resave-not-run.md"]);
+        byte[] normalBefore = File.ReadAllBytes(normalList);
+        string report = Path.Combine(_directory, "isolated.json");
+        var options = Program.Options.Parse(["--resave", "--incremental", "--no-resave-render",
+            "--extras-dir", source, "--only", "resave-pass", "--report", report]);
+        Assert.Null(options.FailedDocumentsPath); // Exercise the mode's actual default.
+        int exit = await ReSaveConformance.RunAsync(options, BroilerDocTool.Locate(RepositoryRoot(), null),
+            Path.Combine(_directory, "workspace"), repository);
+
+        Assert.Equal(0, exit);
+        Assert.Equal(normalBefore, File.ReadAllBytes(normalList));
+        Assert.Equal(["resave-not-run.md"], FailedDocuments.Load(resaveList).ToArray());
+        using var json = JsonDocument.Parse(File.ReadAllText(report));
+        Assert.Equal("resave/resave-pass.md", Assert.Single(json.RootElement.GetProperty("checks").EnumerateArray())
+            .GetProperty("name").GetString());
+
+        // A missing re-save list must not fall back to the normal list either.
+        File.Delete(resaveList);
+        exit = await ReSaveConformance.RunAsync(options, BroilerDocTool.Locate(RepositoryRoot(), null),
+            Path.Combine(_directory, "empty-workspace"), repository);
+        Assert.Equal(0, exit);
+        Assert.Equal(normalBefore, File.ReadAllBytes(normalList));
+        Assert.Empty(FailedDocuments.Load(resaveList));
+        using var empty = JsonDocument.Parse(File.ReadAllText(report));
+        Assert.Empty(empty.RootElement.GetProperty("checks").EnumerateArray());
+    }
+
+    [Fact]
     public async Task Content_Detection_Overrides_A_Misleading_Extension_And_Uses_Canonical_Output()
     {
         string root = RepositoryRoot();

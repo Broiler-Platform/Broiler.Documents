@@ -1944,6 +1944,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             int segmentEnd = -1;
             bool first = true;
             RichTextParagraph remaining = paragraph;
+            int remainingSourceStart = 0;
             double composedWidth = columns.Width;
             double composedLeft = setup.ContentLeftPoints;
             double composedColumnOffset = columns.Offset(column);
@@ -1971,10 +1972,13 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                     return false;
 
                 if (offset > 0)
+                {
                     remaining = remaining.SplitAt(offset).Tail;
+                    remainingSourceStart += offset;
+                }
                 composed = ComposeParagraph(remaining, marker, setup, paragraphIndex,
                     columnWidthOverride: columns.Width, wrapTop: y, continuation: true,
-                    wrapColumnLeft: columns.Offset(column));
+                    wrapColumnLeft: columns.Offset(column), sourceBase: remainingSourceStart, sourceText: paragraph.Text);
                 composedWidth = columns.Width;
                 composedLeft = setup.ContentLeftPoints;
                 composedColumnOffset = columns.Offset(column);
@@ -5222,9 +5226,10 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     /// <summary>Wraps one paragraph into lines, without deciding which page they land on.</summary>
     private ParagraphLines ComposeParagraph(RichTextParagraph paragraph, string? marker, DocumentPageBox setup, int paragraphIndex,
         double? columnLeftOverride = null, double? columnWidthOverride = null, double? wrapTop = null, bool continuation = false,
-        double wrapColumnLeft = 0)
+        double wrapColumnLeft = 0, int sourceBase = 0, string? sourceText = null)
     {
         ParagraphStyle style = paragraph.Style;
+        bool retainSource = _settings.IncludeSourceGeometry && paragraphIndex >= 0 && _offBody == 0;
         double indent = style.LeftIndentIn(_settings.IndentStepPoints);
         // A shape's text is laid out inside the shape, not inside the page's text
         // column: a centred line in a logo box belongs on the box's midpoint.
@@ -5268,7 +5273,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         double dropIndent = 0;
         if (dropCap is DropCap drop)
         {
-            dropPieces = [.. Tokenize(paragraph, 0, drop.Length).SelectMany(token => token.Pieces).Where(piece => !piece.IsTab)];
+            dropPieces = [.. Tokenize(paragraph, 0, drop.Length, sourceBase, sourceText, retainSource)
+                .SelectMany(token => token.Pieces).Where(piece => !piece.IsTab)];
             if (dropPieces.Count == 0)
                 dropPieces = null;
             else if (!drop.InMargin)
@@ -5282,7 +5288,9 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             return new TextBand(band.Left + offset, Math.Max(1, band.Width - offset));
         }
 
-        List<LayoutToken> tokens = dropPieces is null ? Tokenize(paragraph) : Tokenize(paragraph, dropCap!.Value.Length);
+        List<LayoutToken> tokens = Tokenize(paragraph, dropPieces is null ? 0 : dropCap!.Value.Length,
+            sourceBase: sourceBase, sourceText: sourceText, retainSource: retainSource);
+        List<int>? rowStarts = retainSource ? [] : null;
         bool shrinks = _styleDefaults.ShrinksJustifiedLines && style.Alignment == TextAlignment.Justify;
         var bands = new List<TextBand>();
         var skips = new List<double>();
@@ -5312,12 +5320,14 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                     lineY += estimate;
                     return IndentedBand(row, index);
                 },
-                bands, style.TabStops, indent + hang, shrinks, _styleDefaults.TabsOverMargin);
+                bands, style.TabStops, indent + hang, shrinks, _styleDefaults.TabsOverMargin, rowStarts, sourceBase,
+                _settings.UseSharedParagraphComposition);
         }
         else
         {
             rows = _lineWrapper.Wrap(tokens, index => IndentedBand(new TextBand(0, textWidth), index), bands,
-                style.TabStops, indent + hang, shrinks, _styleDefaults.TabsOverMargin);
+                style.TabStops, indent + hang, shrinks, _styleDefaults.TabsOverMargin, rowStarts, sourceBase,
+                _settings.UseSharedParagraphComposition);
         }
 
         var lines = new List<LayoutLine>(rows.Count);
@@ -5349,6 +5359,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 i == rows.Count - 1,
                 i == 0 && !continuation);
             line.LeadingSkip = i < skips.Count ? skips[i] : 0;
+            if (rowStarts is not null && !pieces.Any(piece => piece.SourceMap is not null))
+                line.EmptyLineSourceOffset = rowStarts[i];
 
             // A line that holds a change is marked in the margin, left of the
             // frame it is set in, as LibreOffice marks it; the last line also
@@ -5699,6 +5711,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             // Widening the gap means starting the next piece further right; the
             // space glyph before it is drawn at its own width either way.
             x += pieces[i].Width + (CountSpaces(pieces[i].Text) * wordSpacing);
+            if (pieces[i].SourceMap is not null)
+                pieces[i].SourceExtraSpace = wordSpacing;
         }
 
         double natural = ascent + descent + lineGap;
@@ -5783,9 +5797,12 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     /// in one and "**bold**" in the next - stays one token, because a break
     /// between them would be a break in the middle of a word.
     /// </summary>
-    private List<LayoutToken> Tokenize(RichTextParagraph paragraph, int start = 0, int end = int.MaxValue)
+    private List<LayoutToken> Tokenize(RichTextParagraph paragraph, int start = 0, int end = int.MaxValue,
+        int sourceBase = 0, string? sourceText = null, bool retainSource = false)
     {
         var tokens = new List<LayoutToken>();
+        string original = sourceText ?? paragraph.Text;
+        int[]? clusterStarts = retainSource ? StringInfo.ParseCombiningCharacters(original) : null;
         LayoutToken? word = null;
         int offset = 0;
 
@@ -5817,6 +5834,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 {
                     LayoutPiece citation = MakeCitationPiece(note, run.Style);
                     citation.SourceOffset = runStart + i;
+                    MapAtomic(citation, runStart + i);
                     word.Add(citation);
                 }
                 continue;
@@ -5836,7 +5854,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                         word = null;
                     }
 
-                    tokens.Add(LayoutToken.ForcedBreak());
+                    tokens.Add(LayoutToken.ForcedBreak(clusterStarts is null ? -1 : sourceBase + fragmentStart));
                     continue;
                 }
 
@@ -5844,6 +5862,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 {
                     LayoutPiece piece = MakeImagePiece(run.Style);
                     piece.SourceOffset = fragmentStart;
+                    MapAtomic(piece, fragmentStart);
                     word ??= LayoutToken.Empty();
                     word.Add(piece);
                     tokens.Add(word);
@@ -5861,6 +5880,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
                     LayoutPiece tabPiece = MakeTabPiece(run.Style);
                     tabPiece.SourceOffset = fragmentStart;
+                    MapAtomic(tabPiece, fragmentStart);
                     tokens.Add(LayoutToken.Single(tabPiece, isWhitespace: true));
                     continue;
                 }
@@ -5877,6 +5897,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                     LayoutPiece hyphen = MakeTextPiece("-", run.Style, _settings.DecorateLinks);
                     hold.SourceOffset = fragmentStart;
                     hyphen.SourceOffset = fragmentStart;
+                    MapAtomic(hold, fragmentStart);
+                    MapAtomic(hyphen, fragmentStart);
                     tokens.Add(LayoutToken.SoftHyphen(hold, hyphen));
                     continue;
                 }
@@ -5890,10 +5912,11 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                     }
 
                     LayoutToken space = LayoutToken.Empty(isWhitespace: true);
-                    foreach (LayoutPiece piece in MakePieces(fragment, run.Style))
+                    foreach (var (piece, startInFragment, inputLength) in MakePieces(fragment, run.Style))
                     {
                         piece.Width += SpaceRunExtraWidth(piece.Text, run.Style, piece.Font.Size);
                         piece.SourceOffset = fragmentStart;
+                        MapText(piece, fragmentStart + startInFragment, inputLength);
                         space.Add(piece);
                     }
 
@@ -5906,10 +5929,11 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 string display = run.Style.Capitalization == TextCapitalization.Capitalize
                     ? CapitalizeWordStarts(fragment, paragraph.Text, fragmentStart, CasingCulture(run.Style.Language))
                     : fragment;
-                foreach (LayoutPiece piece in MakePieces(display, run.Style))
+                foreach (var (piece, startInFragment, inputLength) in MakePieces(display, run.Style))
                 {
                     piece.SourceOffset = pieceStart;
                     pieceStart += piece.Text.Length;
+                    MapText(piece, fragmentStart + startInFragment, inputLength);
                     word.Add(piece);
                 }
             }
@@ -5919,6 +5943,19 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             tokens.Add(word);
 
         return tokens;
+
+        void MapAtomic(LayoutPiece piece, int offset)
+        {
+            if (clusterStarts is not null)
+                piece.SourceMap = LayoutSourceMap.Atomic(sourceBase + offset, piece.Text.Length);
+        }
+
+        void MapText(LayoutPiece piece, int offset, int length)
+        {
+            if (clusterStarts is not null)
+                piece.SourceMap = LayoutSourceMap.Text(clusterStarts, original.Length, sourceBase + offset, length,
+                    piece.Text.Length, _settings.TextMeasurer, _settings.VisualTextMeasurer);
+        }
     }
 
     /// <summary>
@@ -6014,7 +6051,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     /// The drawable pieces for a fragment. Usually one; small capitals produce
     /// two sizes and therefore more than one.
     /// </summary>
-    private IEnumerable<LayoutPiece> MakePieces(string text, InlineStyle style)
+    private IEnumerable<(LayoutPiece Piece, int Start, int Length)> MakePieces(string text, InlineStyle style)
     {
         // Text set in Symbol is drawn as the characters it stands for, in the
         // document's own face, as LibreOffice draws it where Symbol is replaced.
@@ -6034,7 +6071,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
         if (style.Capitalization != TextCapitalization.SmallCaps)
         {
-            yield return MakeTextPiece(Transform(text, style), style, _settings.DecorateLinks);
+            yield return (MakeTextPiece(Transform(text, style), style, _settings.DecorateLinks), 0, text.Length);
             yield break;
         }
 
@@ -6052,7 +6089,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             {
                 string slice = text[start..i].ToUpperInvariant();
                 if (slice.Length > 0)
-                    yield return MakeTextPiece(slice, style, _settings.DecorateLinks, small == true ? 0.8 : 1.0);
+                    yield return (MakeTextPiece(slice, style, _settings.DecorateLinks, small == true ? 0.8 : 1.0), start, i - start);
                 start = i;
             }
 

@@ -30,8 +30,9 @@
 #     --seed-corpus            Run the authored seed corpus instead of sw/qa/extras
 #     --axis <kind>            semantic, pixel, or all (default: all)
 #     --sample-list <path>     Exact extras IDs, one per line (no --only/--max-files)
-#     --incremental            Recheck only previously failed documents from tests/office/failed-documents.txt
-#     --failed-documents <path> Custom path for tracked failed documents (default: tests/office/failed-documents.txt)
+#     --incremental            Recheck the selected mode's tracked failure list
+#     --failed-documents <path> Override the tracked list (normal: tests/office/failed-documents.txt;
+#                              --resave: tests/office/resave-failed-documents.txt)
 #     --triage-dir <dir>       Triage JSON/Markdown and replay lists (default: output-dir/triage)
 #     --previous-triage <json> Compare with a previous triage.json
 #     --only <substring>       Run only documents whose seed/format key contains this

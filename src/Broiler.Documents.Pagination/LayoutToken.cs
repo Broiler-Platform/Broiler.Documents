@@ -34,7 +34,12 @@ internal sealed class LayoutToken
     /// whitespace, and a break that arrived as whitespace would be dropped
     /// at the very place it is meant to act.
     /// </summary>
-    public static LayoutToken ForcedBreak() => new(isWhitespace: false, isForcedBreak: true);
+    public static LayoutToken ForcedBreak(int sourceOffset = -1) => new(isWhitespace: false, isForcedBreak: true)
+    {
+        BreakSourceOffset = sourceOffset,
+    };
+
+    internal int BreakSourceOffset { get; private init; } = -1;
 
     public static LayoutToken Single(LayoutPiece piece, bool isWhitespace = false)
     {
