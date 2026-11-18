@@ -4,6 +4,10 @@ using System.Text.Json.Nodes;
 
 namespace Broiler.Documents.Cli.Tests;
 
+// CLI render commands share the graphics font resolver when run in-process.
+[CollectionDefinition(DisableParallelization = true)]
+public sealed class CliFontMappingCollection;
+
 /// <summary>
 /// A reader draws a metafile picture's text as it reads (a formula's SVM
 /// replacement, office issue #249), so the render's font mapping has to be in
@@ -11,6 +15,7 @@ namespace Broiler.Documents.Cli.Tests;
 /// tdf96113.odt's formula was drawn in the host face instead of the mapped
 /// Liberation Serif.
 /// </summary>
+[Collection<CliFontMappingCollection>]
 public sealed class MetafileTextFontTests : IDisposable
 {
     private readonly CliHarness _cli = new();
@@ -20,7 +25,8 @@ public sealed class MetafileTextFontTests : IDisposable
     [Fact]
     public void Metafile_Text_Drawn_While_Reading_Goes_Through_The_Font_Mapping()
     {
-        const string family = "Issue Two Four Nine Formula Face";
+        // Each invocation must make a fresh lookup in the graphics font cache.
+        string family = "Formula " + Guid.NewGuid().ToString("N")[..20];
         string odt = _cli.Path("formula.odt");
         WriteFormulaOdt(odt, family);
         string face = _cli.Path("mapped.ttf");
@@ -29,17 +35,9 @@ public sealed class MetafileTextFontTests : IDisposable
         JsonObject json = CliHarness.RunExpecting(ExitCode.Ok,
             "render", odt, "--out", _cli.Path("formula.png"), "--json", "--font-file", "Some Other Family=" + face).Json();
 
-        // The formula's text is the document's only text, and it is drawn
-        // while the document is read: the mapping is asked for its face only
-        // if it was installed before the read.
+        // Only the metafile requests this family, while the document is read.
         JsonArray unmapped = json["render"]!["fonts"]!["unmappedFamilies"]!.AsArray();
-        Assert.NotEmpty(unmapped);
-
-        // Broiler.Graphics' Windows text backend gives a family the system
-        // does not have one of its own before it asks the mapping (it asks
-        // for Courier New there), so the family is checked on other hosts.
-        if (!OperatingSystem.IsWindows())
-            Assert.Contains(unmapped, node => node!.GetValue<string>() == family);
+        Assert.Contains(unmapped, node => node!.GetValue<string>() == family);
     }
 
     private static void WriteFormulaOdt(string path, string family)
