@@ -30,15 +30,8 @@ follow-up work is in [the component roadmap](../roadmap.md).
 | [0002](0002-document-model-ownership-and-promotion.md) | Document model ownership and promotion (Path A) |
 | [0003](0003-codec-contract-and-signature-probe.md) | Codec contract and signature probe |
 | [0004](0004-document-read-limits-and-rtf-sanitization.md) | Document read limits and RTF sanitization policy |
-| [0005](0005-rtf-first-release-subset-and-text-encoding.md) | RTF first-release subset and text encoding |
 | [0006](0006-formatting-codes-projection-and-grammar.md) | Formatting Codes projection and grammar |
-| [0007](0007-pdf-component-scope-and-delivery.md) | PDF component scope and delivery |
-| [0008](0008-pdf-codec-requests-results-and-commit.md) | PDF codec requests, results, and commit semantics |
-| [0009](0009-pdf-security-resources-and-privacy.md) | PDF security, resources, and privacy |
-| [0010](0010-pdf-pagination-units-fonts-and-platforms.md) | PDF pagination, units, fonts, scripts, and platforms |
-| [0011](0011-pdf-standards-ip-provenance-and-claims.md) | PDF standards, IP, provenance, and claims (proposed; legal review pending) |
-| [0012](0012-pdf-base-implementation-and-composed-extensions.md) | PDF base implementation scope and composed extensions |
-| [0013](0013-standards-ip-provenance-and-claims-beyond-pdf.md) | Standards, IP, provenance, and claims beyond PDF (proposed; supersedes 0011 on standard of review) |
 | [0014](0014-api-deprecation-and-removal.md) | API deprecation and removal |
-| [0015](0015-pdf-decryption-credentials-permissions-and-threat-model.md) | PDF decryption: credentials, permissions, and threat model (amends 0009) |
-| [0016](0016-spreadsheet-formats-through-the-rich-text-model.md) | Spreadsheet formats through the rich-text model (proposed) |
+
+Format-specific ADRs (`0005`, `0007`-`0013`, `0015`, `0016`) live in
+`Broiler.Documents.Codecs/docs/adr/`.

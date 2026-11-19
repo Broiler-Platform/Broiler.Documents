@@ -19,5 +19,5 @@ try {
         $executed += [int] $counters.executed
     }
     Write-Host "Executed $executed tests."
-    if ($executed -lt 1400) { throw "Executed test count collapsed to $executed; expected at least 1400." }
+    if ($executed -lt 800) { throw "Executed test count collapsed to $executed; expected at least 800." }
 } finally { Pop-Location }

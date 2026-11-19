@@ -50,12 +50,6 @@ jobs:
       - name: Test release scripts
         run: node --test eng/resolve-preview-version.test.mjs eng/select-restore-feed.test.mjs
 
-      - name: Test reference archive tooling
-        if: matrix.os == 'ubuntu-24.04'
-        env:
-          PYTHONDONTWRITEBYTECODE: '1'
-        run: python3 -m unittest discover -s eng/tests -p test_office_reference_archive.py -v
-
       - name: Verify restore feed (NuGet.org)
         run: |
           node eng/select-restore-feed.mjs
@@ -72,20 +66,6 @@ jobs:
       - name: Test
         shell: pwsh
         run: ./eng/run-tests.ps1 -Configuration Release
-
-      # Console suites are not discovered by dotnet test.
-      - name: Run the corpus suite over the command line
-        timeout-minutes: 20
-        run: |
-          status=0
-          dotnet run --project src/tests/Broiler.Documents.Corpus -c Release --no-build -- \
-            --report ./test-results/corpus.json --junit ./test-results/corpus.junit.xml \
-            > ./test-results/corpus.log 2>&1 || status=$?
-          cat ./test-results/corpus.log
-          if [ "$status" -ne 0 ] || ! grep -qE '^[1-9][0-9]*/[1-9][0-9]* passed, 0 failed\.$' ./test-results/corpus.log; then
-            echo '::error::The corpus suite failed or executed no checks.'
-            exit 1
-          fi
 
       - name: Upload test reports
         if: always()

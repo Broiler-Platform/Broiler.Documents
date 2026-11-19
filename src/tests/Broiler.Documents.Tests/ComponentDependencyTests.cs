@@ -1,4 +1,5 @@
 using System.Xml.Linq;
+using Broiler.Documents.TestSupport;
 
 namespace Broiler.Documents.Tests;
 
@@ -8,7 +9,7 @@ public sealed class ComponentDependencyTests
     [Fact]
     public void Project_References_Stay_Inside_This_Component()
     {
-        string root = PdfGuardRoots.Component;
+        string root = RepositoryFiles.Root;
         foreach (string path in Directory.EnumerateFiles(Path.Combine(root, "src"), "*.csproj", SearchOption.AllDirectories))
         {
             XDocument project = XDocument.Load(path);
@@ -26,7 +27,7 @@ public sealed class ComponentDependencyTests
     [Fact]
     public void Runtime_Packages_Are_Broiler_Owned_And_Centrally_Versioned()
     {
-        string root = PdfGuardRoots.Component;
+        string root = RepositoryFiles.Root;
         XDocument central = XDocument.Load(Path.Combine(root, "Directory.Packages.props"));
         var versions = central.Descendants("PackageVersion")
             .ToDictionary(item => (string)item.Attribute("Include")!, item => (string)item.Attribute("Version")!);

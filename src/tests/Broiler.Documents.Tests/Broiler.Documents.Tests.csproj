@@ -21,13 +21,12 @@
   <ItemGroup>
     <ProjectReference Include="..\..\Broiler.Documents\Broiler.Documents.csproj" />
     <ProjectReference Include="..\..\Broiler.Documents.Model\Broiler.Documents.Model.csproj" />
+    <ProjectReference Include="..\..\Broiler.Documents.Pagination\Broiler.Documents.Pagination.csproj" />
+    <ProjectReference Include="..\..\Broiler.Documents.FormatCodes\Broiler.Documents.FormatCodes.csproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <Compile Include="..\Broiler.Documents.Office\OfficeExitCodes.cs" Link="OfficeExitCodes.cs" />
-    <Compile Include="..\Broiler.Documents.Office\OfficeSampleWorkspace.cs" Link="OfficeSampleWorkspace.cs" />
     <Using Include="Xunit" />
-
     <Using Include="Broiler.Documents" />
     <Using Include="Broiler.Documents.Model" />
   </ItemGroup>

@@ -33,7 +33,6 @@
   -->
   <ItemGroup>
     <InternalsVisibleTo Include="Broiler.Documents.Pagination.Tests" />
-    <InternalsVisibleTo Include="Broiler.Documents.Cli.Tests" />
   </ItemGroup>
 
 </Project>

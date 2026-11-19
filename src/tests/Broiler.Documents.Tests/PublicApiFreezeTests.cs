@@ -63,11 +63,6 @@ public sealed class PublicApiFreezeTests
         "Broiler.Documents.Resources.DocumentResourceKind",
         "Broiler.Documents.Resources.DocumentResourceOperations",
         "Broiler.Documents.Resources.DocumentResourceProvenance",
-        "Broiler.Documents.XmpDate",
-        "Broiler.Documents.XmpMetadata",
-        "Broiler.Documents.XmpReader",
-        "Broiler.Documents.XmpReadOutcome",
-        "Broiler.Documents.XmpReadResult",
     ];
 
     [Fact]
